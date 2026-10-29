@@ -1,0 +1,176 @@
+- name: LmsEnrollment
+  label: Enrolment
+  kind: document
+  module: learn
+  title_field: learner_name
+  search_fields: [learner]
+  owner_fields: [learner]
+  numbering: {template: "ENR-{YYYY}-{seq:6}"}
+  unique: [[course, learner]]
+  description: "A learner in a course. Learners enrol themselves in published courses (prerequisites and cohort capacity permitting); instructors enrol others. Progress is computed by the server."
+  fields:
+    - {name: course, type: link, to: LmsCourse, required: true, in_list: true, in_filter: true}
+    - {name: learner, type: email, required: true, in_list: true, in_filter: true, description: "The learner's sign-in email; yours when empty"}
+    - {name: learner_name, type: data, read_only: true, in_list: true}
+    - {name: cohort, type: link, to: LmsCohort, in_list: true, in_filter: true}
+    - {name: status, type: select, options: [Active, Completed, Withdrawn], default: Active, read_only: true, in_list: true, in_filter: true}
+    - {name: enrolled_at, type: datetime, read_only: true, no_copy: true}
+    - {name: enrolled_on, type: date, read_only: true, no_copy: true, in_filter: true}
+    - {name: enrolled_by, type: email, read_only: true, no_copy: true}
+    - {name: progress_percent, type: percent, precision: 2, label: Progress (%), read_only: true, no_copy: true, in_list: true}
+    - {name: completed_lessons, type: int, read_only: true, no_copy: true}
+    - {name: total_lessons, type: int, label: Required Lessons, read_only: true, no_copy: true}
+    - {name: last_lesson, type: link, to: LmsLesson, read_only: true, no_copy: true, on_delete: set_null}
+    - {name: last_activity_at, type: datetime, read_only: true, no_copy: true}
+    - {name: completed_at, type: datetime, read_only: true, no_copy: true, in_filter: true}
+    - {name: certificate, type: link, to: LmsCertificate, read_only: true, no_copy: true, on_delete: set_null}
+  form:
+    - {label: Enrolment, fields: [course, learner, learner_name, cohort, status]}
+    - {label: Progress, fields: [progress_percent, completed_lessons, total_lessons, last_lesson, last_activity_at, completed_at, certificate]}
+    - {label: History, collapsible: true, fields: [enrolled_at, enrolled_on, enrolled_by]}
+  actions:
+    - {name: complete_lesson, label: Mark Lesson Complete, permission: read, condition: "doc.status != 'Withdrawn'"}
+    - {name: open_lesson, label: Open Lesson, permission: read, condition: "doc.status != 'Withdrawn'"}
+    - {name: start_quiz, label: Start Quiz, permission: read, condition: "doc.status != 'Withdrawn'"}
+    - {name: outline, label: Course Outline, permission: read}
+    - {name: withdraw, label: Withdraw, permission: read, condition: "doc.status == 'Active'", confirm: "Leave this course? Your progress is kept if you enrol again."}
+    - {name: reactivate, label: Enrol Again, permission: read, condition: "doc.status == 'Withdrawn'"}
+  list: {columns: [number, learner_name, course, status, progress_percent], sort: created_at desc}
+
+- name: LmsLessonProgress
+  label: Lesson Progress
+  kind: document
+  module: learn
+  title_field: lesson_title
+  owner_fields: [learner]
+  unique: [[enrollment, lesson]]
+  description: "A lesson a learner completed. Recorded by the server (mark complete, a passed quiz, a passing assignment)."
+  fields:
+    - {name: enrollment, type: link, to: LmsEnrollment, required: true, in_filter: true, on_delete: cascade}
+    - {name: lesson, type: link, to: LmsLesson, required: true, in_filter: true}
+    - {name: lesson_title, type: data, fetch_from: lesson.title, read_only: true, in_list: true}
+    - {name: course, type: link, to: LmsCourse, read_only: true, in_list: true, in_filter: true}
+    - {name: learner, type: email, read_only: true, in_list: true, in_filter: true}
+    - {name: completed_at, type: datetime, read_only: true, in_list: true}
+    - {name: completed_via, type: select, options: [Learner, Instructor, Quiz, Assignment], read_only: true, in_list: true}
+    - {name: completed_by, type: email, read_only: true}
+  list: {columns: [lesson_title, learner, course, completed_at], sort: completed_at desc}
+
+- name: LmsAttemptAnswer
+  label: Attempt Answer
+  kind: child
+  fields:
+    - {name: question, type: link, to: LmsQuestion, read_only: true}
+    - {name: question_text, type: markdown, read_only: true, in_list: true}
+    - {name: question_type, type: select, options: [Single Choice, Multiple Choice, True/False, Short Answer], read_only: true, in_list: true}
+    - {name: options, type: json, read_only: true, description: "[{key, text}] in the order shown"}
+    - {name: points, type: decimal, precision: 2, read_only: true, in_list: true}
+    - {name: response, type: json, read_only: true, description: "The chosen option keys, or the short answer"}
+    - {name: is_correct, type: check, read_only: true, in_list: true}
+    - {name: points_awarded, type: decimal, precision: 2, read_only: true, in_list: true}
+    - {name: correct_answer, type: json, read_only: true, description: "Shown when the quiz reveals answers"}
+    - {name: explanation, type: markdown, read_only: true}
+
+- name: LmsQuizAttempt
+  label: Quiz Attempt
+  kind: document
+  module: learn
+  title_field: quiz_title
+  owner_fields: [learner]
+  numbering: {template: "QA-{YYYY}-{seq:6}"}
+  unique: [[quiz, learner, attempt_no]]
+  description: "One sitting of a quiz: the questions as shown (never their answers before submission), the learner's answers, the server-side clock and the exact score. Started with the start_quiz action of an enrolment."
+  fields:
+    - {name: quiz, type: link, to: LmsQuiz, required: true, read_only: true, in_filter: true}
+    - {name: quiz_title, type: data, read_only: true, in_list: true}
+    - {name: course, type: link, to: LmsCourse, read_only: true, in_filter: true}
+    - {name: enrollment, type: link, to: LmsEnrollment, read_only: true, in_filter: true, on_delete: cascade}
+    - {name: learner, type: email, read_only: true, in_list: true, in_filter: true}
+    - {name: learner_name, type: data, read_only: true}
+    - {name: attempt_no, type: int, label: Attempt, read_only: true, in_list: true}
+    - {name: status, type: select, options: [In Progress, Submitted, Timed Out], read_only: true, in_list: true, in_filter: true}
+    - {name: started_at, type: datetime, read_only: true}
+    - {name: deadline, type: datetime, read_only: true, description: "Answers count only until then (empty = no time limit)"}
+    - {name: submitted_at, type: datetime, read_only: true}
+    - {name: time_limit_minutes, type: int, read_only: true}
+    - {name: passing_percentage, type: percent, precision: 2, read_only: true}
+    - {name: max_score, type: decimal, precision: 2, read_only: true}
+    - {name: score, type: decimal, precision: 2, read_only: true, in_list: true}
+    - {name: percentage, type: percent, precision: 2, read_only: true, in_list: true}
+    - {name: passed, type: check, read_only: true, in_list: true, in_filter: true}
+    - {name: answers, type: table, of: LmsAttemptAnswer, read_only: true}
+  form:
+    - {label: Attempt, fields: [quiz, quiz_title, course, enrollment, learner, learner_name, attempt_no, status]}
+    - {label: Time, fields: [started_at, deadline, submitted_at, time_limit_minutes]}
+    - {label: Result, fields: [score, max_score, percentage, passing_percentage, passed]}
+    - {label: Answers, fields: [answers]}
+  actions:
+    - {name: save_answers, label: Save Answers, permission: read, condition: "doc.status == 'In Progress'"}
+    - {name: submit_answers, label: Submit, permission: read, condition: "doc.status == 'In Progress'"}
+    - {name: review, label: Review Answers, permission: write}
+  list: {columns: [number, quiz_title, learner, attempt_no, status, percentage, passed], sort: created_at desc}
+
+- name: LmsAssignmentSubmission
+  label: Assignment Submission
+  kind: document
+  module: learn
+  title_field: assignment_title
+  owner_fields: [learner]
+  numbering: {template: "SUB-{YYYY}-{seq:6}"}
+  unique: [[assignment, learner, submission_no]]
+  description: "A learner's work for an assignment. The learner may edit it until it is graded; instructors grade it with the grade action."
+  fields:
+    - {name: assignment, type: link, to: LmsAssignment, required: true, in_list: true, in_filter: true}
+    - {name: assignment_title, type: data, fetch_from: assignment.title, read_only: true}
+    - {name: course, type: link, to: LmsCourse, read_only: true, in_filter: true}
+    - {name: enrollment, type: link, to: LmsEnrollment, read_only: true, in_filter: true, on_delete: cascade}
+    - {name: learner, type: email, read_only: true, in_list: true, in_filter: true}
+    - {name: learner_name, type: data, read_only: true, in_list: true}
+    - {name: submission_no, type: int, read_only: true}
+    - {name: answer, type: markdown, max_length: 100000}
+    - {name: attachment, type: attach, label: File, description: "A file you uploaded with /api/files"}
+    - {name: submitted_at, type: datetime, read_only: true, in_list: true}
+    - {name: due_date, type: date, read_only: true}
+    - {name: late, type: check, read_only: true, in_filter: true}
+    - {name: status, type: select, options: [Submitted, Graded, Needs Revision], read_only: true, in_list: true, in_filter: true}
+    - {name: score, type: decimal, precision: 2, read_only: true, in_list: true}
+    - {name: max_score, type: decimal, precision: 2, read_only: true}
+    - {name: passed, type: check, read_only: true, in_list: true}
+    - {name: feedback, type: markdown, read_only: true}
+    - {name: graded_by, type: email, read_only: true}
+    - {name: graded_at, type: datetime, read_only: true}
+  form:
+    - {label: Submission, fields: [assignment, assignment_title, learner, learner_name, submission_no, answer, attachment]}
+    - {label: Timing, fields: [submitted_at, due_date, late]}
+    - {label: Grade, fields: [status, score, max_score, passed, feedback, graded_by, graded_at]}
+  actions:
+    - {name: grade, label: Grade, permission: write}
+  list: {columns: [number, assignment_title, learner_name, status, score, passed], sort: created_at desc}
+
+- name: LmsCertificate
+  label: Certificate
+  kind: document
+  module: learn
+  title_field: learner_name
+  owner_fields: [learner]
+  search_fields: [course_title, verification_code]
+  numbering: {template: "CERT-{YYYY}-{seq:6}", gapless: true, date_field: issued_on}
+  description: "Issued once per completed enrolment when the course gives certificates. Anyone can verify it by its code on the public site."
+  fields:
+    - {name: enrollment, type: link, to: LmsEnrollment, required: true, unique: true, read_only: true}
+    - {name: course, type: link, to: LmsCourse, required: true, read_only: true, in_filter: true}
+    - {name: course_title, type: data, read_only: true, in_list: true}
+    - {name: learner, type: email, required: true, read_only: true, in_list: true, in_filter: true}
+    - {name: learner_name, type: data, read_only: true, in_list: true}
+    - {name: issued_on, type: date, read_only: true, in_list: true}
+    - {name: issued_at, type: datetime, read_only: true}
+    - {name: verification_code, type: data, unique: true, read_only: true, max_length: 40}
+    - {name: verification_url, type: data, read_only: true, max_length: 1000}
+    - {name: issuer, type: data, read_only: true}
+    - {name: signatory, type: data, read_only: true}
+    - {name: signatory_title, type: data, read_only: true}
+    - {name: status, type: select, options: [Valid, Revoked], default: Valid, read_only: true, in_list: true, in_filter: true}
+    - {name: revoked_reason, type: text, read_only: true}
+  actions:
+    - {name: revoke, label: Revoke, permission: write, condition: "doc.status == 'Valid'", confirm: "Revoke this certificate? Verification will show it as revoked."}
+  list: {columns: [number, learner_name, course_title, issued_on, status], sort: issued_on desc}

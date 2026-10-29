@@ -1,0 +1,71 @@
+package: lms
+version: 0.1.0
+label: Learn
+description: Learning management — courses with chapters and lessons, learning paths, cohorts with live sessions, question banks and timed quizzes, graded assignments, enrolments with server-computed progress, certificates with public verification and a public course catalog.
+depends: [core]
+
+modules:
+  - name: learn
+    label: Learn
+    icon: graduation-cap
+    order: 55
+    items: [LmsCourse, LmsChapter, LmsLesson, LmsQuiz, LmsQuestion, LmsAssignment, LmsLearningPath, LmsCohort, LmsEnrollment, LmsLessonProgress,
+            LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsSettings,
+            report:lms_course_completion, report:lms_quiz_scores, report:lms_learner_progress, report:lms_overdue_assignments]
+
+roles:
+  - name: LMS Manager
+    description: Runs the learning programme — every course, question bank, cohort, enrolment, grade and certificate, and Learn Settings.
+    permissions:
+      - {entity: LmsSettings, read: true, write: true, create: true}
+      - {entity: LmsCategory, read: true, write: true, create: true, delete: true, export: true, import: true}
+      - {entity: LmsCourse, read: true, write: true, create: true, delete: true, export: true, import: true}
+      - {entity: LmsChapter, read: true, write: true, create: true, delete: true, export: true, import: true}
+      - {entity: LmsLesson, read: true, write: true, create: true, delete: true, export: true, import: true}
+      - {entity: LmsQuiz, read: true, write: true, create: true, delete: true, export: true}
+      - {entity: LmsQuestion, read: true, write: true, create: true, delete: true, export: true, import: true}
+      - {entity: LmsAssignment, read: true, write: true, create: true, delete: true, export: true}
+      - {entity: LmsLearningPath, read: true, write: true, create: true, delete: true}
+      - {entity: LmsCohort, read: true, write: true, create: true, delete: true, export: true}
+      - {entity: LmsEnrollment, read: true, write: true, create: true, delete: true, export: true, import: true}
+      - {entity: LmsLessonProgress, read: true, export: true}
+      - {entity: LmsQuizAttempt, read: true, write: true, delete: true, export: true}
+      - {entity: LmsAssignmentSubmission, read: true, write: true, delete: true, export: true}
+      - {entity: LmsCertificate, read: true, write: true, export: true}
+  - name: Instructor
+    description: Builds the courses they teach (chapters, lessons, question banks, quizzes, assignments, cohorts), enrols learners in them, grades submissions and follows progress. Give the user LmsCourse scopes to limit what they see to some courses.
+    permissions:
+      - {entity: LmsSettings, read: true}
+      - {entity: LmsCategory, read: true}
+      - {entity: LmsCourse, read: true, create: true, export: true}
+      - {entity: LmsCourse, write: true, delete: true, if_owner: true}
+      - {entity: LmsChapter, read: true, write: true, create: true, delete: true}
+      - {entity: LmsLesson, read: true, write: true, create: true, delete: true}
+      - {entity: LmsQuiz, read: true, write: true, create: true, delete: true}
+      - {entity: LmsQuestion, read: true, write: true, create: true, delete: true, import: true}
+      - {entity: LmsAssignment, read: true, write: true, create: true, delete: true}
+      - {entity: LmsLearningPath, read: true, create: true}
+      - {entity: LmsLearningPath, write: true, delete: true, if_owner: true}
+      - {entity: LmsCohort, read: true, write: true, create: true, delete: true}
+      - {entity: LmsEnrollment, read: true, write: true, create: true, export: true}
+      - {entity: LmsLessonProgress, read: true, export: true}
+      - {entity: LmsQuizAttempt, read: true, write: true, export: true}
+      - {entity: LmsAssignmentSubmission, read: true, write: true, export: true}
+      - {entity: LmsCertificate, read: true}
+  - name: Learner
+    description: Takes courses — enrols in published courses, works through lessons, attempts quizzes, submits assignments and earns certificates — and sees only their own enrolments, progress, attempts, submissions and certificates.
+    permissions:
+      - {entity: LmsCategory, read: true}
+      - {entity: LmsCourse, read: true}
+      - {entity: LmsLearningPath, read: true}
+      - {entity: LmsEnrollment, read: true, create: true, if_owner: true}
+      - {entity: LmsLessonProgress, read: true, if_owner: true}
+      - {entity: LmsQuizAttempt, read: true, if_owner: true}
+      - {entity: LmsAssignmentSubmission, read: true, create: true, write: true, if_owner: true}
+      - {entity: LmsCertificate, read: true, if_owner: true}
+
+seed:
+  - entity: LmsCategory
+    key: [category_name]
+    records:
+      - {category_name: General}

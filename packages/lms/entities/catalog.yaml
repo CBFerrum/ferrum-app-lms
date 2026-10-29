@@ -1,0 +1,178 @@
+- name: LmsSettings
+  label: Learn Settings
+  kind: settings
+  module: learn
+  fields:
+    - {name: public_url, type: url, label: Public URL, description: "Address people reach this server at (e.g. https://erp.example.com); used for certificate verification links and in emails"}
+    - {name: email_notifications, type: check, default: true, description: "Also email learners and instructors when the Mail app is installed (in-app notifications are always sent)"}
+    - {name: session_reminder_minutes, type: int, label: Session Reminder (Minutes Before), default: 60, min: 5, max: 10080, description: "Cohort members and instructors are reminded once, this long before each live session"}
+    - {name: certificate_issuer, type: data, max_length: 200, description: "Organization named on certificates (the workspace name when empty)"}
+    - {name: certificate_signatory, type: data, max_length: 200, description: "Name printed under the signature line of certificates"}
+    - {name: certificate_signatory_title, type: data, max_length: 200}
+    - {name: video_hosts, type: text, label: Additional Video Hosts, max_length: 4000, description: "One host per line (e.g. video.example.com): https URLs on these hosts (and their subdomains) may be embedded as they are, besides YouTube, Vimeo, Loom, Wistia and Google Drive"}
+
+- name: LmsCategory
+  label: Course Category
+  label_plural: Course Categories
+  kind: master
+  module: learn
+  title_field: category_name
+  fields:
+    - {name: category_name, type: data, required: true, unique: true, max_length: 140, in_list: true}
+    - {name: description, type: text, max_length: 2000}
+  list: {columns: [category_name], sort: category_name asc}
+
+- name: LmsCourseInstructor
+  label: Course Instructor
+  kind: child
+  fields:
+    - {name: instructor, type: email, required: true, in_list: true, description: "Email address the instructor signs in with"}
+    - {name: instructor_name, type: data, read_only: true, in_list: true}
+
+- name: LmsCoursePrerequisite
+  label: Course Prerequisite
+  kind: child
+  fields:
+    - {name: course, type: link, to: LmsCourse, required: true, in_list: true}
+    - {name: course_title, type: data, fetch_from: course.title, read_only: true, in_list: true}
+
+- name: LmsCourse
+  label: Course
+  kind: master
+  module: learn
+  title_field: title
+  search_fields: [slug, tags]
+  owner_fields: [instructors.instructor]
+  description: "A course: chapters of ordered lessons (articles, videos, documents, quizzes, assignments). Its instructors and LMS managers edit it; learners enrol once it is published."
+  fields:
+    - {name: title, type: data, required: true, max_length: 200, in_list: true}
+    - {name: slug, type: data, unique: true, max_length: 100, in_list: true, description: "Name in links: lower-case letters, digits and hyphens; made from the title when empty"}
+    - {name: status, type: select, options: [Draft, Published, Archived], required: true, default: Draft, in_list: true, in_filter: true, description: "Learners enrol in published courses; archived courses take no new enrolments"}
+    - {name: visibility, type: select, options: [Internal, Public], required: true, default: Internal, in_list: true, in_filter: true, description: "Public courses are also listed on the public catalog once published"}
+    - {name: category, type: link, to: LmsCategory, in_list: true, in_filter: true}
+    - {name: level, type: select, options: [Beginner, Intermediate, Advanced], required: true, default: Beginner, in_filter: true}
+    - {name: tags, type: data, max_length: 300, description: "Comma-separated, e.g. safety, onboarding"}
+    - {name: summary, type: text, max_length: 500}
+    - {name: description, type: markdown, max_length: 100000}
+    - {name: cover_image, type: attach, description: "Upload it as a public file for the public catalog"}
+    - {name: instructors, type: table, of: LmsCourseInstructor, description: "Instructors edit the course and its lessons, quizzes and assignments, enrol learners and grade"}
+    - {name: prerequisites, type: table, of: LmsCoursePrerequisite, description: "Courses a learner must have completed before enrolling themselves"}
+    - {name: estimated_hours, type: decimal, precision: 2, min: "0", max: "10000"}
+    - {name: self_enrollment, type: check, label: Learners May Enrol Themselves, default: true}
+    - {name: issue_certificate, type: check, label: Certificate on Completion}
+    - {name: published_at, type: datetime, read_only: true, no_copy: true}
+    - {name: lesson_count, type: int, label: Lessons, read_only: true, no_copy: true, in_list: true}
+    - {name: total_minutes, type: int, label: Duration (Minutes), read_only: true, no_copy: true}
+  form:
+    - {label: Course, fields: [title, slug, status, visibility, category, level, tags, summary, cover_image]}
+    - {label: Description, fields: [description]}
+    - {label: Teaching, fields: [instructors, prerequisites, estimated_hours, self_enrollment, issue_certificate]}
+    - {label: Statistics, collapsible: true, fields: [published_at, lesson_count, total_minutes]}
+  actions:
+    - {name: enroll_learners, label: Enrol Learners, permission: write, condition: "doc.status != 'Archived'"}
+  list: {columns: [title, status, visibility, category, lesson_count], sort: title asc}
+
+- name: LmsChapter
+  label: Chapter
+  kind: master
+  module: learn
+  title_field: title
+  fields:
+    - {name: course, type: link, to: LmsCourse, required: true, in_list: true, in_filter: true}
+    - {name: title, type: data, required: true, max_length: 200, in_list: true}
+    - {name: position, type: int, min: 0, max: 100000, in_list: true, description: "Order in the course; the next free position when empty"}
+    - {name: summary, type: text, max_length: 2000}
+  list: {columns: [title, course, position], sort: position asc}
+
+- name: LmsLesson
+  label: Lesson
+  kind: master
+  module: learn
+  title_field: title
+  unique: [[quiz], [assignment]]
+  description: "A step of a course. Articles, videos and documents are completed by marking them done; quiz lessons when the quiz is passed; assignment lessons when the submission passes."
+  fields:
+    - {name: title, type: data, required: true, max_length: 200, in_list: true}
+    - {name: chapter, type: link, to: LmsChapter, required: true, in_list: true, in_filter: true}
+    - {name: course, type: link, to: LmsCourse, read_only: true, in_filter: true, description: "The chapter's course"}
+    - {name: position, type: int, min: 0, max: 100000, in_list: true, description: "Order in the chapter; the next free position when empty"}
+    - {name: lesson_type, type: select, label: Type, options: [Article, Video, Document, Quiz, Assignment], required: true, default: Article, in_list: true, in_filter: true}
+    - {name: content, type: markdown, max_length: 500000}
+    - {name: video_url, type: url, label: Video URL, required_if: "doc.lesson_type == 'Video'", description: "https link on YouTube, Vimeo, Loom, Wistia, Google Drive or a host allowed in Learn Settings"}
+    - {name: video_embed_url, type: url, label: Embed URL, read_only: true, no_copy: true}
+    - {name: attachment, type: attach, label: File, required_if: "doc.lesson_type == 'Document'", description: "A PDF or other file uploaded with /api/files"}
+    - {name: quiz, type: link, to: LmsQuiz, required_if: "doc.lesson_type == 'Quiz'", visible_if: "doc.lesson_type == 'Quiz'"}
+    - {name: assignment, type: link, to: LmsAssignment, required_if: "doc.lesson_type == 'Assignment'", visible_if: "doc.lesson_type == 'Assignment'"}
+    - {name: duration_minutes, type: int, min: 0, max: 100000, in_list: true}
+    - {name: is_preview, type: check, label: Free Preview, in_list: true, description: "Anyone may open it before enrolling (on the public page too when the course is public)"}
+    - {name: required, type: check, label: Required for Completion, default: true, in_list: true}
+  rules:
+    - {name: quiz_lessons_only, check: "doc.lesson_type == 'Quiz' || doc.quiz == null", message: "Only quiz lessons link a quiz"}
+    - {name: assignment_lessons_only, check: "doc.lesson_type == 'Assignment' || doc.assignment == null", message: "Only assignment lessons link an assignment"}
+  form:
+    - {label: Lesson, fields: [title, chapter, course, position, lesson_type, duration_minutes, is_preview, required]}
+    - {label: Content, fields: [content, video_url, video_embed_url, attachment, quiz, assignment]}
+  list: {columns: [title, chapter, lesson_type, position, required], sort: position asc}
+
+- name: LmsLearningPathCourse
+  label: Learning Path Course
+  kind: child
+  fields:
+    - {name: course, type: link, to: LmsCourse, required: true, in_list: true}
+    - {name: course_title, type: data, fetch_from: course.title, read_only: true, in_list: true}
+
+- name: LmsLearningPath
+  label: Learning Path
+  kind: master
+  module: learn
+  title_field: title
+  description: "Courses to take in order. Joining a published path enrols the learner in each of its courses they may enrol in."
+  fields:
+    - {name: title, type: data, required: true, max_length: 200, in_list: true}
+    - {name: status, type: select, options: [Draft, Published, Archived], required: true, default: Draft, in_list: true, in_filter: true}
+    - {name: summary, type: text, max_length: 500}
+    - {name: description, type: markdown, max_length: 100000}
+    - {name: courses, type: table, of: LmsLearningPathCourse, required: true}
+  actions:
+    - {name: join, label: Join Path, permission: read, condition: "doc.status == 'Published'"}
+  list: {columns: [title, status], sort: title asc}
+
+- name: LmsCohortInstructor
+  label: Cohort Instructor
+  kind: child
+  fields:
+    - {name: instructor, type: email, required: true, in_list: true}
+    - {name: instructor_name, type: data, read_only: true, in_list: true}
+
+- name: LmsCohortSession
+  label: Live Session
+  kind: child
+  fields:
+    - {name: title, type: data, required: true, max_length: 200, in_list: true}
+    - {name: starts_at, type: datetime, required: true, in_list: true}
+    - {name: duration_minutes, type: int, required: true, default: 60, min: 5, max: 1440, in_list: true}
+    - {name: join_url, type: url, label: Join Link, max_length: 1000, in_list: true, description: "https link of the meeting; shown to cohort members only"}
+    - {name: notes, type: text, max_length: 2000}
+
+- name: LmsCohort
+  label: Cohort
+  kind: master
+  module: learn
+  title_field: title
+  owner_fields: [instructors.instructor]
+  description: "A group taking a course together, with dates, a capacity and live sessions. Its members are the enrolments that name it."
+  fields:
+    - {name: title, type: data, required: true, max_length: 200, in_list: true}
+    - {name: course, type: link, to: LmsCourse, required: true, in_list: true, in_filter: true}
+    - {name: start_date, type: date, required: true, in_list: true}
+    - {name: end_date, type: date, required: true, in_list: true}
+    - {name: time_zone, type: data, max_length: 64, description: "IANA time zone of the live sessions (e.g. Europe/Berlin); the workspace's when empty"}
+    - {name: capacity, type: int, default: 0, min: 0, max: 100000, in_list: true, description: "Most learners at once (withdrawn ones do not count); 0 = no limit"}
+    - {name: instructors, type: table, of: LmsCohortInstructor}
+    - {name: sessions, type: table, of: LmsCohortSession, label: Live Sessions}
+    - {name: description, type: markdown, max_length: 100000}
+  rules:
+    - {name: ends_after_start, check: "doc.end_date >= doc.start_date", message: "The end date is before the start date"}
+  actions:
+    - {name: schedule_sessions, label: Schedule Sessions, permission: write}
+  list: {columns: [title, course, start_date, end_date, capacity], sort: start_date desc}
