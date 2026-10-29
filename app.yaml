@@ -1,0 +1,14 @@
+id: lms
+name: Learn
+version: 0.1.0
+publisher: cbferrum
+summary: "Learning management: courses, lessons, quizzes, enrollments, progress, certificates and a public course catalog"
+description: README.md
+categories: [education, hr]
+license: AGPL-3.0-only
+homepage: https://github.com/CBFerrum/ferrum-app-lms
+support: https://github.com/CBFerrum/ferrum-app-lms/issues
+runtime: native
+platform: ">=0.3, <0.4"
+packages: [lms]
+uninstall: ask

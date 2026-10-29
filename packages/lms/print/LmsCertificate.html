@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Certificate {{ doc.number or "" }} — {{ doc.learner_name }}</title>
+<style>
+ @page { size: A4 landscape; margin: 0; }
+ * { box-sizing: border-box; }
+ html, body { margin: 0; padding: 0; background: #eef1f5; }
+ body { font: 15px/1.5 Georgia, "Times New Roman", serif; color: #1d2433; }
+ .sheet { width: 297mm; height: 210mm; margin: 12px auto; padding: 12mm; background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.12); }
+ .frame { position: relative; height: 100%; border: 3px double #8a6d2b; padding: 16mm 22mm; text-align: center; display: flex; flex-direction: column; }
+ .issuer { font: 600 13px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: .18em; text-transform: uppercase; color: #8a6d2b; margin: 0 0 10mm; }
+ h1 { font-size: 40px; font-weight: normal; letter-spacing: .04em; margin: 0 0 8mm; }
+ .lead { font-style: italic; color: #4a5568; margin: 0; }
+ .name { font-size: 34px; margin: 4mm 0 6mm; border-bottom: 1px solid #c9b27c; display: inline-block; padding: 0 12mm 2mm; }
+ .course { font-size: 24px; font-weight: bold; margin: 4mm 0 2mm; }
+ .date { margin: 6mm 0 0; color: #4a5568; }
+ .footer { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; text-align: left;
+           font: 11px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #4a5568; }
+ .sig { min-width: 70mm; }
+ .sig .line { border-top: 1px solid #1d2433; margin-bottom: 2mm; }
+ .sig b { color: #1d2433; font-size: 13px; }
+ .verify { text-align: right; }
+ .verify code { font: 600 12px/1.4 ui-monospace, Menlo, Consolas, monospace; color: #1d2433; letter-spacing: .06em; }
+ .revoked { position: absolute; top: 42%; left: 0; right: 0; transform: rotate(-12deg); font: 700 64px/1 system-ui, sans-serif;
+            color: rgba(200, 30, 30, .35); letter-spacing: .2em; pointer-events: none; }
+ @media print { html, body { background: #fff; } .sheet { margin: 0; box-shadow: none; } }
+</style></head><body>
+<div class="sheet"><div class="frame">
+ <p class="issuer">{{ doc.issuer }}</p>
+ <h1>Certificate of Completion</h1>
+ <p class="lead">This is to certify that</p>
+ <div><span class="name">{{ doc.learner_name }}</span></div>
+ <p class="lead">has successfully completed the course</p>
+ <p class="course">{{ doc.course_title }}</p>
+ <p class="date">Issued on {{ doc.issued_on }}</p>
+ {% if doc.status == "Revoked" %}<div class="revoked">REVOKED</div>{% endif %}
+ <div class="footer">
+  <div class="sig">{% if doc.signatory %}<div class="line"></div><b>{{ doc.signatory }}</b>{% if doc.signatory_title %}<br>{{ doc.signatory_title }}{% endif %}{% endif %}</div>
+  <div class="verify">Certificate {{ doc.number or "" }}<br>Verification code <code>{{ doc.verification_code }}</code>{% if doc.verification_url %}<br>Verify at {{ doc.verification_url }}{% endif %}</div>
+ </div>
+</div></div>
+</body></html>

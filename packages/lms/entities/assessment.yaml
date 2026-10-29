@@ -1,0 +1,86 @@
+- name: LmsQuizQuestion
+  label: Quiz Question
+  kind: child
+  fields:
+    - {name: question, type: link, to: LmsQuestion, required: true, in_list: true}
+    - {name: points, type: decimal, precision: 2, min: "0.01", max: "1000", in_list: true, description: "The question's own points when empty"}
+
+- name: LmsQuiz
+  label: Quiz
+  label_plural: Quizzes
+  kind: master
+  module: learn
+  title_field: title
+  description: "Questions from the course's question bank with a pass mark, attempt and time limits. Learners never read it directly: they start attempts from their enrolment, and see the questions without their answers."
+  fields:
+    - {name: title, type: data, required: true, max_length: 200, in_list: true}
+    - {name: course, type: link, to: LmsCourse, required: true, in_list: true, in_filter: true}
+    - {name: description, type: markdown, label: Instructions, max_length: 100000}
+    - {name: passing_percentage, type: percent, precision: 2, required: true, default: 70, min: "0", max: "100", in_list: true}
+    - {name: max_attempts, type: int, default: 0, min: 0, max: 100, in_list: true, description: "0 = unlimited"}
+    - {name: time_limit_minutes, type: int, label: Time Limit (Minutes), default: 0, min: 0, max: 1440, description: "0 = no limit; the server stops accepting answers when the time is up"}
+    - {name: questions_per_attempt, type: int, default: 0, min: 0, max: 500, description: "Draw this many questions at random for each attempt; 0 = all of them"}
+    - {name: shuffle_questions, type: check}
+    - {name: shuffle_options, type: check}
+    - {name: show_answers, type: select, label: Show Correct Answers, options: [After Each Attempt, After Last Attempt, Never], required: true, default: After Last Attempt, description: "When learners see the correct answers and explanations of an attempt: after each one, once they pass or use their last attempt, or never (they always see their score and which questions they got right)"}
+    - {name: questions, type: table, of: LmsQuizQuestion}
+    - {name: question_count, type: int, read_only: true, no_copy: true, in_list: true}
+    - {name: total_points, type: decimal, precision: 2, read_only: true, no_copy: true}
+  form:
+    - {label: Quiz, fields: [title, course, description]}
+    - {label: Rules, fields: [passing_percentage, max_attempts, time_limit_minutes, questions_per_attempt, shuffle_questions, shuffle_options, show_answers]}
+    - {label: Questions, fields: [questions, question_count, total_points]}
+  list: {columns: [title, course, question_count, passing_percentage, max_attempts], sort: title asc}
+
+- name: LmsQuestionOption
+  label: Answer Option
+  kind: child
+  fields:
+    - {name: option, type: data, required: true, max_length: 500, in_list: true}
+    - {name: is_correct, type: check, label: Correct, in_list: true}
+
+- name: LmsAcceptedAnswer
+  label: Accepted Answer
+  kind: child
+  fields:
+    - {name: answer, type: data, required: true, max_length: 500, in_list: true}
+
+- name: LmsQuestion
+  label: Question
+  kind: master
+  module: learn
+  title_field: question
+  description: "A question of a course's question bank, with its answer key. Only instructors and LMS managers can read it."
+  fields:
+    - {name: question, type: markdown, required: true, max_length: 10000, in_list: true}
+    - {name: course, type: link, to: LmsCourse, required: true, in_list: true, in_filter: true}
+    - {name: question_type, type: select, label: Type, options: [Single Choice, Multiple Choice, True/False, Short Answer], required: true, default: Single Choice, in_list: true, in_filter: true}
+    - {name: points, type: decimal, precision: 2, default: 1, min: "0.01", max: "1000", description: "Points when added to a quiz without its own"}
+    - {name: options, type: table, of: LmsQuestionOption, description: "Choices of choice questions; mark the correct ones. True/False questions get True and False automatically"}
+    - {name: accepted_answers, type: table, of: LmsAcceptedAnswer, description: "Short answers that count as correct"}
+    - {name: case_sensitive, type: check, description: "Short answers: letter case must match too (extra spaces never count)"}
+    - {name: explanation, type: markdown, max_length: 10000, description: "Shown with the correct answer when the quiz reveals answers"}
+  list: {columns: [question, course, question_type], sort: created_at desc}
+
+- name: LmsAssignment
+  label: Assignment
+  kind: master
+  module: learn
+  title_field: title
+  description: "Work learners hand in (text and/or a file) for an instructor to grade."
+  fields:
+    - {name: title, type: data, required: true, max_length: 200, in_list: true}
+    - {name: course, type: link, to: LmsCourse, required: true, in_list: true, in_filter: true}
+    - {name: instructions, type: markdown, max_length: 100000}
+    - {name: submission_type, type: select, options: [Text, File, Text or File], required: true, default: Text or File}
+    - {name: max_score, type: decimal, precision: 2, required: true, default: 100, min: "0.01", max: "100000", in_list: true}
+    - {name: passing_score, type: decimal, precision: 2, required: true, default: 0, min: "0", max: "100000", description: "Graded submissions scoring at least this pass; 0 = every graded submission passes"}
+    - {name: due_date, type: date, in_list: true, description: "The same deadline for everyone"}
+    - {name: due_days, type: int, label: Due Days After Enrolment, min: 0, max: 3650, description: "Or a deadline this many days after each learner enrols"}
+    - {name: accept_late, type: check, label: Accept Late Submissions, default: true}
+    - {name: allow_resubmission, type: check, label: Allow Resubmission After Failing, default: true, description: "Submissions returned for revision may always be submitted again"}
+    - {name: max_submissions, type: int, default: 0, min: 0, max: 100, description: "0 = unlimited"}
+  rules:
+    - {name: passing_within_max, check: "doc.passing_score <= doc.max_score", message: "The passing score cannot exceed the maximum score"}
+    - {name: one_deadline, check: "doc.due_date == null || doc.due_days == 0", message: "Set either a due date or due days after enrolment, not both"}
+  list: {columns: [title, course, due_date, max_score], sort: title asc}
