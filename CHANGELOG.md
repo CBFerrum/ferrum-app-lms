@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Email notifications no longer need the Mail app: without it they go through the server's own
+  mailer.
+
 ## 0.1.0
 
 First release of Learn: courses with chapters and ordered lessons (articles, allowlisted videos,

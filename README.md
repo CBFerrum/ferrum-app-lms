@@ -8,7 +8,7 @@ A native app for [Ferrum](https://github.com/CBFerrum/Ferrum), the open-source, 
 - Assignments with text or file submissions, instructor grading, feedback, revision requests and resubmission rules, deadlines fixed or relative to enrolment
 - Self-enrolment (published courses, prerequisites, cohort places) and bulk enrolment by instructors; progress computed by the server; completion when every required lesson is done and required quizzes are passed
 - Certificates issued exactly once, numbered, printable as PDF from a print template, with a public verification code
-- A public course catalog and course pages, learner and instructor dashboards, in-app and email notifications (through Mail when installed), and reports on completion, quiz scores, learner progress and overdue work
+- A public course catalog and course pages, learner and instructor dashboards, in-app and email notifications (through Mail when installed, otherwise the server's mailer), and reports on completion, quiz scores, learner progress and overdue work
 - `packages/lms/README.md` documents every entity, action, endpoint, setting and maintenance job
 
 ## Install
