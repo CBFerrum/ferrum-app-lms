@@ -1,9 +1,10 @@
-//! Telling people: an in-app notification for every recipient who is an active user, and — when the
-//! workspace has the Mail app and Learn Settings allow it — an email queued as a `Communication` in
-//! the same transaction (Mail delivers it after commit, with its retries and threading).
+//! Telling people: an in-app notification for every recipient who is an active user, and — when
+//! Learn Settings allow it — an email queued in the same transaction: as a `Communication` when the
+//! workspace has the Mail app (which delivers it after commit, with its retries and threading),
+//! otherwise through the server's own mailer.
 
 use crate::util::{self, html_escape, sys};
-use ferrum_kernel::{Ctx, Doc, Kernel, Result, Tx, notify};
+use ferrum_kernel::{Ctx, Doc, Error, Kernel, Result, Tx, notify};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -34,10 +35,21 @@ pub async fn send(k: &Kernel, ctx: &Ctx, tx: &mut Tx, to: &[String], n: &Notice<
     for p in &people {
         notify::send(tx, ctx.tenant, p.id, &title, Some(&n.body), Some(n.entity), Some(n.record)).await?;
     }
-    if has_mail(ctx) && util::settings(tx, ctx.tenant).await?.email {
+    let mail_app = has_mail(ctx);
+    if (mail_app || k.mailer.is_some()) && util::settings(tx, ctx.tenant).await?.email {
         let engine = sys(ctx);
         let html = format!("<p>{}</p>", html_escape(&n.body).replace('\n', "<br>"));
         for p in &people {
+            if !mail_app {
+                let subject: String = title.replace(['\r', '\n'], " ").chars().take(300).collect();
+                match k.queue_mail(tx, ctx.tenant, &p.email, &subject, &html).await {
+                    Ok(()) => {}
+                    // An address the mailer refuses costs that person the email, not the change.
+                    Err(Error::Validation(e)) => tracing::warn!(to = %p.email, "learn: email not queued: {e:?}"),
+                    Err(e) => return Err(e),
+                }
+                continue;
+            }
             let mut mail = Doc::new();
             for (field, value) in [
                 ("channel", json!("Email")),
