@@ -272,7 +272,11 @@ async fn scenario() {
     for (email, name) in [("dee@learn.test", "Dee Dunn"), ("eli@learn.test", "Eli Ezra"), ("fay@learn.test", "Fay Fox")] {
         racers.push(t.user(email, name, "Learner").await);
     }
-    let nobody = t.user("nobody@learn.test", "No Body", "Sales User").await;
+    // Someone with no role in this workspace.
+    let nobody = {
+        let id = t.k.create_user(&t.admin, "nobody@learn.test", "No Body", Some(PW), &[], false).await.expect("user");
+        t.k.load_ctx(t.tenant, id, None, "it".into()).await.expect("ctx")
+    };
     let today = teacher.today();
 
     // ───────────── settings and catalog ─────────────
