@@ -253,7 +253,7 @@ CHANGELOG.md  what changed in each version
 
 | Version | Highlights |
 |---|---|
-| **0.1.0** |  |
+| **0.1.0** | First release of Learn: courses with chapters and ordered lessons (articles, allowlisted videos, documents, quizzes, assignments; free previews … |
 
 Every version is in [CHANGELOG.md](CHANGELOG.md).
 
