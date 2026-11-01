@@ -75,3 +75,6 @@ personal_data:
   - {entity: LmsQuizAttempt, match: learner, erase: [learner, learner_name]}
   - {entity: LmsAssignmentSubmission, match: learner, erase: [learner, learner_name, answer, feedback]}
   - {entity: LmsCertificate, match: learner, erase: [learner, learner_name]}
+handover:
+  - {entity: LmsCourse, field: instructors.instructor, where: {status: [Draft, Published]}}
+  - {entity: LmsCohort, field: instructors.instructor}
