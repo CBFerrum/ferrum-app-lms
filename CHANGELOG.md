@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Personal data: a person's request now reaches their enrollments, progress, attempts, submissions and certificates, which an erasure blanks.
 - Email notifications no longer need the Mail app: without it they go through the server's own
   mailer.
 

@@ -69,3 +69,9 @@ seed:
     key: [category_name]
     records:
       - {category_name: General}
+personal_data:
+  - {entity: LmsEnrollment, match: learner, erase: [learner, learner_name]}
+  - {entity: LmsLessonProgress, match: learner, erase: [learner]}
+  - {entity: LmsQuizAttempt, match: learner, erase: [learner, learner_name]}
+  - {entity: LmsAssignmentSubmission, match: learner, erase: [learner, learner_name, answer, feedback]}
+  - {entity: LmsCertificate, match: learner, erase: [learner, learner_name]}
