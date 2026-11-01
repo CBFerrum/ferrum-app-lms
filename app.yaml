@@ -1,6 +1,6 @@
 id: lms
 name: Learn
-version: 0.1.0
+version: 0.2.0
 publisher: cbferrum
 summary: "Learning management: courses, lessons, quizzes, enrollments, progress, certificates and a public course catalog"
 description: README.md
@@ -9,6 +9,39 @@ license: AGPL-3.0-only
 homepage: https://github.com/CBFerrum/ferrum-app-lms
 support: https://github.com/CBFerrum/ferrum-app-lms/issues
 runtime: native
-platform: ">=0.3, <0.4"
+platform: ">=0.3.2, <0.4"
 packages: [lms]
 uninstall: ask
+# Its own interface at /lms/ (Ferrum docs/plan/apps-ui.md): the learner's course player and quiz
+# player, the catalog and course pages, and the instructor's dashboard and course builder (ui/,
+# built into ui/dist); its other records stay in lists and forms.
+ui:
+  dist: ui/dist
+  # Lesson videos play in their host's embedded player: the hosts Learn accepts out of the box. A
+  # host an operator adds in Learn Settings cannot be named here, so its lessons offer the link.
+  csp:
+    frame:
+      - https://www.youtube-nocookie.com
+      - https://player.vimeo.com
+      - https://www.loom.com
+      - https://fast.wistia.net
+      - https://drive.google.com
+contributes:
+  shell.app:
+    - id: lms
+      route: lms
+      title: Learn
+      description: Courses, lessons, quizzes and certificates
+      icon: graduation-cap
+      color: "#4f46e5"
+      roles: [LMS Manager, Instructor, Learner]
+  shell.open:
+    # A course opens on its page; everything else in Learn in its form.
+    - {id: course, entity: LmsCourse, path: "lms/course/{id}", list: lms/catalog, priority: 1}
+    - {id: lms, package: lms, path: "lms/e/{entity}/{id}", list: "lms/e/{entity}"}
+  shell.create:
+    - {id: course, label: Course, path: lms/e/LmsCourse/new, entity: LmsCourse}
+  # What anyone with a link opens, signed in or not: the public catalog and course pages
+  # (/lms/c/{workspace}/…) and the certificate check.
+  shell.public:
+    - {id: catalog, path: lms/c, title: Course catalog}

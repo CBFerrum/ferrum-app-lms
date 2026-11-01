@@ -29,10 +29,10 @@
     - {label: Progress, fields: [progress_percent, completed_lessons, total_lessons, last_lesson, last_activity_at, completed_at, certificate]}
     - {label: History, collapsible: true, fields: [enrolled_at, enrolled_on, enrolled_by]}
   actions:
-    - {name: complete_lesson, label: Mark Lesson Complete, permission: read, condition: "doc.status != 'Withdrawn'"}
-    - {name: open_lesson, label: Open Lesson, permission: read, condition: "doc.status != 'Withdrawn'"}
-    - {name: start_quiz, label: Start Quiz, permission: read, condition: "doc.status != 'Withdrawn'"}
-    - {name: outline, label: Course Outline, permission: read}
+    - {name: complete_lesson, label: Mark Lesson Complete, permission: read, condition: "doc.status != 'Withdrawn'", hidden: true}
+    - {name: open_lesson, label: Open Lesson, permission: read, condition: "doc.status != 'Withdrawn'", hidden: true}
+    - {name: start_quiz, label: Start Quiz, permission: read, condition: "doc.status != 'Withdrawn'", hidden: true}
+    - {name: outline, label: Course Outline, permission: read, hidden: true}
     - {name: withdraw, label: Withdraw, permission: read, condition: "doc.status == 'Active'", confirm: "Leave this course? Your progress is kept if you enrol again."}
     - {name: reactivate, label: Enrol Again, permission: read, condition: "doc.status == 'Withdrawn'"}
   list: {columns: [number, learner_name, course, status, progress_percent], sort: created_at desc}
@@ -105,8 +105,8 @@
     - {label: Result, fields: [score, max_score, percentage, passing_percentage, passed]}
     - {label: Answers, fields: [answers]}
   actions:
-    - {name: save_answers, label: Save Answers, permission: read, condition: "doc.status == 'In Progress'"}
-    - {name: submit_answers, label: Submit, permission: read, condition: "doc.status == 'In Progress'"}
+    - {name: save_answers, label: Save Answers, permission: read, condition: "doc.status == 'In Progress'", hidden: true}
+    - {name: submit_answers, label: Submit, permission: read, condition: "doc.status == 'In Progress'", hidden: true}
     - {name: review, label: Review Answers, permission: write}
   list: {columns: [number, quiz_title, learner, attempt_no, status, percentage, passed], sort: created_at desc}
 

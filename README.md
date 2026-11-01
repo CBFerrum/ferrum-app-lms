@@ -5,7 +5,7 @@
   <img alt="Ferrum Learn" src="docs/assets/banner-light.svg" width="100%">
 </picture>
 
-[![CI](https://github.com/CBFerrum/ferrum-app-lms/actions/workflows/ci.yml/badge.svg)](https://github.com/CBFerrum/ferrum-app-lms/actions/workflows/ci.yml) ![Version](https://img.shields.io/badge/version-0.1.0-3048a6?style=flat-square) ![Ferrum](https://img.shields.io/badge/Ferrum-%3E%3D0.3%2C%20%3C0.4-2f5bea?style=flat-square) ![License](https://img.shields.io/badge/license-AGPL--3.0-3b82f6?style=flat-square) ![Rust](https://img.shields.io/badge/Rust-native%20app-b7410e?style=flat-square&logo=rust&logoColor=white) ![MCP](https://img.shields.io/badge/AI%20agents-MCP-8b5cf6?style=flat-square)
+[![CI](https://github.com/CBFerrum/ferrum-app-lms/actions/workflows/ci.yml/badge.svg)](https://github.com/CBFerrum/ferrum-app-lms/actions/workflows/ci.yml) ![Version](https://img.shields.io/badge/version-0.2.0-3048a6?style=flat-square) ![Ferrum](https://img.shields.io/badge/Ferrum-%3E%3D0.3.2%2C%20%3C0.4-2f5bea?style=flat-square) ![License](https://img.shields.io/badge/license-AGPL--3.0-3b82f6?style=flat-square) ![Rust](https://img.shields.io/badge/Rust-native%20app-b7410e?style=flat-square&logo=rust&logoColor=white) ![MCP](https://img.shields.io/badge/AI%20agents-MCP-8b5cf6?style=flat-square)
 
 **A native app for [Ferrum](https://github.com/CBFerrum/Ferrum), the open-source, AI-first business platform.**
 
@@ -25,14 +25,14 @@ the server, and certificates issued exactly once with a public verification code
 
 | At a glance | |
 |---|---|
-| 📦 Version | `0.1.0` |
-| 🧱 Platform | Ferrum `>=0.3, <0.4` |
+| 📦 Version | `0.2.0` |
+| 🧱 Platform | Ferrum `>=0.3.2, <0.4` |
 | 🔗 Requires | nothing else |
-| 🖥️ Interface | Ferrum's records screens (`/data/lms/`) |
+| 🖥️ Interface | Its own at `/lms/` (course player, quizzes, catalog, teaching, course builder); the other records in Ferrum's records screens |
 | 🗃️ Records | 24 entities in 1 package |
 | 👥 Roles | 3: LMS Manager, Instructor, Learner |
 | 📊 Reports | 4 |
-| 🧪 Tests | 14 Rust tests |
+| 🧪 Tests | 15 Rust tests, 136 interface tests |
 
 
 ## Highlights
@@ -115,7 +115,7 @@ flowchart LR
 ```mermaid
 flowchart LR
     subgraph Browser
-        UI["Records screens<br/><small>/data/lms/</small>"]
+        UI["Learn's interface<br/><small>/lms/ · records screens for the rest</small>"]
         BAR["Ferrum bar<br/><small>launcher · search · bell</small>"]
     end
     subgraph Server["Ferrum server"]
@@ -226,6 +226,7 @@ ferrum-calc = { path = "../ferrum/crates/calc" }
 ferrum-domain = { path = "../ferrum/crates/domain" }
 ferrum-kernel = { path = "../ferrum/crates/kernel" }
 ferrum-meta = { path = "../ferrum/crates/meta" }
+ferrum-apps = { path = "../ferrum/crates/apps" }
 ```
 
 The tests need PostgreSQL with an ordinary (non-superuser) role, so row-level security
@@ -238,6 +239,20 @@ cargo test
 
 `FERRUM_LMS_TEST_DATABASE_URL` overrides the database URL.
 
+### The interface
+
+`ui/` holds Learn's own interface (React, built with the platform's web packages from the checkout
+next to this one, `../ferrum/web`). Its built files in `ui/dist` are committed and embedded in the
+crate, so a change to `ui/src` is not done until `dist` is rebuilt:
+
+```bash
+cd ui
+npm run test       # logic, and every screen drawn to markup from data in the query cache
+npm run typecheck
+npm run build      # writes dist/
+npm run check      # fails if dist/ is not built from these sources, or is over the size budget
+```
+
 
 ### Project layout
 
@@ -246,6 +261,7 @@ app.yaml      the manifest: id, version, requirements, what it adds to Ferrum
 packages/     metadata: entities, roles, reports, workflows, print formats
 src/          the app's logic in Rust: hooks, actions, endpoints, upkeep jobs
 tests/        integration tests against a real PostgreSQL
+ui/           the interface: src/ (React and the logic it is tested by) and dist/ (built from it)
 CHANGELOG.md  what changed in each version
 ```
 
@@ -253,6 +269,7 @@ CHANGELOG.md  what changed in each version
 
 | Version | Highlights |
 |---|---|
+| **0.2.0** | Learn's own interface at `/lms/`: the learner's course player, quiz player, assignments and certificates, the catalog and course pages (also public, with a certificate check), and for instructors the teaching dashboard, grading queue and course builder … |
 | **0.1.0** | First release of Learn: courses with chapters and ordered lessons (articles, allowlisted videos, documents, quizzes, assignments; free previews … |
 
 Every version is in [CHANGELOG.md](CHANGELOG.md).
