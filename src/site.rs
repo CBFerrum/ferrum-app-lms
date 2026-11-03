@@ -14,6 +14,7 @@
 use crate::certificate;
 use crate::cohort;
 use crate::enrollment::{self, WITHDRAWN};
+use crate::payments;
 use crate::util::{self, authors, id, is_manager, is_member, load, rows, s, sys, valid_slug};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -110,6 +111,15 @@ fn card(c: &Card, instructors: &[(Uuid, String)]) -> Value {
         "category": c.category.map(|id| json!({"id": id, "name": c.category_name})),
         "instructors": instructors.iter().filter(|(cid, _)| *cid == c.id).map(|(_, n)| n.clone()).collect::<Vec<_>>(),
     })
+}
+
+/// Each card's price where courses are sold (none: free).
+async fn price_cards(ctx: &Ctx, tx: &mut Tx, cards: &mut [Value], ids: &[Uuid]) -> Result<()> {
+    let prices = payments::prices(ctx, tx, ids).await?;
+    for (c, cid) in cards.iter_mut().zip(ids) {
+        c["price"] = prices.iter().find(|p| p.0 == *cid).map(|p| p.1.clone()).unwrap_or(Value::Null);
+    }
+    Ok(())
 }
 
 async fn instructor_names(tx: &mut Tx, tenant: Uuid, courses: &[Uuid]) -> Result<Vec<(Uuid, String)>> {
@@ -248,8 +258,10 @@ async fn course_page(k: &Kernel, ctx: &Ctx, tx: &mut Tx, course: &Doc, audience:
             .map(|name| json!({"id": cat, "name": name})),
         None => None,
     };
+    let price = payments::price(ctx, tx, course).await?.map(|(amount, currency)| payments::tag(amount, currency));
     Ok(json!({
         "id": me, "slug": course.get("slug"), "title": course.get("title"), "summary": course.get("summary"), "description": course.get("description"),
+        "price": price,
         "cover_image": course.get("cover_image"), "level": course.get("level"), "tags": util::tag_list(s(course, "tags").unwrap_or_default()),
         "category": category, "estimated_hours": course.get("estimated_hours"), "lessons": course.get("lesson_count"),
         "total_minutes": course.get("total_minutes"), "certificate": course.get("issue_certificate"), "published_at": course.get("published_at"),
@@ -301,7 +313,8 @@ async fn public(k: &Kernel, req: &SiteRequest, path: &[&str]) -> Result<SiteResp
     let site = format!("/api/site/{}/{}", util::workspace(&mut tx, req.tenant).await?.0, util::PACKAGE);
     let out = match path {
         ["courses"] => {
-            let (courses, _, next) = catalog(&mut tx, req.tenant, req, Audience::Public).await?;
+            let (mut courses, ids, next) = catalog(&mut tx, req.tenant, req, Audience::Public).await?;
+            price_cards(&ctx, &mut tx, &mut courses, &ids).await?;
             json_response(&json!({"courses": courses, "next_cursor": next}), "public, max-age=60")
         }
         ["categories"] => {
@@ -384,7 +397,8 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
     let mut tx = k.db.tenant_tx(user.tenant).await?;
     let out = match path {
         ["catalog"] => {
-            let (courses, ids, next) = catalog(&mut tx, user.tenant, req, Audience::Members).await?;
+            let (mut courses, ids, next) = catalog(&mut tx, user.tenant, req, Audience::Members).await?;
+            price_cards(user, &mut tx, &mut courses, &ids).await?;
             let mine: Vec<(Uuid, Uuid, String, Option<Decimal>)> = if ids.is_empty() {
                 vec![]
             } else {
@@ -437,7 +451,13 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
                     blockers.push(format!("complete these courses first: {}", missing.join(", ")));
                 }
             }
-            page["can_enroll"] = json!(mine.is_none() && blockers.is_empty());
+            // A paid course is bought, not enrolled in, until its learner has paid for it.
+            let mut unpaid = false;
+            if let Some(sale) = payments::offer(k, user, &mut tx, &course, mine.as_ref(), !blockers.is_empty()).await? {
+                unpaid = sale["paid"] != json!(true);
+                page["sale"] = sale;
+            }
+            page["can_enroll"] = json!(mine.is_none() && blockers.is_empty() && !unpaid);
             page["enroll_blockers"] = json!(blockers);
             page["is_author"] = json!(author);
             if let Some(e) = &mine {

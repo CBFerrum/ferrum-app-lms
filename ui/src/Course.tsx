@@ -8,16 +8,16 @@ import { useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 import { api, docPath, errorMessage, formatDate } from "@ferrum/client";
 import { Alert, Badge, Button, confirmDialog, ErrorState, PageLoading, toast, useShellTitle } from "@ferrum/kit";
-import { enrol, getCourse, keys, reactivate, withdraw } from "./api";
+import { buy, enrol, getCourse, keys, reactivate, withdraw } from "./api";
 import { CertificateActions } from "./Certificate";
 import { CourseLayout, Prerequisites } from "./CourseLayout";
-import { plural, sessionStart } from "./format";
+import { plural, priceText, sessionStart } from "./format";
 import { Glyph } from "./Glyph";
 import { paths } from "./lesson";
 import { progressText, totals } from "./outline";
 import { ProgressLine } from "./parts";
 import { paramsFor } from "./filters";
-import type { CohortInfo, CoursePage } from "./types";
+import type { CohortInfo, CoursePage, Sale } from "./types";
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -63,6 +63,77 @@ function CohortChoice({ cohorts, value, onChange }: { cohorts: CohortInfo[]; val
   );
 }
 
+/** A paid course not paid for: buy it, then pay for it at the store's payment page. This page
+ *  checks again every few seconds while the payment is due, so it opens up when the money arrives. */
+function BuyBox({ c, sale, left }: { c: CoursePage; sale: Sale; left: boolean }) {
+  const qc = useQueryClient();
+  const [problem, setProblem] = useState<string | null>(null);
+  const go = useMutation({
+    mutationFn: () => buy(c.id),
+    onSuccess: async (r) => {
+      const url = r.purchase.payment?.status === "Initiated" ? r.purchase.payment.payment_url : null;
+      if (url) window.location.assign(url);
+      else await qc.invalidateQueries({ queryKey: keys.course(c.slug) });
+    },
+    onError: (e) => setProblem(errorMessage(e)),
+  });
+  const price = priceText(sale.price);
+  const due = sale.purchase?.status === "Awaiting Payment" ? sale.purchase : null;
+  const request = due?.payment ?? null;
+  if (due && request?.status === "Initiated") {
+    return (
+      <>
+        <h3 className="lms-box-head">Waiting for your payment</h3>
+        <p className="faint lms-box-line">
+          {request.payment_url ? `Pay ${price} to start the course. This page opens it when the payment arrives.` : "Your payment page is being prepared. This page updates by itself."}
+        </p>
+        <div className="lms-box-actions">
+          {request.payment_url ? (
+            <a className="btn btn-primary btn-md" href={request.payment_url}>
+              Pay {price}
+            </a>
+          ) : (
+            <Button variant="primary" loading disabled>
+              Preparing the payment
+            </Button>
+          )}
+        </div>
+      </>
+    );
+  }
+  if (due || sale.can_buy) {
+    return (
+      <>
+        <h3 className="lms-box-head">{due ? "Your payment did not go through" : left ? "Buy the course again" : "Buy this course"}</h3>
+        <p className="faint lms-box-line">
+          {due ? "Nothing was taken. Try again to get a new payment page." : left ? `You left it and were refunded. Your progress is kept if you buy it again for ${price}.` : `${price}, paid online. You are enrolled as soon as it arrives.`}
+        </p>
+        {problem && <Alert tone="error">{problem}</Alert>}
+        <div className="lms-box-actions">
+          <Button variant="primary" loading={go.isPending} onClick={() => (setProblem(null), go.mutate())}>
+            {due ? "Try again" : `Buy for ${price}`}
+          </Button>
+        </div>
+      </>
+    );
+  }
+  const blockers = c.enroll_blockers ?? [];
+  return (
+    <>
+      <h3 className="lms-box-head">This course is not on sale yet</h3>
+      {blockers.length ? (
+        <ul className="lms-plain">
+          {blockers.map((b) => (
+            <li key={b}>{b.charAt(0).toUpperCase() + b.slice(1)}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="faint lms-box-line">Ask an instructor how to join it.</p>
+      )}
+    </>
+  );
+}
+
 function Box({ c, slug }: { c: CoursePage; slug: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -97,6 +168,8 @@ function Box({ c, slug }: { c: CoursePage; slug: string }) {
     }
   };
   const sum = totals(c.chapters);
+  // A paid course is bought before it is enrolled in (its instructors try it without paying).
+  const unpaid = !!c.sale && !c.sale.paid && !c.is_author && (!p || p.status === "Withdrawn");
 
   return (
     <>
@@ -143,6 +216,8 @@ function Box({ c, slug }: { c: CoursePage; slug: string }) {
               {p.certificate && <CertificateActions id={p.certificate} />}
             </div>
           </>
+        ) : unpaid ? (
+          <BuyBox c={c} sale={c.sale!} left={p?.status === "Withdrawn"} />
         ) : p && p.status === "Withdrawn" ? (
           <>
             <h3 className="lms-box-head">You left this course</h3>
@@ -203,7 +278,13 @@ function Box({ c, slug }: { c: CoursePage; slug: string }) {
 }
 
 function CourseView({ slug }: { slug: string }) {
-  const q = useQuery({ queryKey: keys.course(slug), queryFn: () => getCourse(slug), staleTime: 0 });
+  const q = useQuery({
+    queryKey: keys.course(slug),
+    queryFn: () => getCourse(slug),
+    staleTime: 0,
+    // While a payment is due, the page looks again until it arrives.
+    refetchInterval: (query) => (query.state.data?.sale?.purchase?.status === "Awaiting Payment" ? 4000 : false),
+  });
   useShellTitle(q.data?.title);
   if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} title="Could not open the course" />;
   const c = q.data;
