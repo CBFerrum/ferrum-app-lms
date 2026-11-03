@@ -22,6 +22,7 @@ mod cohort;
 mod enrollment;
 mod grading;
 mod notice;
+mod payments;
 mod quiz;
 mod reports;
 mod site;
@@ -62,7 +63,17 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("LmsLessonProgress", Arc::new(enrollment::ProgressHook))
         .register("LmsCertificate", Arc::new(certificate::CertificateHook))
         .add_site(util::PACKAGE, Arc::new(site::LearnSite));
+    // The connector with Commerce: only where Paid Courses is installed.
+    hooks.scoped(&[payments::PACKAGE.to_string()], |h| {
+        h.register("LmsCourse", Arc::new(payments::CourseHook))
+            .register("LmsEnrollment", Arc::new(payments::EnrollmentHook))
+            .register("PaymentEntry", Arc::new(payments::PaidHook));
+    });
 }
+
+/// The manifest of the connector app with Commerce (`connectors/payments/app.yaml`): its package is
+/// `lms_payments`, its code this crate's. It ships with Learn.
+pub const CONNECTOR_MANIFEST: &str = include_str!("../connectors/payments/app.yaml");
 
 /// This app's reports.
 pub fn reports() -> Vec<Arc<dyn ReportSource>> {
@@ -92,6 +103,7 @@ pub async fn maintenance(k: &Kernel) -> Result<()> {
             ("attempt deadlines", quiz::expire_attempts(k, &ctx).await),
             ("session reminders", cohort::send_reminders(k, &ctx).await),
             ("completions", enrollment::complete_ready(k, &ctx).await),
+            ("lapsed purchases", payments::cancel_lapsed(k, &ctx).await),
             ("purge", purge(k, tenant).await),
         ];
         for (step, outcome) in steps {
@@ -125,8 +137,17 @@ mod tests {
     #[test]
     fn packages_are_valid() {
         let mut all = ferrum_domain::packages().expect("platform packages");
+        all.extend(ferrum_app_erp::packages().expect("ERP's packages"));
+        // Paid Courses sell through Commerce's payment requests (its Finance connector is left out here).
+        all.extend(ferrum_app_commerce::packages().expect("Commerce's packages").into_iter().filter(|p| p.name() != "commerce_subscriptions"));
         all.extend(super::packages().expect("app packages"));
         let catalog = ferrum_meta::Catalog::from_packages(all).unwrap_or_else(|e| panic!("{e}"));
+        let selling = ferrum_meta::effective::build(&catalog, &["lms".into(), "commerce".into(), super::payments::PACKAGE.into()], &[], 1)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(selling.warnings.is_empty(), "{:?}", selling.warnings);
+        assert!(selling.entity("LmsCourse").is_some_and(|c| c.field("lpay_price").is_some() && c.def.actions.iter().any(|a| a.name == "buy")));
+        assert!(selling.entity("LmsCoursePurchase").is_some(), "the connector's purchases");
+        assert!(super::CONNECTOR_MANIFEST.contains("packages: [lms_payments]"));
         let schema = ferrum_meta::effective::build(&catalog, &["lms".to_string()], &[], 1).unwrap_or_else(|e| panic!("{e}"));
         assert!(schema.warnings.is_empty(), "{:?}", schema.warnings);
         assert!(schema.entity("LmsCertificate").is_some_and(|e| e.print_template.is_some()), "the certificate print template ships");

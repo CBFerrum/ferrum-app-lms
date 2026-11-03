@@ -5,7 +5,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, NavLink } from "react-router";
 import { Badge, Icon, type Tone } from "@ferrum/kit";
 import { useMe } from "@ferrum/records";
-import { courseFacts, hue, monogram } from "./format";
+import { courseFacts, hue, monogram, priceText } from "./format";
 import { Glyph } from "./Glyph";
 import { percent, percentLabel } from "./outline";
 import { safeImage } from "./markdown";
@@ -102,6 +102,7 @@ export function CourseCard({ card, to, status }: { card: Card; to: string; statu
               <Glyph name="award" size={13} /> Certificate
             </span>
           )}
+          {card.price && <strong className="lms-price">{priceText(card.price)}</strong>}
         </p>
         {card.instructors.length > 0 && <p className="lms-card-by faint">By {card.instructors.slice(0, 2).join(", ")}{card.instructors.length > 2 ? ` and ${card.instructors.length - 2} more` : ""}</p>}
         {status ??

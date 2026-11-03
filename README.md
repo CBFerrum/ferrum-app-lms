@@ -80,6 +80,14 @@ Course pages, learner and instructor dashboards and reports.
 
 </td>
 </tr>
+<tr>
+<td colspan="2" valign="top">
+
+### 💳 Paid courses
+Sold through the store with Paid Courses: invoiced, paid online, refunded in the refund period.
+
+</td>
+</tr>
 </table>
 
 ## Screenshots
@@ -133,6 +141,15 @@ flowchart LR
     classDef app fill:#3048a6,color:#fff,stroke:#3048a6
     class APP app
 ```
+
+### Paid courses
+
+Where Commerce is installed too, the connector app **Paid Courses** (`connectors/payments/app.yaml`,
+package `lms_payments`, code in this crate) sells courses. Set the selling company and the store
+payment method in Learn Settings, then a course's price and the item it is sold as. A learner's Buy
+makes a Course Purchase, a submitted sales invoice and a payment request. The gateway's payment
+enrols them. Withdrawing within the refund period credits the invoice and asks for the refund,
+which someone approves in the store.
 
 Everything Learn adds is ordinary Ferrum metadata and Rust: its records get lists, forms,
 search, permissions, an audit trail, exports and the REST and MCP APIs for free, so AI agents work
@@ -269,6 +286,7 @@ CHANGELOG.md  what changed in each version
 
 | Version | Highlights |
 |---|---|
+| **0.3.0** | Paid courses with Paid Courses (a connector with Commerce): a course with a price is bought on its page, invoiced and paid online through the store, enrols its learner when the payment arrives, and is refunded in full when they withdraw within the refund period. |
 | **0.2.0** | Learn's own interface at `/lms/`: the learner's course player, quiz player, assignments and certificates, the catalog and course pages (also public, with a certificate check), and for instructors the teaching dashboard, grading queue and course builder … |
 | **0.1.0** | First release of Learn: courses with chapters and ordered lessons (articles, allowlisted videos, documents, quizzes, assignments; free previews … |
 

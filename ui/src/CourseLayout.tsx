@@ -5,7 +5,7 @@
 import { type ReactNode } from "react";
 import { Link } from "react-router";
 import { Badge } from "@ferrum/kit";
-import { courseFacts } from "./format";
+import { courseFacts, priceText } from "./format";
 import { Glyph } from "./Glyph";
 import { Md } from "./Md";
 import { OutlinePanel } from "./OutlinePanel";
@@ -52,6 +52,7 @@ export function CourseLayout({
                 <Glyph name="award" size={13} /> Certificate when you finish
               </span>
             )}
+            {course.price && <strong className="lms-price">{priceText(course.price)}</strong>}
           </p>
           {course.instructors.length > 0 && <p className="lms-course-by">Taught by {course.instructors.join(", ")}</p>}
           {course.tags.length > 0 && (

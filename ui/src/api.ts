@@ -11,6 +11,7 @@ import type {
   CompletionSummary,
   CoursePage,
   Dashboard,
+  Purchase,
   LessonView,
   Roster,
   SubmitResult,
@@ -60,6 +61,8 @@ export const getCategories = () =>
 
 export const enrol = (course: string, cohort?: string | null) => api.post<{ id: string }>(docPath("LmsEnrollment"), { course, ...(cohort ? { cohort } : {}) });
 export const withdraw = (enrollment: string) => act("LmsEnrollment", enrollment, "withdraw");
+/** Invoices a paid course and asks for the money through the store (once: buying again asks again). */
+export const buy = (course: string) => act<{ purchase: Purchase }>("LmsCourse", course, "buy");
 export const reactivate = (enrollment: string) => act("LmsEnrollment", enrollment, "reactivate");
 export const joinPath = (path: string) =>
   act<{ enrolled: unknown[]; already_enrolled: unknown[]; skipped: { course_title: string; reason: string }[] }>("LmsLearningPath", path, "join");

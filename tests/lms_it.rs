@@ -12,6 +12,7 @@
 //! enrolments that course changes completed and reminds a cohort once; dashboards and reports show
 //! the exact numbers; a second workspace with the Mail app gets the emails as `Communication`s.
 
+use ferrum_kernel::secret::SecretKey;
 use ferrum_kernel::tenant::NewTenant;
 use ferrum_kernel::{Ctx, Db, DbConfig, Doc, Error, HookRegistry, Kernel, KernelSettings, ListQuery, Site, SiteRequest, SiteResponse};
 use ferrum_meta::Catalog;
@@ -221,8 +222,12 @@ where
     out
 }
 
+/// Both scenarios reset the one test database.
+static DB: Mutex<()> = Mutex::new(());
+
 #[test]
 fn learn_end_to_end() {
+    let _db = DB.lock().unwrap_or_else(|e| e.into_inner());
     // Same runtime shape as the server: unoptimized async hook chains need more than 2 MiB.
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(16 << 20).build().unwrap();
     rt.block_on(async { tokio::spawn(scenario()).await.unwrap() });
@@ -233,7 +238,8 @@ async fn scenario() {
     let db = Db::connect(DbConfig { url, max_connections: 16, ..Default::default() }).await.expect("connect");
     sqlx::raw_sql("drop schema if exists public cascade; create schema public;").execute(&db.pool).await.expect("reset");
     let mut packages = ferrum_domain::packages().expect("platform packages");
-    packages.extend(ferrum_app_lms::packages().expect("app packages"));
+    // Learn without its Commerce connector, which paid_courses_end_to_end tests.
+    packages.extend(ferrum_app_lms::packages().expect("app packages").into_iter().filter(|p| p.name() != "lms_payments"));
     packages.push(mail_double());
     let catalog = Catalog::from_packages(packages).expect("catalog");
     let mut hooks = HookRegistry::default();
@@ -1121,4 +1127,209 @@ async fn scenario() {
     t2.insert(&admin2, "LmsSettings", json!({"email_notifications": false})).await;
     t2.insert(&pupil2, "LmsEnrollment", json!({"course": c2})).await;
     assert!(t2.list(&admin2, "Communication", json!({"recipients": "pupil2@mail.test"})).await.unwrap().is_empty(), "emails can be switched off");
+}
+
+#[test]
+fn paid_courses_end_to_end() {
+    let _db = DB.lock().unwrap_or_else(|e| e.into_inner());
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(16 << 20).build().unwrap();
+    rt.block_on(async { tokio::spawn(paid()).await.unwrap() });
+}
+
+/// A course of 1,500 sold through the store: bought, refunded in full when its learner withdraws
+/// within the 14 days, bought again, kept when they withdraw later; an unpaid purchase lapses.
+async fn paid() {
+    let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
+    let db = Db::connect(DbConfig { url, max_connections: 24, ..Default::default() }).await.expect("connect");
+    sqlx::raw_sql("drop schema if exists public cascade; create schema public;").execute(&db.pool).await.expect("reset");
+    let mut packages = ferrum_domain::packages().expect("platform packages");
+    packages.extend(ferrum_app_erp::packages().expect("ERP's packages"));
+    // Commerce's own packages (its Store Subscriptions connector needs Finance, which this test leaves out).
+    packages.extend(ferrum_app_commerce::packages().expect("Commerce's packages").into_iter().filter(|p| p.name() != "commerce_subscriptions"));
+    packages.extend(ferrum_app_lms::packages().expect("app packages"));
+    let catalog = Catalog::from_packages(packages).expect("catalog");
+    let mut hooks = HookRegistry::default();
+    ferrum_domain::register(&mut hooks);
+    ferrum_app_erp::register(&mut hooks);
+    ferrum_app_commerce::register(&mut hooks);
+    ferrum_app_lms::register(&mut hooks);
+    let settings = KernelSettings { secret_key: Some(SecretKey::new([7u8; 32])), ..Default::default() };
+    let k = Kernel::boot(db, catalog, hooks, settings, None).await.expect("boot");
+    ferrum_domain::maintenance(&k).await.expect("partitions");
+    ferrum_app_erp::maintenance(&k).await.expect("partitions");
+    let tenant = k
+        .create_tenant(NewTenant {
+            slug: "academy".into(),
+            name: "Acme Academy".into(),
+            admin_email: "admin@academy.test".into(),
+            admin_password: PW.into(),
+            admin_name: None,
+            packages: vec!["lms".into(), "commerce".into(), "lms_payments".into()],
+            settings: Some(json!({"fiscal_year_start_month": 4, "timezone": "Asia/Kolkata"})),
+        })
+        .await
+        .expect("tenant");
+    let session = k.login("academy", "admin@academy.test", PW).await.expect("login");
+    let admin = k.load_ctx(tenant, session.user, Some(session.token_version), "it".into()).await.expect("ctx");
+    let site = k.hooks.site("lms").cloned().expect("site registered");
+    let t = T { k: k.clone(), tenant, admin: admin.clone(), site };
+    let a = admin;
+    let one = |rows: Vec<Doc>| rows.into_iter().next().expect("one record");
+
+    // ───────────── a store to take the money ─────────────
+    let inr = one(t.list(&a, "Currency", json!({"code": "INR"})).await.unwrap());
+    let company = uid(&t.insert(&a, "Company", json!({"company_name": "Acme Academy", "abbr": "AA", "default_currency": inr["id"]})).await);
+    let services = one(t.list(&a, "ItemGroup", json!({"group_name": "Services"})).await.unwrap());
+    let nos = one(t.list(&a, "Uom", json!({"uom_name": "Nos"})).await.unwrap());
+    let item = |code: &str| json!({"item_code": code, "item_name": code, "item_group": services["id"], "stock_uom": nos["id"], "is_stock_item": false});
+    let course_item = uid(&t.insert(&a, "Item", item("COURSE")).await);
+    let ship = uid(&t.insert(&a, "Item", item("SHIP")).await);
+    let stores = one(t.list(&a, "Warehouse", json!({"warehouse_name": "Stores", "company": company.to_string()})).await.unwrap());
+    let selling = one(t.list(&a, "PriceList", json!({"price_list_name": "Standard Selling"})).await.unwrap());
+    t.insert(
+        &a,
+        "StoreSettings",
+        json!({"store_name": "Academy", "company": company.to_string(), "currency": inr["id"], "price_list": selling["id"], "fulfilment_warehouse": stores["id"],
+               "shipping_item": ship.to_string(), "payment_methods": [{"gateway": "fakepay", "label": "Card", "expiry_minutes": 30}], "store_url": "https://academy.test"}),
+    )
+    .await;
+    let fakepay = {
+        let role = "plugin:fakepay".to_string();
+        for entity in ["PaymentRequest", "PaymentException", "OrderRefund"] {
+            let p = ferrum_meta::PermissionDef { entity: entity.into(), read: true, write: true, ..Default::default() };
+            t.k.set_role_permission(&a, &role, &p).await.unwrap();
+        }
+        let u = t.k.create_user(&a, "fakepay@plugins.ferrum.invalid", "Plugin: fakepay", None, &[role], false).await.unwrap();
+        t.k.load_ctx(tenant, u, None, "plugin-fakepay".into()).await.unwrap()
+    };
+    let manager = t.user("manager@academy.test", "Mona Manager", "LMS Manager").await;
+    let teacher = t.user("teacher@academy.test", "Tara Teacher", "Instructor").await;
+    let asha = t.user("asha@academy.test", "Asha Rao", "Learner").await;
+    let ben = t.user("ben@academy.test", "Ben Okafor", "Learner").await;
+    let chen = t.user("chen@academy.test", "Chen Wei", "Learner").await;
+    t.insert(&manager, "LmsSettings", json!({"lpay_company": company.to_string(), "lpay_payment_method": "fakepay", "lpay_refund_days": 14})).await;
+
+    // ───────────── a paid course and a free one ─────────────
+    assert!(
+        field_error(t.try_insert(&teacher, "LmsCourse", json!({"title": "No Item", "lpay_price": "100"})).await, "lpay_item").contains("required"),
+        "a price needs the item it is sold as"
+    );
+    let course = t
+        .insert(
+            &teacher,
+            "LmsCourse",
+            json!({"title": "Rust for Teams", "visibility": "Public", "lpay_price": "1500", "lpay_item": course_item.to_string(),
+                   "instructors": [{"instructor": "teacher@academy.test"}]}),
+        )
+        .await;
+    let cid = uid(&course);
+    let (_, lessons) = t.chapter(&teacher, cid, "Ownership", &[json!({"title": "Moves"}), json!({"title": "Borrows"})]).await;
+    t.update(&teacher, "LmsCourse", cid, json!({"status": "Published"})).await;
+    let free = uid(&t.insert(&teacher, "LmsCourse", json!({"title": "Rust Taster", "visibility": "Public"})).await);
+    t.chapter(&teacher, free, "Hello", &[json!({"title": "Cargo"})]).await;
+    t.update(&teacher, "LmsCourse", free, json!({"status": "Published"})).await;
+
+    let public = t.page(None, "courses").await;
+    let card = |slug: &str| public["courses"].as_array().unwrap().iter().find(|c| c["slug"] == json!(slug)).cloned().unwrap();
+    assert_eq!((dec(&card("rust-for-teams")["price"]["amount"]), card("rust-for-teams")["price"]["currency"].clone()), (n("1500"), json!("INR")));
+    assert_eq!(card("rust-taster")["price"], Value::Null, "free");
+    let page = t.page(Some(&asha), "courses/rust-for-teams").await["course"].clone();
+    assert_eq!((page["can_enroll"].clone(), page["sale"]["can_buy"].clone(), page["sale"]["purchase"].clone()), (json!(false), json!(true), Value::Null));
+    assert_eq!(t.page(Some(&asha), "courses/rust-taster").await["course"]["sale"], Value::Null);
+
+    // ───────────── nobody enrols themselves in it unpaid; instructors still enrol anyone ─────────────
+    let refused = t.try_insert(&asha, "LmsEnrollment", json!({"course": cid.to_string()})).await;
+    assert!(field_error(refused, "course").contains("buy it"), "paid");
+    let path = uid(&t
+        .insert(
+            &teacher,
+            "LmsLearningPath",
+            json!({"title": "Rust", "status": "Published", "courses": [{"course": cid.to_string()}, {"course": free.to_string()}]}),
+        )
+        .await);
+    let joined = t.act(&ben, "LmsLearningPath", path, "join", json!({})).await;
+    assert_eq!((joined["enrolled"].as_array().unwrap().len(), joined["skipped"].as_array().unwrap().len()), (1, 1), "{joined}");
+    assert!(joined["skipped"][0]["reason"].as_str().unwrap().contains("buy it"), "{joined}");
+    t.insert(&teacher, "LmsEnrollment", json!({"course": cid.to_string(), "learner": "ben@academy.test"})).await;
+
+    // ───────────── Asha buys it: invoiced once, asked for through the store ─────────────
+    let bought = t.act(&asha, "LmsCourse", cid, "buy", json!({})).await;
+    let purchase = vid(&bought["purchase"]["id"]);
+    assert_eq!((bought["purchase"]["status"].clone(), dec(&bought["purchase"]["amount"])), (json!("Awaiting Payment"), n("1500")));
+    assert_eq!(bought["purchase"]["payment"]["status"], json!("Initiated"));
+    let again = t.act(&asha, "LmsCourse", cid, "buy", json!({})).await;
+    assert_eq!(again["purchase"]["id"], bought["purchase"]["id"], "asked again, not invoiced twice");
+    let p = t.get("LmsCoursePurchase", purchase).await;
+    let invoice = vid(&p["sales_invoice"]);
+    let inv = t.get("SalesInvoice", invoice).await;
+    assert_eq!((inv["docstatus"].clone(), dec(&inv["grand_total"]), dec(&inv["outstanding_amount"])), (json!(1), n("1500"), n("1500")));
+    assert_eq!(t.count("select count(*) from e_sales_invoice where tenant_id = $1 and customer = $2 and $3 <> ''", vid(&inv["customer"]), "x").await, 1);
+    let page = t.page(Some(&asha), "courses/rust-for-teams").await["course"].clone();
+    assert_eq!((page["sale"]["can_buy"].clone(), page["sale"]["purchase"]["status"].clone()), (json!(false), json!("Awaiting Payment")));
+    assert!(t.k.get(&chen, "LmsCoursePurchase", purchase, false).await.is_err(), "nobody else's purchase");
+    assert_eq!(t.k.get(&asha, "LmsCoursePurchase", purchase, false).await.expect("her own")["learner"], json!("asha@academy.test"));
+
+    // ───────────── the payment arrives: Asha is enrolled ─────────────
+    let request = vid(&p["payment_request"]);
+    t.act(&fakepay, "PaymentRequest", request, "mark_paid", json!({"amount": "1500", "currency": "INR", "gateway_reference": "pi_1"})).await;
+    let p = t.get("LmsCoursePurchase", purchase).await;
+    assert_eq!(p["status"], json!("Paid"));
+    let enrolment = vid(&p["enrollment"]);
+    assert_eq!(t.get("LmsEnrollment", enrolment).await["status"], json!("Active"));
+    assert_eq!(dec(&t.get("SalesInvoice", invoice).await["outstanding_amount"]), n("0"));
+    assert_eq!(t.page(Some(&asha), &format!("lessons/{}", lessons[0])).await["lesson"]["title"], json!("Moves"));
+    assert_eq!(t.page(Some(&asha), "courses/rust-for-teams").await["course"]["sale"]["paid"], json!(true));
+
+    // ───────────── she withdraws within the 14 days: all 1,500 back ─────────────
+    t.act(&asha, "LmsEnrollment", enrolment, "withdraw", json!({})).await;
+    let p = t.get("LmsCoursePurchase", purchase).await;
+    assert_eq!(p["status"], json!("Refund Requested"));
+    let note = t.get("SalesInvoice", vid(&p["credit_note"])).await;
+    assert_eq!((dec(&note["grand_total"]), note["return_against"].clone()), (n("-1500"), json!(invoice.to_string())));
+    let refund = vid(&p["refund"]);
+    let r = t.get("OrderRefund", refund).await;
+    assert_eq!((r["kind"].clone(), dec(&r["amount"]), r["status"].clone()), (json!("Payment"), n("1500"), json!("Requested")));
+    t.act(&a, "OrderRefund", refund, "approve_refund", json!({})).await;
+    t.act(&fakepay, "OrderRefund", refund, "refund_done", json!({"refund_reference": "re_1"})).await;
+    let r = t.get("OrderRefund", refund).await;
+    assert_eq!((r["status"].clone(), r["booked"].clone()), (json!("Refunded"), json!(true)), "{}", r["booking_error"]);
+    assert!(field_error(t.try_act(&asha, "LmsEnrollment", enrolment, "reactivate", json!({})).await, "course").contains("buy it"), "refunded");
+    let page = t.page(Some(&asha), "courses/rust-for-teams").await["course"].clone();
+    assert_eq!((page["sale"]["can_buy"].clone(), page["sale"]["paid"].clone()), (json!(true), json!(false)));
+
+    // ───────────── bought again: the same enrolment comes back, progress kept ─────────────
+    let bought = t.act(&asha, "LmsCourse", cid, "buy", json!({})).await;
+    let second = vid(&bought["purchase"]["id"]);
+    assert_ne!(second, purchase);
+    let request = vid(&t.get("LmsCoursePurchase", second).await["payment_request"]);
+    t.act(&fakepay, "PaymentRequest", request, "mark_paid", json!({"amount": "1500", "currency": "INR", "gateway_reference": "pi_2"})).await;
+    let p = t.get("LmsCoursePurchase", second).await;
+    assert_eq!((p["status"].clone(), p["enrollment"].clone()), (json!("Paid"), json!(enrolment.to_string())));
+    assert_eq!(t.get("LmsEnrollment", enrolment).await["status"], json!("Active"));
+
+    // ───────────── withdrawing after the 14 days keeps the money; enrolling again needs no purchase ─────────────
+    t.sql("update e_lms_course_purchase set paid_at = now() - interval '20 days' where tenant_id = $1 and id = $2", second).await;
+    t.act(&asha, "LmsEnrollment", enrolment, "withdraw", json!({})).await;
+    let p = t.get("LmsCoursePurchase", second).await;
+    assert_eq!((p["status"].clone(), p["refund"].clone()), (json!("Paid"), Value::Null));
+    t.act(&asha, "LmsEnrollment", enrolment, "reactivate", json!({})).await;
+    assert_eq!(t.get("LmsEnrollment", enrolment).await["status"], json!("Active"));
+
+    // ───────────── an unpaid purchase: asked again once its request lapses, then cancelled ─────────────
+    let bought = t.act(&chen, "LmsCourse", cid, "buy", json!({})).await;
+    let lapsing = vid(&bought["purchase"]["id"]);
+    let p = t.get("LmsCoursePurchase", lapsing).await;
+    let (first_request, chen_invoice) = (vid(&p["payment_request"]), vid(&p["sales_invoice"]));
+    t.sql("update e_payment_request set status = 'Expired' where tenant_id = $1 and id = $2", first_request).await;
+    t.act(&chen, "LmsCourse", cid, "buy", json!({})).await;
+    let p = t.get("LmsCoursePurchase", lapsing).await;
+    assert_ne!(vid(&p["payment_request"]), first_request, "a new request");
+    assert_eq!(vid(&p["sales_invoice"]), chen_invoice, "for the same invoice");
+    let second_request = vid(&p["payment_request"]);
+    t.sql("update e_payment_request set status = 'Expired', updated_at = now() - interval '2 days' where tenant_id = $1 and id = $2", second_request).await;
+    ferrum_app_lms::maintenance(&t.k).await.expect("maintenance");
+    assert_eq!(t.get("LmsCoursePurchase", lapsing).await["status"], json!("Cancelled"));
+    assert_eq!(t.get("SalesInvoice", chen_invoice).await["docstatus"], json!(2), "its invoice cancelled");
+    let page = t.page(Some(&chen), "courses/rust-for-teams").await["course"].clone();
+    assert_eq!((page["sale"]["can_buy"].clone(), page["sale"]["purchase"].clone()), (json!(true), Value::Null));
 }

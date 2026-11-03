@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clock, courseFacts, daysBetween, dueLabel, duration, hue, monogram, personName, plural } from "./format";
+import { clock, courseFacts, daysBetween, dueLabel, duration, hue, monogram, personName, plural, priceText } from "./format";
 
 describe("words for numbers and dates", () => {
   it("says how long a lesson takes", () => {
@@ -50,5 +50,15 @@ describe("words for numbers and dates", () => {
     expect(monogram("Über-Kurs")).toBe("ÜK");
     expect(hue("intro-to-rust")).toBe(hue("intro-to-rust"));
     expect([hue("a"), hue("b"), hue("c")].every((n) => n >= 1 && n <= 8)).toBe(true);
+  });
+});
+
+describe("prices", () => {
+  it("says a price in its currency, or bare when the code is unknown", () => {
+    expect(priceText({ amount: "1500", currency: "INR" }, "en-IN")).toBe("₹1,500.00");
+    expect(priceText({ amount: "19.9", currency: "EUR" }, "en-IE")).toBe("€19.90");
+    expect(priceText({ amount: "1500", currency: null }, "en-US")).toBe("1,500.00");
+    expect(priceText({ amount: "12", currency: "NOT-A-CODE" }, "en-US")).toBe("NOT-A-CODE 12.00");
+    expect(priceText({ amount: "n/a", currency: "INR" })).toBe("n/a");
   });
 });

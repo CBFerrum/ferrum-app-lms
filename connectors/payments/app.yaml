@@ -1,0 +1,17 @@
+# Learn's connector with Commerce: courses with a price, paid on the course page through the
+# store's payment methods, refunded when the learner withdraws in time. Offered where both are
+# installed.
+id: lms-payments
+name: Paid Courses
+version: 0.1.0
+publisher: cbferrum
+summary: Sell courses - learners pay on the course page, are enrolled when the payment arrives and refunded when they withdraw in time
+categories: [education, sales]
+license: AGPL-3.0-only
+homepage: https://github.com/CBFerrum/ferrum-app-lms
+support: https://github.com/CBFerrum/ferrum-app-lms/issues
+runtime: native
+platform: ">=0.3.2, <0.4"
+requires: {lms: ">=0.3", commerce: ">=0.7"}
+packages: [lms_payments]
+uninstall: ask
