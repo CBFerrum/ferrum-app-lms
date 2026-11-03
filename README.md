@@ -81,10 +81,16 @@ Course pages, learner and instructor dashboards and reports.
 </td>
 </tr>
 <tr>
-<td colspan="2" valign="top">
+<td width="50%" valign="top">
 
 ### 💳 Paid courses
 Sold through the store with Paid Courses: invoiced, paid online, refunded in the refund period.
+
+</td>
+<td width="50%" valign="top">
+
+### 📦 SCORM and xAPI
+SCORM 1.2 and 2004 packages in Learn's player, xAPI packages with an endpoint of their own.
 
 </td>
 </tr>
@@ -286,11 +292,18 @@ CHANGELOG.md  what changed in each version
 
 | Version | Highlights |
 |---|---|
+| **0.4.0** | SCORM 1.2 and 2004 lessons played through scorm-again, resumed where they stopped, and xAPI lessons with Learn's own xAPI endpoint for their statements and state; completed or passed, the lesson is completed. Packages are allowed in Learn Settings. |
 | **0.3.0** | Paid courses with Paid Courses (a connector with Commerce): a course with a price is bought on its page, invoiced and paid online through the store, enrols its learner when the payment arrives, and is refunded in full when they withdraw within the refund period. |
 | **0.2.0** | Learn's own interface at `/lms/`: the learner's course player, quiz player, assignments and certificates, the catalog and course pages (also public, with a certificate check), and for instructors the teaching dashboard, grading queue and course builder … |
 | **0.1.0** | First release of Learn: courses with chapters and ordered lessons (articles, allowlisted videos, documents, quizzes, assignments; free previews … |
 
 Every version is in [CHANGELOG.md](CHANGELOG.md).
+
+## Third-party code
+
+`ui/vendor/scorm-again/` holds the SCORM 1.2 and 2004 runtimes of
+[scorm-again](https://github.com/jcputney/scorm-again) 3.4.6, unchanged, under its MIT licence
+(`LICENSE.txt`); `PROVENANCE.md` says where they came from and their checksums.
 
 ## License
 

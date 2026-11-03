@@ -25,9 +25,11 @@ mod notice;
 mod payments;
 mod quiz;
 mod reports;
+pub mod scorm;
 mod site;
 mod util;
 mod video;
+pub mod xapi;
 
 use ferrum_domain::reports::ReportSource;
 use ferrum_kernel::{Ctx, Error, HookRegistry, Kernel, Result};
@@ -61,6 +63,7 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("LmsAssignmentSubmission", Arc::new(assignment::SubmissionHook))
         .register("LmsEnrollment", Arc::new(enrollment::EnrollmentHook))
         .register("LmsLessonProgress", Arc::new(enrollment::ProgressHook))
+        .register("LmsPackageProgress", Arc::new(scorm::ProgressHook))
         .register("LmsCertificate", Arc::new(certificate::CertificateHook))
         .add_site(util::PACKAGE, Arc::new(site::LearnSite));
     // The connector with Commerce: only where Paid Courses is installed.

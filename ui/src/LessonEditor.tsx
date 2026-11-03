@@ -32,9 +32,13 @@ export interface LessonDoc {
   attachment: string | null;
   quiz: string | null;
   assignment: string | null;
+  package_file: string | null;
+  package_standard: string | null;
+  package_launch: string | null;
+  package_activity: string | null;
 }
 
-export const LESSON_TYPES: LessonType[] = ["Article", "Video", "Document", "Quiz", "Assignment"];
+export const LESSON_TYPES: LessonType[] = ["Article", "Video", "Document", "Quiz", "Assignment", "SCORM", "xAPI"];
 export const docKey = (id: string) => ["lms", "lesson-doc", id] as const;
 
 const STATE_TEXT: Record<SaveState | "clean", string> = { clean: "All changes saved", idle: "All changes saved", waiting: "Saving…", saving: "Saving…", failed: "Could not save, trying again" };
@@ -144,11 +148,11 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
       toast(errorMessage(e), "error");
     }
   };
-  const upload = async (file: File | undefined) => {
+  const upload = async (file: File | undefined, field: "attachment" | "package_file" = "attachment") => {
     if (!file) return;
     setUploading(true);
     try {
-      set("attachment", (await uploadFile(file, { entity: "LmsLesson", id })).url);
+      set(field, (await uploadFile(file, { entity: "LmsLesson", id })).url);
     } catch (e) {
       toast(errorMessage(e), "error");
     } finally {
@@ -238,6 +242,32 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
                 {value("attachment")?.startsWith("/files/") && <span className="faint">A file is attached.</span>}
               </div>
               <input className="input" type="url" aria-label="Or a link to a page" placeholder="Or paste a link: https://" value={value("attachment")?.startsWith("/files/") ? "" : (value("attachment") ?? "")} onChange={(e) => set("attachment", e.target.value || null)} />
+            </div>
+          </Field>
+        )}
+        {(type === "SCORM" || type === "xAPI") && (
+          <Field
+            label={type === "SCORM" ? "SCORM package" : "xAPI package"}
+            htmlFor="le-scorm"
+            required
+            error={errors.package_file ?? errors.lesson_type}
+            hint={
+              type === "SCORM"
+                ? "A SCORM 1.2 or 2004 package (.zip). It is completed when it reports completed or passed."
+                : "An xAPI (Tin Can) package (.zip with tincan.xml). It is completed when it states its activity completed or passed."
+            }
+          >
+            <div className="row">
+              <label className="btn btn-default btn-md" aria-busy={uploading || undefined}>
+                <input id="le-scorm" className="sr-only" type="file" accept=".zip,application/zip" onChange={(e) => void upload(e.target.files?.[0], "package_file")} />
+                {uploading ? <Spinner small /> : <Glyph name="upload" />}
+                {value("package_file") ? "Replace the package" : "Upload a package"}
+              </label>
+              {doc?.package_standard && value("package_file") === doc.package_file && (
+                <span className="faint">
+                  {doc.package_standard}, starts at {doc.package_launch}
+                </span>
+              )}
             </div>
           </Field>
         )}

@@ -38,6 +38,7 @@ an LMS manager).
 | `certificate_issuer` | Organization named on certificates (the workspace name when empty) |
 | `certificate_signatory`, `certificate_signatory_title` | Printed under the signature line |
 | `video_hosts` | Extra video hosts, one per line (`video.example.com`; subdomains included): https links on them are embedded as they are |
+| `allow_packages` | Default off: instructors may make SCORM and xAPI lessons. A package's scripts run in Learn's pages with the learner's session (see SCORM and xAPI below), so allow them only when you trust your instructors' packages |
 
 ## Entities
 
@@ -111,7 +112,12 @@ an LMS manager).
   Instructors may change `cohort` later (capacity checked); `course` and `learner` never change.
 - **LmsLessonProgress** — one row per completed lesson of an enrolment (`enrollment`, `lesson`,
   `lesson_title`, `course`, `learner`, `completed_at`, `completed_via`: `Learner`, `Instructor`,
-  `Quiz`, `Assignment`, `completed_by`). Written by Learn only.
+  `Quiz`, `Assignment`, `SCORM`, `xAPI`, `completed_by`). Written by Learn only.
+- **LmsPackageProgress** — a learner's run of a SCORM or xAPI lesson, one per enrolment and lesson:
+  `status` (`Not Attempted`, `Browsed`, `Incomplete`, `Completed`, `Passed`, `Failed`),
+  `score_percent`, `total_seconds`, `commits` (SCORM commits or xAPI statements), `last_commit_at`
+  and, for SCORM, `cmi` (the package's own data, resumed next time). Written by Learn only; an LMS
+  manager may delete one so the learner starts the package over.
 - **LmsQuizAttempt** (`QA-YYYY-000001`) — one sitting: `quiz`, `quiz_title`, `course`,
   `enrollment`, `learner`, `attempt_no`, `status` (`In Progress`, `Submitted`, `Timed Out`),
   `started_at`, `deadline` (server time; empty without a limit), `submitted_at`,
@@ -192,7 +198,7 @@ submissions: [{id, number, submission_no, status, score, passed, submitted_at, l
 ## Signed-in endpoints — `/api/app/lms/...`
 
 Bearer auth as everywhere; the caller needs the Learner, Instructor or LMS Manager role (or is an
-administrator), else `403`. All are `GET`; anything else is `404`.
+administrator), else `403`. All are `GET` (anything else is `404`) but the xAPI endpoint.
 
 | Path | Query → response |
 |---|---|
@@ -200,6 +206,8 @@ administrator), else `403`. All are `GET`; anything else is `404`.
 | `/courses/{slug}` | → `{course: Page + can_enroll, enroll_blockers: [text], is_author, my_enrollment?, next_lesson?, upcoming_sessions?}` — published courses, or any course you author or are enrolled in (`404` otherwise). With an enrolment the chapters carry your `completed` flags and the sessions of your cohort (join links included) |
 | `/lessons/{id}` | → the `open_lesson` view (content, quiz/assignment state) for enrolled learners (not withdrawn), the course's authors, and free previews of published courses; `404` otherwise. Opening it as a learner makes it the resume point |
 | `/lessons/{id}/file` | → the lesson's uploaded file to the same people (PDFs and images inline, other types as downloads, `nosniff`, sandboxed) |
+| `/lessons/{id}/package/{file}/{path}` | → a file of a SCORM or xAPI lesson's package (`{file}`: the package's file id, so a new package is a new address) to the same people, from the zip, with a policy that lets its scripts run and talk to this server only (`frame-ancestors 'self'`); `404` for anything the package does not hold |
+| `/xapi/{lesson}/...` | the lesson's xAPI endpoint (below); takes `GET`, `PUT`, `POST` and `DELETE` |
 | `/dashboard` | → `{courses: [{enrollment, course: {id, slug, title, cover_image}, status, progress_percent, completed_lessons, total_lessons, enrolled_on, last_activity_at, completed_at, next_lesson, cohort, certificate: {id, number, verification_code} \| null}], due_assignments: [{assignment, title, course: {id, title}, lesson, due_date, status: "Not Submitted" \| "Submitted" \| "Needs Revision" \| "Failed", overdue}], upcoming_sessions: [Session], certificates: [{id, number, course_title, verification_code}], learning_paths: [{id, title, courses, completed, progress_percent}]}` — in-progress courses first |
 | `/teaching` | → `{courses: [{id, slug, title, status, enrolled, active, completed, completion_rate, average_progress, submissions_to_grade}]}` — courses you author (every course for LMS managers), within your record scopes |
 | `/teaching/courses/{course}/roster` | `cohort?` → `{course, enrolled, completed, completion_rate, learners: [{enrollment, number, learner, learner_name, status, progress_percent, completed_lessons, total_lessons, enrolled_on, last_activity_at, completed_at, cohort, certificate, quizzes_passed, best_quiz_percentage, submissions_to_grade}]}` — the course's authors only (`403`) |
@@ -265,9 +273,70 @@ enrolments that course changes brought to 100 % and issues certificates owed to 
 enrolments of courses that give them; purges reminder bookkeeping older than 90 days. Each step
 reads only what is due through partial indexes, and a failing step does not stop the others.
 
+## SCORM and xAPI lessons
+
+A lesson of type `SCORM` or `xAPI` holds a package (`package_file`, a `.zip` uploaded with
+`/api/files`, up to 256 MB) once Learn Settings allow packages. Saving the lesson reads it:
+
+- **SCORM 1.2 and 2004**: `imsmanifest.xml` at the package's root (or in its one top folder). The
+  default organization's first item that points at a SCO gives `package_launch` (with `xml:base` and
+  the item's `parameters`) and, for 1.2, `package_mastery_score`; `package_standard` is
+  `SCORM 1.2` or `SCORM 2004`.
+- **xAPI (Tin Can)**: `tincan.xml`; its first activity with a `<launch>` gives `package_launch` and
+  `package_activity` (an IRI).
+
+Refused (`422` on `package_file`): not a zip, more than 20,000 files, a path that leaves the
+package, no descriptor, nothing to launch, a launch file the package does not hold, a manifest with a
+DTD. The package's files are then served below the lesson (`/lessons/{id}/package/...`), from the
+zip, to whoever may open the lesson.
+
+**SCORM** runs in Learn's player, which gives the package the SCORM API (scorm-again 3.4.6, MIT,
+vendored in `ui/vendor/scorm-again` with its provenance) in the page that frames it. It loads what
+the package saved last time (minus that session's time and exit), and tells it who the learner is and
+whether this is a resume. It saves what the package records (`scorm_commit` on the enrolment) when
+the package commits and when it finishes. `scorm_commit {lesson, cmi}` (the learner's own enrolment;
+`cmi` at most 1 MB) keeps it in Package Progress. SCORM 1.2's `cmi.core.lesson_status` `passed` or
+`completed`, or SCORM 2004's `cmi.completion_status` `completed` or `cmi.success_status` `passed`
+(unless `failed`), completes the lesson. The score is `score.raw` against `score.min` and
+`score.max` (0 to 100 when not given), or 2004's `score.scaled`; the time is `total_time`.
+
+**xAPI** packages are launched with `endpoint` (this server's `/api/app/lms/xapi/{lesson}/`), `auth`,
+`actor` (the learner, by `mbox`), `registration` (the enrolment) and `activity_id`. The endpoint's
+credential is the learner's session, not `auth`, so a package can only speak as the signed-in
+learner, about this lesson of their enrolment (`404` to anyone else; an instructor's preview is
+answered and keeps nothing). It answers with `X-Experience-API-Version: 1.0.3`:
+
+| Resource | Does |
+|---|---|
+| `GET about` | `{"version": ["1.0.3"]}` |
+| `PUT statements?statementId=` | stores one statement at that id (`204`); the same again changes nothing, a different one is `409` |
+| `POST statements` | one statement or a list → their ids |
+| `GET statements` | `statementId` or `voidedStatementId` → one statement; else `verb`, `activity`, `registration`, `since`, `limit` (≤ 100) → `{statements, more: ""}`, the learner's own about the lesson, newest first, voided ones left out |
+| `activities/state` | `activityId`, `agent` (the learner, JSON), `registration`, `stateId`: `GET` one (with its `ETag`) or the ids (`since`), `PUT` replaces (honouring `If-Match` and `If-None-Match: *`), `POST` merges JSON objects, `DELETE` one or all |
+
+A statement must name the learner as its actor (`403` otherwise), have a verb IRI and an object (an
+activity with an IRI id, a statement reference, an agent, a group or a sub-statement); a scaled
+score lies between -1 and 1. The endpoint adds `id`, `stored`, `timestamp` (when missing), `version`
+and `authority`. A voiding statement voids the learner's statement it names, never a voiding one,
+and is kept even when that statement is not there. A statement about the lesson's activity with verb
+`passed`, or `completed` (unless its result failed), or a result of `completion: true`, completes
+the lesson; `failed` marks the run failed; its scaled score (or raw against min and max) and
+duration are kept. Once done, a lesson stays done.
+
 ## Limits
 
 - Learners can list course metadata (`LmsCourse`) of drafts too; content stays behind enrolment.
 - Instructors read every enrolment, attempt and submission unless limited by `LmsCourse` scopes.
 - Certificates are HTML print formats (print or save as PDF in the browser); no server-side PDF.
-- Paid courses, SCORM/xAPI packages and discussion forums are not part of this release.
+- Discussion forums are not part of this release; paid courses come with the Paid Courses connector
+  (`packages/lms_payments`).
+- SCORM and xAPI packages run on the workspace's origin with the learner's session, as course content
+  does in Moodle or Frappe LMS: their scripts are trusted like their instructors. That is why Learn
+  Settings allow them, off by default. A separate content origin for packages would remove this
+  trust; Ferrum has none yet.
+- SCORM 2004 sequencing and navigation between SCOs is not run: a lesson plays its package's first
+  SCO. A package with several SCOs is several lessons.
+- The xAPI endpoint is for Learn's own lessons only: no activity or agent profiles, no attachments,
+  no `more` paging; cmi5 launches are not supported.
+- Packages are read whole into memory (and kept there, 512 MB in all, the oldest dropped first),
+  hence the 256 MB cap.

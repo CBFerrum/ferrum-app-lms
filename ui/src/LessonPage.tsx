@@ -9,6 +9,7 @@ import { Glyph, LESSON_LABEL } from "./Glyph";
 import { embedSrc, isExternal } from "./lesson";
 import { Md } from "./Md";
 import { QuizPanel } from "./QuizPlayer";
+import { ScormLesson, XapiLesson } from "./Scorm";
 import type { LessonBody, LessonView } from "./types";
 
 export function LessonVideo({ lesson }: { lesson: Pick<LessonBody, "title" | "video_embed_url"> & { video_url?: string | null } }) {
@@ -111,6 +112,14 @@ export function LessonPage({
         ) : (
           <Alert tone="info">{learning ? "The quiz of this lesson is not ready yet." : "Quizzes run for enrolled learners. Enrol yourself in the course to try this one."}</Alert>
         ))}
+      {l.lesson_type === "SCORM" &&
+        (view.scorm ? (
+          <ScormLesson player={view.scorm} title={l.title} enrollment={enrollment} lessonId={l.id} onProgress={onProgress} />
+        ) : (
+          <Alert tone="info">The package of this lesson is not in yet.</Alert>
+        ))}
+      {l.lesson_type === "xAPI" &&
+        (view.xapi ? <XapiLesson player={view.xapi} title={l.title} done={view.completed} onProgress={onProgress} /> : <Alert tone="info">The package of this lesson is not in yet.</Alert>)}
       {l.lesson_type === "Assignment" &&
         (view.assignment ? (
           <AssignmentPanel state={view.assignment} lessonId={l.id} onProgress={onProgress} />

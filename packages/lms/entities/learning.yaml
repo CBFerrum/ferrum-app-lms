@@ -32,6 +32,7 @@
     - {name: complete_lesson, label: Mark Lesson Complete, permission: read, condition: "doc.status != 'Withdrawn'", hidden: true}
     - {name: open_lesson, label: Open Lesson, permission: read, condition: "doc.status != 'Withdrawn'", hidden: true}
     - {name: start_quiz, label: Start Quiz, permission: read, condition: "doc.status != 'Withdrawn'", hidden: true}
+    - {name: scorm_commit, label: Save SCORM Progress, permission: read, condition: "doc.status != 'Withdrawn'", hidden: true}
     - {name: outline, label: Course Outline, permission: read, hidden: true}
     - {name: withdraw, label: Withdraw, permission: read, condition: "doc.status == 'Active'", confirm: "Leave this course? Your progress is kept if you enrol again."}
     - {name: reactivate, label: Enrol Again, permission: read, condition: "doc.status == 'Withdrawn'"}
@@ -52,9 +53,32 @@
     - {name: course, type: link, to: LmsCourse, read_only: true, in_list: true, in_filter: true}
     - {name: learner, type: email, read_only: true, in_list: true, in_filter: true}
     - {name: completed_at, type: datetime, read_only: true, in_list: true}
-    - {name: completed_via, type: select, options: [Learner, Instructor, Quiz, Assignment], read_only: true, in_list: true}
+    - {name: completed_via, type: select, options: [Learner, Instructor, Quiz, Assignment, SCORM, xAPI], read_only: true, in_list: true}
     - {name: completed_by, type: email, read_only: true}
   list: {columns: [lesson_title, learner, course, completed_at], sort: completed_at desc}
+
+- name: LmsPackageProgress
+  label: Package Progress
+  label_plural: Package Progress
+  kind: document
+  module: learn
+  title_field: lesson_title
+  owner_fields: [learner]
+  unique: [[enrollment, lesson]]
+  description: "A learner's run of a SCORM or xAPI lesson: its status, score and time, and for SCORM what the package recorded (resumed next time). Written by Learn's player and its xAPI endpoint; completed or passed, the lesson is completed."
+  fields:
+    - {name: enrollment, type: link, to: LmsEnrollment, required: true, in_filter: true, on_delete: cascade}
+    - {name: lesson, type: link, to: LmsLesson, required: true, in_filter: true, on_delete: cascade}
+    - {name: lesson_title, type: data, fetch_from: lesson.title, read_only: true, in_list: true}
+    - {name: course, type: link, to: LmsCourse, read_only: true, in_list: true, in_filter: true}
+    - {name: learner, type: email, read_only: true, in_list: true, in_filter: true}
+    - {name: status, type: select, options: [Not Attempted, Browsed, Incomplete, Completed, Passed, Failed], default: Not Attempted, read_only: true, in_list: true, in_filter: true}
+    - {name: score_percent, type: percent, precision: 2, label: Score (%), read_only: true, in_list: true}
+    - {name: total_seconds, type: int, label: Time (Seconds), read_only: true}
+    - {name: commits, type: int, label: Saves, read_only: true, description: "SCORM commits, or xAPI statements stored"}
+    - {name: last_commit_at, type: datetime, label: Last Saved, read_only: true, in_list: true}
+    - {name: cmi, type: json, label: SCORM Data, read_only: true, description: "The package's own record of the run (its cmi data model)"}
+  list: {columns: [lesson_title, learner, status, score_percent, last_commit_at], sort: last_commit_at desc}
 
 - name: LmsAttemptAnswer
   label: Attempt Answer

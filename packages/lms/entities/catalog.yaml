@@ -10,6 +10,7 @@
     - {name: certificate_signatory, type: data, max_length: 200, description: "Name printed under the signature line of certificates"}
     - {name: certificate_signatory_title, type: data, max_length: 200}
     - {name: video_hosts, type: text, label: Additional Video Hosts, max_length: 4000, description: "One host per line (e.g. video.example.com): https URLs on these hosts (and their subdomains) may be embedded as they are, besides YouTube, Vimeo, Loom, Wistia and Google Drive"}
+    - {name: allow_packages, type: check, label: Allow SCORM and xAPI Packages, description: "Instructors may make lessons of SCORM 1.2, SCORM 2004 and xAPI packages. A package's scripts run in Learn with the learner's session, as course content does in other LMSs: allow them only when you trust your instructors' packages"}
 
 - name: LmsCategory
   label: Course Category
@@ -90,28 +91,34 @@
   module: learn
   title_field: title
   unique: [[quiz], [assignment]]
-  description: "A step of a course. Articles, videos and documents are completed by marking them done; quiz lessons when the quiz is passed; assignment lessons when the submission passes."
+  description: "A step of a course. Articles, videos and documents are completed by marking them done; quiz lessons when the quiz is passed; assignment lessons when the submission passes; SCORM and xAPI lessons when their package says completed or passed."
   fields:
     - {name: title, type: data, required: true, max_length: 200, in_list: true}
     - {name: chapter, type: link, to: LmsChapter, required: true, in_list: true, in_filter: true}
     - {name: course, type: link, to: LmsCourse, read_only: true, in_filter: true, description: "The chapter's course"}
     - {name: position, type: int, min: 0, max: 100000, in_list: true, description: "Order in the chapter; the next free position when empty"}
-    - {name: lesson_type, type: select, label: Type, options: [Article, Video, Document, Quiz, Assignment], required: true, default: Article, in_list: true, in_filter: true}
+    - {name: lesson_type, type: select, label: Type, options: [Article, Video, Document, Quiz, Assignment, SCORM, xAPI], required: true, default: Article, in_list: true, in_filter: true}
     - {name: content, type: markdown, max_length: 500000}
     - {name: video_url, type: url, label: Video URL, required_if: "doc.lesson_type == 'Video'", description: "https link on YouTube, Vimeo, Loom, Wistia, Google Drive or a host allowed in Learn Settings"}
     - {name: video_embed_url, type: url, label: Embed URL, read_only: true, no_copy: true}
     - {name: attachment, type: attach, label: File, required_if: "doc.lesson_type == 'Document'", description: "A PDF or other file uploaded with /api/files"}
     - {name: quiz, type: link, to: LmsQuiz, required_if: "doc.lesson_type == 'Quiz'", visible_if: "doc.lesson_type == 'Quiz'"}
     - {name: assignment, type: link, to: LmsAssignment, required_if: "doc.lesson_type == 'Assignment'", visible_if: "doc.lesson_type == 'Assignment'"}
+    - {name: package_file, type: attach, label: Package, required_if: "doc.lesson_type == 'SCORM' || doc.lesson_type == 'xAPI'", visible_if: "doc.lesson_type == 'SCORM' || doc.lesson_type == 'xAPI'", description: "A SCORM 1.2, SCORM 2004 or xAPI (Tin Can) package (.zip, up to 256 MB) uploaded with /api/files"}
+    - {name: package_standard, type: data, label: Standard, read_only: true, no_copy: true, visible_if: "doc.package_file != null", description: "SCORM 1.2, SCORM 2004 or xAPI, as the package says"}
+    - {name: package_launch, type: data, label: Launches, max_length: 1000, read_only: true, no_copy: true, visible_if: "doc.package_file != null", description: "The file of the package it starts from"}
+    - {name: package_activity, type: data, label: xAPI Activity, max_length: 1000, read_only: true, no_copy: true, visible_if: "doc.lesson_type == 'xAPI'", description: "The activity its statements are about (from tincan.xml)"}
+    - {name: package_mastery_score, type: decimal, precision: 2, label: Mastery Score, read_only: true, no_copy: true, visible_if: "doc.lesson_type == 'SCORM'"}
     - {name: duration_minutes, type: int, min: 0, max: 100000, in_list: true}
     - {name: is_preview, type: check, label: Free Preview, in_list: true, description: "Anyone may open it before enrolling (on the public page too when the course is public)"}
     - {name: required, type: check, label: Required for Completion, default: true, in_list: true}
   rules:
     - {name: quiz_lessons_only, check: "doc.lesson_type == 'Quiz' || doc.quiz == null", message: "Only quiz lessons link a quiz"}
     - {name: assignment_lessons_only, check: "doc.lesson_type == 'Assignment' || doc.assignment == null", message: "Only assignment lessons link an assignment"}
+    - {name: package_lessons_only, check: "doc.lesson_type == 'SCORM' || doc.lesson_type == 'xAPI' || doc.package_file == null", message: "Only SCORM and xAPI lessons hold a package"}
   form:
     - {label: Lesson, fields: [title, chapter, course, position, lesson_type, duration_minutes, is_preview, required]}
-    - {label: Content, fields: [content, video_url, video_embed_url, attachment, quiz, assignment]}
+    - {label: Content, fields: [content, video_url, video_embed_url, attachment, quiz, assignment, package_file, package_standard, package_launch, package_activity, package_mastery_score]}
   list: {columns: [title, chapter, lesson_type, position, required], sort: position asc}
 
 - name: LmsLearningPathCourse

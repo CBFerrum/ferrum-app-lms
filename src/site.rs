@@ -15,7 +15,9 @@ use crate::certificate;
 use crate::cohort;
 use crate::enrollment::{self, WITHDRAWN};
 use crate::payments;
+use crate::scorm;
 use crate::util::{self, authors, id, is_manager, is_member, load, rows, s, sys, valid_slug};
+use crate::xapi;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use ferrum_domain::util::money;
@@ -36,19 +38,29 @@ impl Site for LearnSite {
         16 * 1024
     }
 
+    /// xAPI lessons' statements and state documents are larger than anything else sent here.
+    fn max_body_for(&self, method: &str, path: &str) -> usize {
+        if method != "GET" && path.trim_start_matches('/').starts_with("xapi/") { xapi::MAX_BODY } else { self.max_body() }
+    }
+
     async fn handle(&self, k: &Kernel, req: SiteRequest) -> Result<SiteResponse> {
         let path: Vec<&str> = req.path.split('/').filter(|p| !p.is_empty()).collect();
-        if req.method != "GET" {
-            return Err(Error::NotFound("endpoint".into()));
-        }
         match &req.user {
-            None => public(k, &req, &path).await,
             Some(user) => {
                 if !is_member(user) {
                     return Err(Error::Forbidden("Learn needs the Learner, Instructor or LMS Manager role".into()));
                 }
+                // The xAPI endpoint of a lesson takes writes; everything else here only answers reads.
+                if let ["xapi", lesson, rest @ ..] = path.as_slice() {
+                    return xapi::handle(k, user, &req, uuid(lesson)?, rest).await;
+                }
+                if req.method != "GET" {
+                    return Err(Error::NotFound("endpoint".into()));
+                }
                 signed_in(k, user, &req, &path).await
             }
+            None if req.method != "GET" => Err(Error::NotFound("endpoint".into())),
+            None => public(k, &req, &path).await,
         }
     }
 }
@@ -473,6 +485,30 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
                 page["upcoming_sessions"] = json!(sessions);
             }
             json_response(&json!({"course": page}), "no-store")
+        }
+        ["lessons", lesson, "package", package, rest @ ..] if !rest.is_empty() => {
+            // A file of a SCORM or xAPI lesson's package, for whoever may open the lesson, while it is the lesson's package.
+            let lesson = match load(k, user, &mut tx, "LmsLesson", uuid(lesson)?).await {
+                Ok(l) => l,
+                Err(Error::NotFound(_)) => return Err(not_found("file")),
+                Err(e) => return Err(e),
+            };
+            let course = load(k, user, &mut tx, "LmsCourse", id(&lesson, "course").unwrap_or_default()).await?;
+            let mine = my_enrollment(k, user, &mut tx, util::doc_id(&course)?).await?.filter(|e| s(e, "status") != Some(WITHDRAWN));
+            let preview = util::b(&lesson, "is_preview") && s(&course, "status") == Some("Published");
+            if mine.is_none() && !authors(user, &course) && !preview {
+                return Err(not_found("file"));
+            }
+            let file = s(&lesson, "package_file")
+                .filter(|_| matches!(s(&lesson, "lesson_type"), Some("SCORM" | "xAPI")))
+                .and_then(util::file_id)
+                .filter(|f| f.to_string() == *package)
+                .ok_or_else(|| not_found("file"))?;
+            tx.commit().await?;
+            let data = scorm::bytes(k, user, file).await?;
+            let path = rest.join("/");
+            let body = scorm::entry(&data, &path)?.ok_or_else(|| not_found("file"))?;
+            return Ok(scorm::respond(&path, body));
         }
         ["lessons", lesson, rest @ ..] if rest.is_empty() || rest == ["file"] => {
             let lesson = match load(k, user, &mut tx, "LmsLesson", uuid(lesson)?).await {
