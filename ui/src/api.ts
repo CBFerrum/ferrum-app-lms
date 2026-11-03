@@ -2,7 +2,7 @@
 // /api/app/lms for people signed in and /api/site/{workspace}/lms for everyone; what it changes
 // is a record or an action of the generic API, so the server's rules decide every time.
 
-import { api, docPath } from "@ferrum/client";
+import { api, bootstrap, docPath } from "@ferrum/client";
 import type {
   Attempt,
   AttemptRow,
@@ -12,6 +12,7 @@ import type {
   CoursePage,
   Dashboard,
   Purchase,
+  ScormSaved,
   LessonView,
   Roster,
   SubmitResult,
@@ -68,6 +69,20 @@ export const joinPath = (path: string) =>
   act<{ enrolled: unknown[]; already_enrolled: unknown[]; skipped: { course_title: string; reason: string }[] }>("LmsLearningPath", path, "join");
 
 export const completeLesson = (enrollment: string, lesson: string) => act<CompletionSummary>("LmsEnrollment", enrollment, "complete_lesson", { lesson });
+
+/** Saves what a SCORM package recorded. The last save (`finishing`) is usually sent as the page
+ *  goes away, so it is a request that outlives the page while it is small enough to (64 KB). */
+export function scormCommit(enrollment: string, lesson: string, cmi: unknown, finishing = false): Promise<ScormSaved> {
+  const body = JSON.stringify({ lesson, cmi });
+  if (!finishing || body.length > 60_000) return act<ScormSaved>("LmsEnrollment", enrollment, "scorm_commit", { lesson, cmi });
+  const b = bootstrap();
+  const headers: Record<string, string> = { accept: "application/json", "content-type": "application/json" };
+  if (b?.app) headers["x-ferrum-ui"] = `${b.app.id}@${b.app.version}`;
+  return fetch(docPath("LmsEnrollment", enrollment, "actions", "scorm_commit"), { method: "POST", headers, body, credentials: "same-origin", keepalive: true }).then(async (r) => {
+    if (!r.ok) throw new Error(`the SCORM data was not saved (${r.status})`);
+    return (await r.json()) as ScormSaved;
+  });
+}
 export const startQuiz = (enrollment: string, quiz: string) => act<{ resumed: boolean; attempt: Attempt }>("LmsEnrollment", enrollment, "start_quiz", { quiz });
 /** A save after the deadline closes the attempt, and then answers like a submit. */
 export const saveAnswers = (attempt: string, answers: Answers) => act<{ attempt: Attempt } & Partial<SubmitResult>>("LmsQuizAttempt", attempt, "save_answers", { answers });

@@ -1,5 +1,5 @@
 package: lms
-version: 0.1.0
+version: 0.2.0
 label: Learn
 description: Learning management — courses with chapters and lessons, learning paths, cohorts with live sessions, question banks and timed quizzes, graded assignments, enrolments with server-computed progress, certificates with public verification and a public course catalog.
 depends: [core]
@@ -9,7 +9,7 @@ modules:
     label: Learn
     icon: graduation-cap
     order: 55
-    items: [LmsCourse, LmsChapter, LmsLesson, LmsQuiz, LmsQuestion, LmsAssignment, LmsLearningPath, LmsCohort, LmsEnrollment, LmsLessonProgress,
+    items: [LmsCourse, LmsChapter, LmsLesson, LmsQuiz, LmsQuestion, LmsAssignment, LmsLearningPath, LmsCohort, LmsEnrollment, LmsLessonProgress, LmsPackageProgress,
             LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsSettings,
             report:lms_course_completion, report:lms_quiz_scores, report:lms_learner_progress, report:lms_overdue_assignments]
 
@@ -29,6 +29,7 @@ roles:
       - {entity: LmsCohort, read: true, write: true, create: true, delete: true, export: true}
       - {entity: LmsEnrollment, read: true, write: true, create: true, delete: true, export: true, import: true}
       - {entity: LmsLessonProgress, read: true, export: true}
+      - {entity: LmsPackageProgress, read: true, delete: true, export: true}
       - {entity: LmsQuizAttempt, read: true, write: true, delete: true, export: true}
       - {entity: LmsAssignmentSubmission, read: true, write: true, delete: true, export: true}
       - {entity: LmsCertificate, read: true, write: true, export: true}
@@ -49,6 +50,7 @@ roles:
       - {entity: LmsCohort, read: true, write: true, create: true, delete: true}
       - {entity: LmsEnrollment, read: true, write: true, create: true, export: true}
       - {entity: LmsLessonProgress, read: true, export: true}
+      - {entity: LmsPackageProgress, read: true, export: true}
       - {entity: LmsQuizAttempt, read: true, write: true, export: true}
       - {entity: LmsAssignmentSubmission, read: true, write: true, export: true}
       - {entity: LmsCertificate, read: true}
@@ -60,6 +62,7 @@ roles:
       - {entity: LmsLearningPath, read: true}
       - {entity: LmsEnrollment, read: true, create: true, if_owner: true}
       - {entity: LmsLessonProgress, read: true, if_owner: true}
+      - {entity: LmsPackageProgress, read: true, if_owner: true}
       - {entity: LmsQuizAttempt, read: true, if_owner: true}
       - {entity: LmsAssignmentSubmission, read: true, create: true, write: true, if_owner: true}
       - {entity: LmsCertificate, read: true, if_owner: true}
@@ -72,6 +75,7 @@ seed:
 personal_data:
   - {entity: LmsEnrollment, match: learner, erase: [learner, learner_name]}
   - {entity: LmsLessonProgress, match: learner, erase: [learner]}
+  - {entity: LmsPackageProgress, match: learner, erase: [learner, cmi]}
   - {entity: LmsQuizAttempt, match: learner, erase: [learner, learner_name]}
   - {entity: LmsAssignmentSubmission, match: learner, erase: [learner, learner_name, answer, feedback]}
   - {entity: LmsCertificate, match: learner, erase: [learner, learner_name]}

@@ -20,6 +20,7 @@ const PATHS: Record<string, string> = {
   more: "M12 5h.01M12 12h.01M12 19h.01",
   cap: "M2 9l10-5 10 5-10 5zM6 11v5c0 1.5 3 3 6 3s6-1.5 6-3v-5",
   circle: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
+  package: "M12 3 4 7.5v9L12 21l8-4.5v-9zM4 7.5 12 12l8-4.5M12 12v9",
   circleCheck: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM8 12.5l3 3 5-6",
 };
 
@@ -34,9 +35,9 @@ export function Glyph({ name, size = 16 }: { name: string; size?: number }) {
   );
 }
 
-const BY_TYPE: Record<LessonType, string> = { Article: "article", Video: "play", Document: "doc", Quiz: "quiz", Assignment: "assignment" };
+const BY_TYPE: Record<LessonType, string> = { Article: "article", Video: "play", Document: "doc", Quiz: "quiz", Assignment: "assignment", SCORM: "package", xAPI: "package" };
 
 export const lessonGlyph = (type: LessonType) => BY_TYPE[type] ?? "article";
 
 /** What to call a kind of lesson. */
-export const LESSON_LABEL: Record<LessonType, string> = { Article: "Reading", Video: "Video", Document: "Document", Quiz: "Quiz", Assignment: "Assignment" };
+export const LESSON_LABEL: Record<LessonType, string> = { Article: "Reading", Video: "Video", Document: "Document", Quiz: "Quiz", Assignment: "Assignment", SCORM: "SCORM package", xAPI: "xAPI package" };
