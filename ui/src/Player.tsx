@@ -114,7 +114,7 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
 
   const here = data ? findLesson(data.chapters, lessonId) : undefined;
   const nav = data ? around(data.chapters, lessonId) : null;
-  const action = data && view ? nextAction(data.chapters, view.lesson, view.completed, learning) : null;
+  const action = data && view ? nextAction(data.chapters, view.lesson, view.completed, learning, view.lti ? !view.lti.sends_grades : undefined) : null;
 
   const advance = async () => {
     if (!view || !action) return;
@@ -207,10 +207,18 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
     const prev = nav.prev?.lesson;
     const kind = view.lesson.lesson_type;
     // Quizzes and assignments finish when passed; everything else, by the button, or the arrow keys.
-    const hint =
-      kind === "Quiz" || kind === "Assignment"
-        ? !view.completed && learning && (kind === "Quiz" ? "Passing the quiz completes this lesson." : "A passing grade completes this lesson.")
-        : "Tip: the arrow keys move between lessons.";
+    const graded = kind === "Quiz" || kind === "Assignment" || kind === "SCORM" || kind === "xAPI" || (kind === "LTI" && !!view.lti?.sends_grades);
+    const hint = graded
+      ? !view.completed &&
+        learning &&
+        (kind === "Quiz"
+          ? "Passing the quiz completes this lesson."
+          : kind === "Assignment"
+            ? "A passing grade completes this lesson."
+            : kind === "LTI"
+              ? "The tool completes this lesson when it says you are done."
+              : "The package completes this lesson when it says you completed or passed it.")
+      : "Tip: the arrow keys move between lessons.";
     return (
       <LessonPage view={view} chapterTitle={here?.chapter.title} learning={learning} enrollment={enrollment} onProgress={refresh} onSitting={setSitting} headingRef={heading}>
         {!sitting && (

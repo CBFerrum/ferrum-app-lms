@@ -10,6 +10,7 @@
     - {name: certificate_signatory, type: data, max_length: 200, description: "Name printed under the signature line of certificates"}
     - {name: certificate_signatory_title, type: data, max_length: 200}
     - {name: video_hosts, type: text, label: Additional Video Hosts, max_length: 4000, description: "One host per line (e.g. video.example.com): https URLs on these hosts (and their subdomains) may be embedded as they are, besides YouTube, Vimeo, Loom, Wistia and Google Drive"}
+    - {name: lti_private_key, type: secret, label: LTI Signing Key, description: "The private key Learn signs LTI launches with; made on first use. Replacing it means every tool fetches Learn's keys again"}
     - {name: allow_packages, type: check, label: Allow SCORM and xAPI Packages, description: "Instructors may make lessons of SCORM 1.2, SCORM 2004 and xAPI packages. A package's scripts run in Learn with the learner's session, as course content does in other LMSs: allow them only when you trust your instructors' packages"}
 
 - name: LmsCategory
@@ -91,13 +92,13 @@
   module: learn
   title_field: title
   unique: [[quiz], [assignment]]
-  description: "A step of a course. Articles, videos and documents are completed by marking them done; quiz lessons when the quiz is passed; assignment lessons when the submission passes; SCORM and xAPI lessons when their package says completed or passed."
+  description: "A step of a course. Articles, videos and documents are completed by marking them done; quiz lessons when the quiz is passed; assignment lessons when the submission passes; SCORM and xAPI lessons when their package says completed or passed; LTI lessons when their tool sends a completed score (or the learner marks them done, when it sends none)."
   fields:
     - {name: title, type: data, required: true, max_length: 200, in_list: true}
     - {name: chapter, type: link, to: LmsChapter, required: true, in_list: true, in_filter: true}
     - {name: course, type: link, to: LmsCourse, read_only: true, in_filter: true, description: "The chapter's course"}
     - {name: position, type: int, min: 0, max: 100000, in_list: true, description: "Order in the chapter; the next free position when empty"}
-    - {name: lesson_type, type: select, label: Type, options: [Article, Video, Document, Quiz, Assignment, SCORM, xAPI], required: true, default: Article, in_list: true, in_filter: true}
+    - {name: lesson_type, type: select, label: Type, options: [Article, Video, Document, Quiz, Assignment, SCORM, xAPI, LTI], required: true, default: Article, in_list: true, in_filter: true}
     - {name: content, type: markdown, max_length: 500000}
     - {name: video_url, type: url, label: Video URL, required_if: "doc.lesson_type == 'Video'", description: "https link on YouTube, Vimeo, Loom, Wistia, Google Drive or a host allowed in Learn Settings"}
     - {name: video_embed_url, type: url, label: Embed URL, read_only: true, no_copy: true}
@@ -109,16 +110,20 @@
     - {name: package_launch, type: data, label: Launches, max_length: 1000, read_only: true, no_copy: true, visible_if: "doc.package_file != null", description: "The file of the package it starts from"}
     - {name: package_activity, type: data, label: xAPI Activity, max_length: 1000, read_only: true, no_copy: true, visible_if: "doc.lesson_type == 'xAPI'", description: "The activity its statements are about (from tincan.xml)"}
     - {name: package_mastery_score, type: decimal, precision: 2, label: Mastery Score, read_only: true, no_copy: true, visible_if: "doc.lesson_type == 'SCORM'"}
+    - {name: lti_tool, type: link, to: LmsLtiTool, label: LTI Tool, required_if: "doc.lesson_type == 'LTI'", visible_if: "doc.lesson_type == 'LTI'"}
+    - {name: lti_target_url, type: url, label: Tool Address, visible_if: "doc.lesson_type == 'LTI'", description: "Where in the tool this lesson opens; the tool's launch address when empty"}
+    - {name: lti_custom, type: text, label: Custom Parameters, max_length: 4000, visible_if: "doc.lesson_type == 'LTI'", description: "name=value, one per line, sent with the launch (besides the tool's own)"}
     - {name: duration_minutes, type: int, min: 0, max: 100000, in_list: true}
     - {name: is_preview, type: check, label: Free Preview, in_list: true, description: "Anyone may open it before enrolling (on the public page too when the course is public)"}
     - {name: required, type: check, label: Required for Completion, default: true, in_list: true}
   rules:
     - {name: quiz_lessons_only, check: "doc.lesson_type == 'Quiz' || doc.quiz == null", message: "Only quiz lessons link a quiz"}
     - {name: assignment_lessons_only, check: "doc.lesson_type == 'Assignment' || doc.assignment == null", message: "Only assignment lessons link an assignment"}
+    - {name: lti_lessons_only, check: "doc.lesson_type == 'LTI' || doc.lti_tool == null", message: "Only LTI lessons open a tool"}
     - {name: package_lessons_only, check: "doc.lesson_type == 'SCORM' || doc.lesson_type == 'xAPI' || doc.package_file == null", message: "Only SCORM and xAPI lessons hold a package"}
   form:
     - {label: Lesson, fields: [title, chapter, course, position, lesson_type, duration_minutes, is_preview, required]}
-    - {label: Content, fields: [content, video_url, video_embed_url, attachment, quiz, assignment, package_file, package_standard, package_launch, package_activity, package_mastery_score]}
+    - {label: Content, fields: [content, video_url, video_embed_url, attachment, quiz, assignment, package_file, package_standard, package_launch, package_activity, package_mastery_score, lti_tool, lti_target_url, lti_custom]}
   list: {columns: [title, chapter, lesson_type, position, required], sort: position asc}
 
 - name: LmsLearningPathCourse
@@ -183,3 +188,31 @@
   actions:
     - {name: schedule_sessions, label: Schedule Sessions, permission: write}
   list: {columns: [title, course, start_date, end_date, capacity], sort: start_date desc}
+
+- name: LmsLtiTool
+  label: LTI Tool
+  kind: master
+  module: learn
+  title_field: tool_name
+  description: "An external learning tool lessons open by LTI 1.3. Register it in the tool with the platform addresses below; it gets its client and deployment ids here."
+  fields:
+    - {name: tool_name, type: data, required: true, unique: true, max_length: 140, in_list: true}
+    - {name: login_url, type: url, label: Login Address, required: true, description: "The tool's OIDC login initiation address"}
+    - {name: launch_url, type: url, label: Launch Address, required: true, description: "The tool's launch (target link and redirect) address"}
+    - {name: redirect_uris, type: text, label: Other Redirect Addresses, max_length: 4000, description: "One per line: other addresses the tool may ask the launch to be posted to"}
+    - {name: custom_parameters, type: text, max_length: 4000, description: "name=value, one per line, sent with every launch"}
+    - {name: share_identity, type: check, label: Send Names and Emails, description: "The tool learns learners' names and emails; otherwise only an opaque id"}
+    - {name: sends_grades, type: check, label: Sends Grades Back, description: "The tool posts scores (LTI Assignment and Grade Services): a completed activity completes the lesson. Otherwise learners mark its lessons done"}
+    - {name: public_key, type: text, label: Tool Public Key, max_length: 8000, description: "The tool's RSA public key (PEM) its token requests are signed with"}
+    - {name: jwks_url, type: url, label: Tool Key Set Address, description: "Or the address of the tool's keys (JWKS)"}
+    - {name: client_id, type: data, read_only: true, no_copy: true, in_list: true, description: "Give the tool this client id"}
+    - {name: deployment_id, type: data, read_only: true, no_copy: true, description: "And this deployment id"}
+    - {name: platform_issuer, type: data, label: Issuer, read_only: true, no_copy: true, description: "Learn's issuer (Learn Settings' public URL)"}
+    - {name: platform_auth_url, type: data, label: Authorization Endpoint, read_only: true, no_copy: true}
+    - {name: platform_jwks_url, type: data, label: Learn's Keys (JWKS), read_only: true, no_copy: true}
+    - {name: platform_token_url, type: data, label: Token Endpoint, read_only: true, no_copy: true}
+  form:
+    - {label: Tool, fields: [tool_name, login_url, launch_url, redirect_uris, custom_parameters, share_identity, sends_grades]}
+    - {label: Grades, fields: [public_key, jwks_url]}
+    - {label: Give the Tool, fields: [client_id, deployment_id, platform_issuer, platform_auth_url, platform_jwks_url, platform_token_url]}
+  list: {columns: [tool_name, client_id, sends_grades], sort: tool_name asc}
