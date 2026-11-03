@@ -30,6 +30,9 @@ sha2 = "0.10"
 hex = "0.4"
 # Strict parsing of lesson video URLs against the embeddable-host allowlist.
 url = "2.5"
+# SCORM packages: their files are read from the zip, their imsmanifest.xml parsed without DTDs.
+zip = { version = "9", default-features = false, features = ["deflate"] }
+roxmltree = "0.20"
 
 [dev-dependencies]
 # Paid Courses are tested on ERP's records (customers, invoices, the ledger).

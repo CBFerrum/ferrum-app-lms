@@ -183,6 +183,23 @@ impl T {
         };
         self.site.handle(&self.k, req).await
     }
+    /// A request with a body and headers (`?` in `path` starts its query, values taken as they are).
+    async fn send(&self, user: &Ctx, method: &str, path: &str, body: &[u8], headers: &[(&str, &str)]) -> Result<SiteResponse, Error> {
+        let (path, query) = path.split_once('?').unwrap_or((path, ""));
+        let query: Map<String, Value> =
+            query.split('&').filter(|p| !p.is_empty()).filter_map(|p| p.split_once('=')).map(|(k, v)| (k.to_string(), json!(v))).collect();
+        let req = SiteRequest {
+            tenant: self.tenant,
+            user: Some(user.clone()),
+            method: method.into(),
+            path: path.into(),
+            query,
+            headers: headers.iter().map(|(k, v)| (k.to_string(), json!(v))).collect(),
+            body: body.to_vec(),
+            client_ip: "203.0.113.9".into(),
+        };
+        self.site.handle(&self.k, req).await
+    }
     async fn page(&self, user: Option<&Ctx>, path: &str) -> Value {
         let r = self.call(user, "GET", path).await.unwrap_or_else(|e| panic!("GET {path}: {e:?}"));
         assert_eq!(r.status, 200);
@@ -1332,4 +1349,304 @@ async fn paid() {
     assert_eq!(t.get("SalesInvoice", chen_invoice).await["docstatus"], json!(2), "its invoice cancelled");
     let page = t.page(Some(&chen), "courses/rust-for-teams").await["course"].clone();
     assert_eq!((page["sale"]["can_buy"].clone(), page["sale"]["purchase"].clone()), (json!(true), Value::Null));
+}
+
+#[test]
+fn scorm_end_to_end() {
+    let _db = DB.lock().unwrap_or_else(|e| e.into_inner());
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(16 << 20).build().unwrap();
+    rt.block_on(async { tokio::spawn(scorm()).await.unwrap() });
+}
+
+/// A package (a zip) with these files.
+fn package(files: &[(&str, &str)]) -> Vec<u8> {
+    use std::io::Write;
+    let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, body) in files {
+        out.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+        out.write_all(body.as_bytes()).unwrap();
+    }
+    out.finish().unwrap().into_inner()
+}
+
+const MANIFEST_12: &str = r#"<?xml version="1.0"?>
+<manifest identifier="rust" xmlns="http://www.imsproject.org/xsd/imscp_rootv1p1p2" xmlns:adlcp="http://www.adlnet.org/xsd/adlcp_rootv1p2">
+  <metadata><schema>ADL SCORM</schema><schemaversion>1.2</schemaversion></metadata>
+  <organizations default="o"><organization identifier="o"><title>Rust</title>
+    <item identifier="i" identifierref="r"><title>Ownership</title><adlcp:masteryscore>80</adlcp:masteryscore></item>
+  </organization></organizations>
+  <resources><resource identifier="r" type="webcontent" adlcp:scormtype="sco" href="index.html"><file href="index.html"/></resource></resources>
+</manifest>"#;
+
+const MANIFEST_2004: &str = r#"<?xml version="1.0"?>
+<manifest identifier="b" xmlns="http://www.imsglobal.org/xsd/imscp_v1p1" xmlns:adlcp="http://www.adlnet.org/xsd/adlcp_v1p3">
+  <metadata><schema>ADL SCORM</schema><schemaversion>2004 4th Edition</schemaversion></metadata>
+  <organizations default="o"><organization identifier="o"><item identifier="i" identifierref="r"><title>Borrowing</title></item></organization></organizations>
+  <resources><resource identifier="r" type="webcontent" adlcp:scormType="sco" href="story.html"/></resources>
+</manifest>"#;
+
+/// A SCORM 1.2 lesson and a SCORM 2004 one: allowed in Learn Settings, served to enrolled learners
+/// only, resumed from what the package saved, completed when the package says passed.
+async fn scorm() {
+    let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
+    let db = Db::connect(DbConfig { url, max_connections: 16, ..Default::default() }).await.expect("connect");
+    sqlx::raw_sql("drop schema if exists public cascade; create schema public;").execute(&db.pool).await.expect("reset");
+    let mut packages = ferrum_domain::packages().expect("platform packages");
+    packages.extend(ferrum_app_lms::packages().expect("app packages").into_iter().filter(|p| p.name() != "lms_payments"));
+    let catalog = Catalog::from_packages(packages).expect("catalog");
+    let mut hooks = HookRegistry::default();
+    ferrum_domain::register(&mut hooks);
+    ferrum_app_lms::register(&mut hooks);
+    let k = Kernel::boot(db, catalog, hooks, KernelSettings::default(), None).await.expect("boot");
+    k.set_file_store(Arc::new(MemFiles(Mutex::new(HashMap::new()))));
+    ferrum_domain::maintenance(&k).await.expect("domain maintenance");
+    let tenant = k
+        .create_tenant(NewTenant {
+            slug: "scorm".into(),
+            name: "Scorm Academy".into(),
+            admin_email: "admin@scorm.test".into(),
+            admin_password: PW.into(),
+            admin_name: None,
+            packages: vec!["lms".into()],
+            settings: Some(json!({"fiscal_year_start_month": 4, "timezone": "Europe/Berlin"})),
+        })
+        .await
+        .expect("tenant");
+    let session = k.login("scorm", "admin@scorm.test", PW).await.expect("login");
+    let admin = k.load_ctx(tenant, session.user, Some(session.token_version), "it".into()).await.expect("ctx");
+    let site = k.hooks.site("lms").cloned().expect("site registered");
+    let t = T { k: k.clone(), tenant, admin, site };
+    let manager = t.user("manager@scorm.test", "Mona Manager", "LMS Manager").await;
+    let teacher = t.user("teacher@scorm.test", "Tara Teacher", "Instructor").await;
+    let asha = t.user("asha@scorm.test", "Asha Rao", "Learner").await;
+    let ben = t.user("ben@scorm.test", "Ben Okafor", "Learner").await;
+
+    let course = uid(&t.insert(&teacher, "LmsCourse", json!({"title": "Rust Packages", "instructors": [{"instructor": "teacher@scorm.test"}]})).await);
+    let (chapter, lessons) = t.chapter(&teacher, course, "Start", &[json!({"title": "Welcome"})]).await;
+    let zip12 = package(&[
+        ("imsmanifest.xml", MANIFEST_12),
+        ("index.html", "<script src=\"js/app.js\"></script><h1>Ownership</h1>"),
+        ("js/app.js", "API.LMSInitialize('')"),
+    ]);
+    let file12 = vid(&t.k.store_file(&teacher, None, "rust.zip", "application/zip", &zip12).await.expect("upload")["id"]);
+    let scorm_lesson =
+        |title: &str, file: Uuid| json!({"title": title, "chapter": chapter.to_string(), "lesson_type": "SCORM", "package_file": format!("/files/{file}")});
+
+    // ───────────── packages wait for Learn Settings; what cannot play is refused ─────────────
+    let refused = t.try_insert(&teacher, "LmsLesson", scorm_lesson("Ownership", file12)).await;
+    assert!(field_error(refused, "lesson_type").contains("SCORM packages are not allowed"), "off until an LMS manager allows them");
+    t.insert(&manager, "LmsSettings", json!({"allow_packages": true})).await;
+    let no_manifest = vid(&t.k.store_file(&teacher, None, "site.zip", "application/zip", &package(&[("index.html", "")])).await.expect("upload")["id"]);
+    assert!(field_error(t.try_insert(&teacher, "LmsLesson", scorm_lesson("Broken", no_manifest)).await, "package_file").contains("imsmanifest.xml"));
+    let pdf = vid(&t.k.store_file(&teacher, None, "notes.pdf", "application/pdf", PDF).await.expect("upload")["id"]);
+    assert!(field_error(t.try_insert(&teacher, "LmsLesson", scorm_lesson("Not a zip", pdf)).await, "package_file").contains("not a zip"));
+    let first = t.insert(&teacher, "LmsLesson", scorm_lesson("Ownership", file12)).await;
+    assert_eq!(
+        (first["package_standard"].clone(), first["package_launch"].clone(), dec(&first["package_mastery_score"])),
+        (json!("SCORM 1.2"), json!("index.html"), n("80"))
+    );
+    let first = uid(&first);
+    let zip2004 = package(&[("imsmanifest.xml", MANIFEST_2004), ("story.html", "<h1>Borrowing</h1>")]);
+    let file2004 = vid(&t.k.store_file(&teacher, None, "borrow.zip", "application/zip", &zip2004).await.expect("upload")["id"]);
+    let second = uid(&t.insert(&teacher, "LmsLesson", scorm_lesson("Borrowing", file2004)).await);
+    assert_eq!(t.get("LmsLesson", second).await["package_standard"], json!("SCORM 2004"));
+    t.update(&teacher, "LmsCourse", course, json!({"status": "Published"})).await;
+    let enrolment = uid(&t.insert(&asha, "LmsEnrollment", json!({"course": course.to_string()})).await);
+
+    // ───────────── the player gets the package; only those who may open the lesson get its files ─────────────
+    let view = t.page(Some(&asha), &format!("lessons/{first}")).await;
+    let launch = format!("/api/app/lms/lessons/{first}/package/{file12}/index.html");
+    assert_eq!(
+        (view["scorm"]["version"].clone(), view["scorm"]["launch_url"].clone(), view["scorm"]["saved"].clone()),
+        (json!("1.2"), json!(launch), Value::Null)
+    );
+    assert_eq!(view["scorm"]["learner"], json!({"id": "asha@scorm.test", "name": "Asha Rao"}));
+    let file = |user: &Ctx, path: String| {
+        let t = &t;
+        let user = user.clone();
+        async move { t.call(Some(&user), "GET", &path).await }
+    };
+    let r = file(&asha, format!("lessons/{first}/package/{file12}/index.html")).await.expect("the launch file");
+    assert_eq!((r.status, r.content_type.as_str()), (200, "text/html; charset=utf-8"));
+    assert!(String::from_utf8_lossy(&r.body).contains("<h1>Ownership</h1>"));
+    let header = |r: &SiteResponse, name: &str| r.headers.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone()).unwrap_or_default();
+    assert!(header(&r, "content-security-policy").contains("frame-ancestors 'self'") && header(&r, "x-content-type-options") == "nosniff");
+    let js = file(&asha, format!("lessons/{first}/package/{file12}/js/app.js")).await.expect("a script of the package");
+    assert_eq!((js.content_type.as_str(), js.body.as_slice()), ("text/javascript; charset=utf-8", &b"API.LMSInitialize('')"[..]));
+    for path in [
+        format!("lessons/{first}/package/{file12}/missing.html"),
+        format!("lessons/{first}/package/{file12}/../index.html"),
+        format!("lessons/{first}/package/{file2004}/story.html"),
+        format!("lessons/{}/package/{file12}/index.html", lessons[0]),
+    ] {
+        assert!(matches!(err(file(&asha, path.clone()).await), Error::NotFound(_)), "{path}");
+    }
+    assert!(matches!(err(file(&ben, format!("lessons/{first}/package/{file12}/index.html")).await), Error::NotFound(_)), "not enrolled");
+    assert!(file(&teacher, format!("lessons/{first}/package/{file12}/index.html")).await.is_ok(), "its instructor previews it");
+
+    // ───────────── what the package saves is resumed; only passing completes the lesson ─────────────
+    assert!(
+        err(t.try_act(&asha, "LmsEnrollment", enrolment, "complete_lesson", json!({"lesson": first.to_string()})).await).to_string().contains("quiz lessons")
+    );
+    let partway = json!({"core": {"lesson_status": "incomplete", "lesson_location": "page-3", "total_time": "0000:05:00"}, "suspend_data": "p3;q1=b"});
+    let saved = t.act(&asha, "LmsEnrollment", enrolment, "scorm_commit", json!({"lesson": first.to_string(), "cmi": partway})).await;
+    assert_eq!((saved["status"].clone(), saved["completed"].clone()), (json!("Incomplete"), json!(false)));
+    let resumed = t.page(Some(&asha), &format!("lessons/{first}")).await;
+    assert_eq!((resumed["scorm"]["saved"]["cmi"]["suspend_data"].clone(), resumed["completed"].clone()), (json!("p3;q1=b"), json!(false)));
+    assert!(t.try_act(&ben, "LmsEnrollment", enrolment, "scorm_commit", json!({"lesson": first.to_string(), "cmi": {}})).await.is_err(), "not his enrolment");
+    assert!(
+        field_error(t.try_act(&asha, "LmsEnrollment", enrolment, "scorm_commit", json!({"lesson": lessons[0].to_string(), "cmi": {}})).await, "lesson")
+            .contains("not a SCORM lesson")
+    );
+    let huge = json!({"suspend_data": "x".repeat(1 << 20)});
+    assert!(
+        field_error(t.try_act(&asha, "LmsEnrollment", enrolment, "scorm_commit", json!({"lesson": first.to_string(), "cmi": huge})).await, "cmi")
+            .contains("larger")
+    );
+    let passed = json!({"core": {"lesson_status": "passed", "score": {"raw": "45", "min": "0", "max": "50"}, "total_time": "0000:12:30"}, "suspend_data": ""});
+    let done = t.act(&asha, "LmsEnrollment", enrolment, "scorm_commit", json!({"lesson": first.to_string(), "cmi": passed})).await;
+    assert_eq!((done["status"].clone(), dec(&done["score_percent"]), done["completed"].clone()), (json!("Passed"), n("90"), json!(true)));
+    let e = t.get("LmsEnrollment", enrolment).await;
+    assert_eq!((dec(&e["progress_percent"]), e["completed_lessons"].clone()), (n("33.33"), json!(1)), "one of three lessons");
+    let rows = t.list(&asha, "LmsPackageProgress", json!({})).await.expect("her own progress");
+    assert_eq!(rows.len(), 1);
+    assert_eq!((rows[0]["status"].clone(), rows[0]["total_seconds"].clone(), rows[0]["commits"].clone()), (json!("Passed"), json!(750), json!(2)));
+    assert_eq!(t.list(&ben, "LmsPackageProgress", json!({})).await.expect("his own").len(), 0, "nobody else's");
+    let via = t.list(&t.admin, "LmsLessonProgress", json!({"lesson": first.to_string()})).await.unwrap();
+    assert_eq!(via[0]["completed_via"], json!("SCORM"));
+    for who in [&asha, &t.admin] {
+        let r = t.try_insert(who, "LmsPackageProgress", json!({"enrollment": enrolment.to_string(), "lesson": second.to_string()})).await;
+        assert!(r.is_err(), "only the player writes it, not even the administrator: {r:?}");
+    }
+
+    // ───────────── SCORM 2004: completed but failed is not done; passed is ─────────────
+    let failed = json!({"completion_status": "completed", "success_status": "failed", "score": {"scaled": "0.4"}, "total_time": "PT20M"});
+    let r = t.act(&asha, "LmsEnrollment", enrolment, "scorm_commit", json!({"lesson": second.to_string(), "cmi": failed})).await;
+    assert_eq!((r["status"].clone(), dec(&r["score_percent"]), r["completed"].clone()), (json!("Failed"), n("40"), json!(false)));
+    let passed = json!({"completion_status": "completed", "success_status": "passed", "score": {"scaled": "0.85"}, "total_time": "PT31M"});
+    let r = t.act(&asha, "LmsEnrollment", enrolment, "scorm_commit", json!({"lesson": second.to_string(), "cmi": passed})).await;
+    assert_eq!((r["status"].clone(), r["completed"].clone()), (json!("Passed"), json!(true)));
+    assert_eq!(dec(&t.get("LmsEnrollment", enrolment).await["progress_percent"]), n("66.67"));
+
+    // ───────────── a new package is a new address; the old one stops ─────────────
+    let zip_v2 = package(&[("imsmanifest.xml", MANIFEST_12), ("index.html", "<h1>Ownership, second edition</h1>")]);
+    let file_v2 = vid(&t.k.store_file(&teacher, None, "rust-v2.zip", "application/zip", &zip_v2).await.expect("upload")["id"]);
+    t.update(&teacher, "LmsLesson", first, json!({"package_file": format!("/files/{file_v2}")})).await;
+    assert!(matches!(err(file(&asha, format!("lessons/{first}/package/{file12}/index.html")).await), Error::NotFound(_)));
+    let r = file(&asha, format!("lessons/{first}/package/{file_v2}/index.html")).await.expect("the new package");
+    assert!(String::from_utf8_lossy(&r.body).contains("second edition"));
+
+    // ───────────── an xAPI package: its statements and state, as the signed-in learner only ─────────────
+    let tincan = r#"<?xml version="1.0"?><tincan xmlns="http://projecttincan.com/tincan.xsd"><activities>
+      <activity id="https://acme.test/lifetimes" type="http://adlnet.gov/expapi/activities/course"><name>Lifetimes</name><launch lang="und">story.html</launch></activity>
+    </activities></tincan>"#;
+    let zip_x = package(&[("tincan.xml", tincan), ("story.html", "<h1>Lifetimes</h1>")]);
+    let file_x = vid(&t.k.store_file(&teacher, None, "lifetimes.zip", "application/zip", &zip_x).await.expect("upload")["id"]);
+    let as_scorm = json!({"title": "Wrong kind", "chapter": chapter.to_string(), "lesson_type": "SCORM", "package_file": format!("/files/{file_x}")});
+    assert!(field_error(t.try_insert(&teacher, "LmsLesson", as_scorm).await, "package_file").contains("imsmanifest.xml"), "an xAPI package is not SCORM");
+    let third = t
+        .insert(
+            &teacher,
+            "LmsLesson",
+            json!({"title": "Lifetimes", "chapter": chapter.to_string(), "lesson_type": "xAPI", "package_file": format!("/files/{file_x}")}),
+        )
+        .await;
+    assert_eq!(
+        (third["package_standard"].clone(), third["package_launch"].clone(), third["package_activity"].clone()),
+        (json!("xAPI"), json!("story.html"), json!("https://acme.test/lifetimes"))
+    );
+    let third = uid(&third);
+    let view = t.page(Some(&asha), &format!("lessons/{third}")).await["xapi"].clone();
+    assert_eq!((view["endpoint"].clone(), view["registration"].clone()), (json!(format!("/api/app/lms/xapi/{third}/")), json!(enrolment.to_string())));
+    assert_eq!(view["actor"]["mbox"], json!("mailto:asha@scorm.test"));
+    let x = |path: &str| format!("xapi/{third}/{path}");
+    let about = t.send(&asha, "GET", &x("about"), b"", &[]).await.expect("about");
+    assert_eq!(serde_json::from_slice::<Value>(&about.body).unwrap(), json!({"version": ["1.0.3"]}));
+    let me = json!({"objectType": "Agent", "mbox": "mailto:asha@scorm.test"});
+    let statement = |verb: &str, result: Value| {
+        json!({"actor": me, "verb": {"id": format!("http://adlnet.gov/expapi/verbs/{verb}")}, "object": {"id": "https://acme.test/lifetimes"},
+               "result": result, "context": {"registration": enrolment.to_string()}})
+    };
+    let body = |v: &Value| serde_json::to_vec(v).unwrap();
+    let r = t.send(&asha, "POST", &x("statements"), &body(&statement("attempted", json!({}))), &[("content-type", "application/json")]).await.expect("posted");
+    let ids: Vec<String> = serde_json::from_slice(&r.body).unwrap();
+    assert_eq!((r.status, ids.len(), header(&r, "x-experience-api-version")), (200, 1, "1.0.3".to_string()));
+    let progress = || {
+        let t = &t;
+        async move { t.list(&t.admin, "LmsPackageProgress", json!({"lesson": third.to_string()})).await.unwrap() }
+    };
+    assert_eq!(progress().await[0]["status"], json!("Incomplete"));
+    let mut ben_said = statement("passed", json!({}));
+    ben_said["actor"]["mbox"] = json!("mailto:ben@scorm.test");
+    assert!(matches!(err(t.send(&asha, "POST", &x("statements"), &body(&ben_said), &[]).await), Error::Forbidden(_)), "statements about someone else");
+    assert!(matches!(err(t.send(&ben, "POST", &x("statements"), &body(&ben_said), &[]).await), Error::NotFound(_)), "not enrolled");
+
+    // A put is at its id: once, again the same, never differently.
+    let at = Uuid::now_v7();
+    let put = |v: &Value| {
+        let t = &t;
+        let (asha, path, v) = (asha.clone(), x(&format!("statements?statementId={at}")), body(v));
+        async move { t.send(&asha, "PUT", &path, &v, &[]).await }
+    };
+    let progressed = statement("progressed", json!({"score": {"scaled": 0.5}}));
+    assert_eq!(put(&progressed).await.expect("put").status, 204);
+    assert_eq!(put(&progressed).await.expect("the same again").status, 204);
+    assert!(matches!(err(put(&statement("progressed", json!({"score": {"scaled": 0.6}}))).await), Error::Conflict(_)));
+
+    // State: put, read with its tag, merge, guard, list, delete.
+    // Query values reach the endpoint decoded, as here.
+    let agent = r#"{"mbox":"mailto:asha@scorm.test"}"#;
+    let doc = |id: &str| x(&format!("activities/state?activityId=https://acme.test/lifetimes&agent={agent}&stateId={id}"));
+    let r = t.send(&asha, "PUT", &doc("resume"), br#"{"slide":3}"#, &[("content-type", "application/json")]).await.expect("put state");
+    assert_eq!(r.status, 204);
+    let got = t.send(&asha, "GET", &doc("resume"), b"", &[]).await.expect("get state");
+    assert_eq!((got.body.as_slice(), got.content_type.as_str()), (&br#"{"slide":3}"#[..], "application/json"));
+    let tag = header(&got, "etag");
+    t.send(&asha, "POST", &doc("resume"), br#"{"seen":[1,2,3]}"#, &[("content-type", "application/json")]).await.expect("merged");
+    let merged: Value = serde_json::from_slice(&t.send(&asha, "GET", &doc("resume"), b"", &[]).await.unwrap().body).unwrap();
+    assert_eq!(merged, json!({"slide": 3, "seen": [1, 2, 3]}));
+    assert!(matches!(err(t.send(&asha, "PUT", &doc("resume"), b"{}", &[("if-match", &tag)]).await), Error::Conflict(_)), "it changed since that tag");
+    assert!(matches!(err(t.send(&asha, "PUT", &doc("resume"), b"{}", &[("if-none-match", "*")]).await), Error::Conflict(_)), "it exists");
+    t.send(&asha, "PUT", &doc("bookmark"), b"slide-9", &[("content-type", "text/plain")]).await.expect("a text document");
+    let list = x(&format!("activities/state?activityId=https://acme.test/lifetimes&agent={agent}"));
+    let ids: Value = serde_json::from_slice(&t.send(&asha, "GET", &list, b"", &[]).await.unwrap().body).unwrap();
+    assert_eq!(ids, json!(["bookmark", "resume"]));
+    t.send(&asha, "DELETE", &doc("bookmark"), b"", &[]).await.expect("deleted");
+    assert!(matches!(err(t.send(&asha, "GET", &doc("bookmark"), b"", &[]).await), Error::NotFound(_)));
+    let bens = x("activities/state?activityId=https://acme.test/lifetimes&agent={\"mbox\":\"mailto:ben@scorm.test\"}&stateId=resume");
+    assert!(matches!(err(t.send(&asha, "GET", &bens, b"", &[]).await), Error::Forbidden(_)), "nobody else's state");
+
+    // Passed completes the lesson; a later failure keeps the completion; voided statements leave the list.
+    let passed = statement("passed", json!({"score": {"scaled": 0.9}, "duration": "PT25M"}));
+    t.send(&asha, "POST", &x("statements"), &body(&passed), &[]).await.expect("passed");
+    let p = &progress().await[0];
+    assert_eq!((p["status"].clone(), dec(&p["score_percent"]), p["total_seconds"].clone()), (json!("Passed"), n("90"), json!(1500)));
+    let via = t.list(&t.admin, "LmsLessonProgress", json!({"lesson": third.to_string()})).await.unwrap();
+    assert_eq!(via[0]["completed_via"], json!("xAPI"));
+    assert_eq!(dec(&t.get("LmsEnrollment", enrolment).await["progress_percent"]), n("75"), "three of four lessons");
+    t.send(&asha, "POST", &x("statements"), &body(&statement("failed", json!({"score": {"scaled": 0.2}}))), &[]).await.expect("a failed retake");
+    assert_eq!(progress().await[0]["status"], json!("Passed"), "once done, it stays done");
+    let void = json!({"actor": me, "verb": {"id": "http://adlnet.gov/expapi/verbs/voided"}, "object": {"objectType": "StatementRef", "id": at.to_string()}});
+    t.send(&asha, "POST", &x("statements"), &body(&void), &[]).await.expect("voided");
+    let listed: Value = serde_json::from_slice(&t.send(&asha, "GET", &x("statements"), b"", &[]).await.unwrap().body).unwrap();
+    let listed_ids: Vec<String> = listed["statements"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap().to_string()).collect();
+    assert!(!listed_ids.contains(&at.to_string()) && listed_ids.len() == 4, "{listed_ids:?}");
+    assert_eq!(listed["statements"][0]["verb"]["id"], json!("http://adlnet.gov/expapi/verbs/voided"), "newest first");
+    let voided = t.send(&asha, "GET", &x(&format!("statements?voidedStatementId={at}")), b"", &[]).await.expect("still there, voided");
+    assert_eq!(serde_json::from_slice::<Value>(&voided.body).unwrap()["id"], json!(at.to_string()));
+    let again = t.send(&asha, "POST", &x("statements"), &body(&void), &[]).await.expect("voiding again is kept, as xAPI says");
+    assert_eq!(again.status, 200);
+    let void_the_void =
+        json!({"actor": me, "verb": {"id": "http://adlnet.gov/expapi/verbs/voided"}, "object": {"objectType": "StatementRef", "id": listed_ids[0]}});
+    t.send(&asha, "POST", &x("statements"), &body(&void_the_void), &[]).await.expect("kept");
+    let listed: Value = serde_json::from_slice(&t.send(&asha, "GET", &x("statements"), b"", &[]).await.unwrap().body).unwrap();
+    assert!(listed["statements"].as_array().unwrap().iter().any(|s| s["id"] == json!(listed_ids[0])), "a voiding statement is never voided");
+
+    // An instructor's preview runs and keeps nothing.
+    let before = t.count("select count(*) from lms_xapi_statement where tenant_id = $1 and lesson = $2 and $3 <> ''", third, "x").await;
+    let mut tara = statement("passed", json!({}));
+    tara["actor"]["mbox"] = json!("mailto:teacher@scorm.test");
+    let r = t.send(&teacher, "POST", &x("statements"), &body(&tara), &[]).await.expect("a preview's statement");
+    assert_eq!(r.status, 200);
+    assert_eq!(t.count("select count(*) from lms_xapi_statement where tenant_id = $1 and lesson = $2 and $3 <> ''", third, "x").await, before);
 }

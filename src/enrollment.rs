@@ -92,7 +92,7 @@ impl DocHook for EnrollmentHook {
     }
 
     async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, params: &Value) -> Result<Option<Value>> {
-        if !["complete_lesson", "open_lesson", "start_quiz", "outline", "withdraw", "reactivate"].contains(&name) {
+        if !["complete_lesson", "open_lesson", "start_quiz", "scorm_commit", "outline", "withdraw", "reactivate"].contains(&name) {
             return Ok(None);
         }
         let (k, ctx) = (hc.kernel, hc.ctx);
@@ -119,6 +119,13 @@ impl DocHook for EnrollmentHook {
                     return Err(Error::Forbidden("only the learner can take the quiz".into()));
                 }
                 quiz::start(k, ctx, hc.tx, doc, uuid_param(params, "quiz")?).await?
+            }
+            "scorm_commit" => {
+                if !own {
+                    return Err(Error::Forbidden("only the learner records their own SCORM progress".into()));
+                }
+                let lesson = uuid_param(params, "lesson")?;
+                crate::scorm::commit(k, ctx, hc.tx, doc, &course, lesson, params.get("cmi").unwrap_or(&Value::Null)).await?
             }
             "outline" => outline(k, ctx, hc.tx, &course, Some(me)).await?,
             "withdraw" => {
@@ -650,6 +657,11 @@ pub async fn open_lesson(k: &Kernel, ctx: &Ctx, tx: &mut Tx, enrollment: Option<
         },
         "completed": false,
     });
+    match s(&l, "lesson_type") {
+        Some("SCORM") => out["scorm"] = crate::scorm::player(ctx, tx, &l, enrollment).await?,
+        Some("xAPI") => out["xapi"] = crate::xapi::player(ctx, tx, &l, enrollment).await?,
+        _ => {}
+    }
     let Some(e) = enrollment else { return Ok(out) };
     let eid = doc_id(e)?;
     let done: Option<chrono::DateTime<chrono::Utc>> =
