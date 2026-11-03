@@ -1397,7 +1397,9 @@ async fn scorm() {
     let mut hooks = HookRegistry::default();
     ferrum_domain::register(&mut hooks);
     ferrum_app_lms::register(&mut hooks);
-    let k = Kernel::boot(db, catalog, hooks, KernelSettings::default(), None).await.expect("boot");
+    // LTI's signing key is a secret field: secrets need the kernel's key.
+    let settings = KernelSettings { secret_key: Some(SecretKey::new([9u8; 32])), ..Default::default() };
+    let k = Kernel::boot(db, catalog, hooks, settings, None).await.expect("boot");
     k.set_file_store(Arc::new(MemFiles(Mutex::new(HashMap::new()))));
     ferrum_domain::maintenance(&k).await.expect("domain maintenance");
     let tenant = k
@@ -1649,4 +1651,176 @@ async fn scorm() {
     let r = t.send(&teacher, "POST", &x("statements"), &body(&tara), &[]).await.expect("a preview's statement");
     assert_eq!(r.status, 200);
     assert_eq!(t.count("select count(*) from lms_xapi_statement where tenant_id = $1 and lesson = $2 and $3 <> ''", third, "x").await, before);
+
+    lti(&t, &manager, &teacher, &asha, &ben, course, chapter, enrolment).await;
+}
+
+/// An LTI 1.3 tool: registered, launched by OIDC with a signed id_token, sending a grade back with
+/// an access token it got for a signed client assertion; that grade completes the lesson.
+async fn lti(t: &T, manager: &Ctx, teacher: &Ctx, asha: &Ctx, ben: &Ctx, course: Uuid, chapter: Uuid, enrolment: Uuid) {
+    use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation};
+    use rsa::pkcs1::EncodeRsaPrivateKey;
+    use rsa::pkcs8::{EncodePublicKey, LineEnding};
+    let header = |r: &SiteResponse, name: &str| r.headers.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone()).unwrap_or_default();
+    let query = |url: &str| -> HashMap<String, String> { url::Url::parse(url).unwrap().query_pairs().into_owned().collect() };
+
+    // ───────────── a tool, registered once Learn has an issuer ─────────────
+    let tool_key = rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 2048).unwrap();
+    let tool_pem = tool_key.to_public_key().to_public_key_pem(LineEnding::LF).unwrap();
+    let lab = json!({"tool_name": "Rust Lab", "login_url": "https://lab.test/login", "launch_url": "https://lab.test/launch", "sends_grades": true,
+                     "public_key": tool_pem, "custom_parameters": "level=beginner"});
+    assert!(field_error(t.try_insert(manager, "LmsLtiTool", lab.clone()).await, "tool_name").contains("Public URL"), "no issuer yet");
+    let settings = uid(&t.list(manager, "LmsSettings", json!({})).await.unwrap()[0]);
+    t.update(manager, "LmsSettings", settings, json!({"public_url": "https://academy.example"})).await;
+    assert!(t.try_insert(teacher, "LmsLtiTool", lab.clone()).await.is_err(), "instructors read tools, LMS managers register them");
+    let mut no_key = lab.clone();
+    no_key["tool_name"] = json!("Keyless");
+    no_key["public_key"] = Value::Null;
+    assert!(field_error(t.try_insert(manager, "LmsLtiTool", no_key).await, "public_key").contains("public key"));
+    let tool = t.insert(manager, "LmsLtiTool", lab).await;
+    let client = tool["client_id"].as_str().unwrap().to_string();
+    assert_eq!(
+        (tool["platform_issuer"].clone(), tool["platform_auth_url"].clone(), tool["platform_jwks_url"].clone(), tool["platform_token_url"].clone()),
+        (
+            json!("https://academy.example"),
+            json!("https://academy.example/api/app/lms/lti/auth"),
+            json!("https://academy.example/api/site/scorm/lms/lti/jwks"),
+            json!("https://academy.example/api/site/scorm/lms/lti/token")
+        )
+    );
+    let lesson = uid(&t
+        .insert(teacher, "LmsLesson", json!({"title": "Lab", "chapter": chapter.to_string(), "lesson_type": "LTI", "lti_tool": uid(&tool).to_string()}))
+        .await);
+    assert_eq!(t.page(Some(asha), &format!("lessons/{lesson}")).await["lti"]["launch_url"], json!(format!("/api/app/lms/lti/{lesson}/launch")));
+
+    // ───────────── the launch: OIDC login at the tool, then Learn's signed id_token ─────────────
+    let go = t.send(asha, "GET", &format!("lti/{lesson}/launch"), b"", &[]).await.expect("login initiation");
+    assert_eq!(go.status, 302);
+    let login = header(&go, "location");
+    assert!(login.starts_with("https://lab.test/login?"), "{login}");
+    let q = query(&login);
+    assert_eq!(
+        (q["iss"].as_str(), q["login_hint"].clone(), q["lti_message_hint"].clone(), q["client_id"].as_str(), q["target_link_uri"].as_str()),
+        ("https://academy.example", asha.user.to_string(), lesson.to_string(), client.as_str(), "https://lab.test/launch")
+    );
+    assert!(matches!(err(t.send(ben, "GET", &format!("lti/{lesson}/launch"), b"", &[]).await), Error::NotFound(_)), "not enrolled");
+    let auth = |hint: Uuid, redirect: &str, nonce: &str| {
+        format!(
+            "lti/auth?scope=openid&response_type=id_token&response_mode=form_post&prompt=none&client_id={client}&redirect_uri={redirect}\
+             &login_hint={hint}&lti_message_hint={lesson}&state=st-1&nonce={nonce}"
+        )
+    };
+    let page = t.send(asha, "GET", &auth(asha.user, "https://lab.test/launch", "n-1"), b"", &[]).await.expect("the launch");
+    let html = String::from_utf8(page.body.clone()).unwrap();
+    assert!(header(&page, "content-security-policy").contains("form-action https://lab.test;"));
+    assert!(html.contains("action=\"https://lab.test/launch\"") && html.contains("name=\"state\" value=\"st-1\""));
+    let id_token = html.split("name=\"id_token\" value=\"").nth(1).and_then(|r| r.split('"').next()).expect("an id_token").to_string();
+    for (hint, redirect, nonce, why) in [
+        (asha.user, "https://evil.test/launch", "n-2", "a redirect the tool did not register"),
+        (asha.user, "https://lab.test/launch", "", "no nonce"),
+        (ben.user, "https://lab.test/launch", "n-3", "a launch started for someone else"),
+    ] {
+        assert!(t.send(asha, "GET", &auth(hint, redirect, nonce), b"", &[]).await.is_err(), "{why}");
+    }
+
+    // The tool checks it against Learn's published keys.
+    let jwks = t.page(None, "lti/jwks").await;
+    let jwk: jsonwebtoken::jwk::Jwk = serde_json::from_value(jwks["keys"][0].clone()).unwrap();
+    let mut v = Validation::new(Algorithm::RS256);
+    v.set_audience(&[client.as_str()]);
+    v.set_issuer(&["https://academy.example"]);
+    let claims = jsonwebtoken::decode::<Value>(&id_token, &DecodingKey::from_jwk(&jwk).unwrap(), &v).expect("signed by Learn").claims;
+    let lti = |k: &str| claims[format!("https://purl.imsglobal.org/spec/lti/claim/{k}")].clone();
+    assert_eq!(
+        (claims["sub"].clone(), claims["nonce"].clone(), lti("message_type"), lti("version")),
+        (json!(asha.user.to_string()), json!("n-1"), json!("LtiResourceLinkRequest"), json!("1.3.0"))
+    );
+    assert_eq!(
+        (lti("resource_link")["id"].clone(), lti("context")["id"].clone(), lti("deployment_id")),
+        (json!(lesson.to_string()), json!(course.to_string()), tool["deployment_id"].clone())
+    );
+    assert_eq!(lti("roles"), json!(["http://purl.imsglobal.org/vocab/lis/v2/membership#Learner"]));
+    assert_eq!(lti("custom"), json!({"level": "beginner"}));
+    assert_eq!(claims.get("email"), None, "no name or email unless the tool may know them");
+    let lineitem = claims["https://purl.imsglobal.org/spec/lti-ags/claim/endpoint"]["lineitem"].as_str().unwrap().to_string();
+    assert_eq!(lineitem, format!("https://academy.example/api/app/lms/lti/ags/{lesson}"));
+
+    // ───────────── grades back: a client assertion for a token, then the score ─────────────
+    let now = chrono::Utc::now().timestamp();
+    let token_url = "https://academy.example/api/site/scorm/lms/lti/token";
+    let assertion = |jti: &str, key: &rsa::RsaPrivateKey| {
+        let c = json!({"iss": client, "sub": client, "aud": token_url, "iat": now, "exp": now + 60, "jti": jti});
+        jsonwebtoken::encode(&Header::new(Algorithm::RS256), &c, &EncodingKey::from_rsa_der(key.to_pkcs1_der().unwrap().as_bytes())).unwrap()
+    };
+    let ask = |a: String| {
+        let form = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("grant_type", "client_credentials")
+            .append_pair("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
+            .append_pair("client_assertion", &a)
+            .append_pair("scope", "https://purl.imsglobal.org/spec/lti-ags/scope/score")
+            .finish();
+        let req = SiteRequest {
+            tenant: t.tenant,
+            user: None,
+            method: "POST".into(),
+            path: "/lti/token".into(),
+            query: Map::new(),
+            headers: Map::new(),
+            body: form.into_bytes(),
+            client_ip: "203.0.113.9".into(),
+        };
+        let (site, k) = (t.site.clone(), t.k.clone());
+        async move { site.handle(&k, req).await.expect("token endpoint") }
+    };
+    let first = assertion("j-1", &tool_key);
+    let r = ask(first.clone()).await;
+    let answer: Value = serde_json::from_slice(&r.body).unwrap();
+    assert_eq!(
+        (r.status, answer["token_type"].clone(), answer["scope"].clone()),
+        (200, json!("Bearer"), json!("https://purl.imsglobal.org/spec/lti-ags/scope/score"))
+    );
+    assert_eq!(ask(first).await.status, 400, "an assertion is used once");
+    let stranger = rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 2048).unwrap();
+    assert_eq!(ask(assertion("j-2", &stranger)).await.status, 400, "signed by another key");
+    // The server turns the bearer token into the tool's service user, as here.
+    let (session, _) = t.k.verify_api_key(answer["access_token"].as_str().unwrap()).await.expect("an API key");
+    let tool_ctx = t.k.load_ctx(t.tenant, session.user, None, "lti".into()).await.unwrap();
+    let item = t.send(&tool_ctx, "GET", &format!("lti/ags/{lesson}"), b"", &[]).await.expect("the line item");
+    assert_eq!(serde_json::from_slice::<Value>(&item.body).unwrap()["id"], json!(lineitem));
+    let score = |user: Uuid, progress: &str| {
+        serde_json::to_vec(&json!({"userId": user.to_string(), "scoreGiven": 45, "scoreMaximum": 50, "activityProgress": progress,
+                                   "gradingProgress": "FullyGraded", "timestamp": "2026-11-04T10:00:00Z"}))
+        .unwrap()
+    };
+    assert!(
+        matches!(err(t.send(asha, "POST", &format!("lti/ags/{lesson}/scores"), &score(asha.user, "Completed"), &[]).await), Error::Forbidden(_)),
+        "the tool's line item only"
+    );
+    assert!(t.send(&tool_ctx, "POST", &format!("lti/ags/{lesson}/scores"), &score(ben.user, "Completed"), &[]).await.is_err(), "not a learner of the lesson");
+    let midway = t.send(&tool_ctx, "POST", &format!("lti/ags/{lesson}/scores"), &score(asha.user, "InProgress"), &[]).await.expect("a score");
+    assert_eq!(serde_json::from_slice::<Value>(&midway.body).unwrap()["completed"], json!(false));
+    let done = t.send(&tool_ctx, "POST", &format!("lti/ags/{lesson}/scores"), &score(asha.user, "Completed"), &[]).await.expect("the grade");
+    let done: Value = serde_json::from_slice(&done.body).unwrap();
+    assert_eq!((done["completed"].clone(), dec(&done["score_percent"])), (json!(true), n("90")));
+    let via = t.list(&t.admin, "LmsLessonProgress", json!({"lesson": lesson.to_string()})).await.unwrap();
+    assert_eq!(via[0]["completed_via"], json!("LTI"));
+    assert_eq!(dec(&t.get("LmsEnrollment", enrolment).await["progress_percent"]), n("80"), "four of five lessons");
+    assert!(
+        err(t.try_act(asha, "LmsEnrollment", enrolment, "complete_lesson", json!({"lesson": lesson.to_string()})).await).to_string().contains("quiz lessons"),
+        "a grading tool's lesson is not marked done by hand"
+    );
+
+    // A tool that sends no grades: its lessons are the learner's to mark done.
+    let plain = uid(&t
+        .insert(manager, "LmsLtiTool", json!({"tool_name": "Reader", "login_url": "https://reader.test/login", "launch_url": "https://reader.test/launch"}))
+        .await);
+    let read = uid(&t
+        .insert(teacher, "LmsLesson", json!({"title": "Read", "chapter": chapter.to_string(), "lesson_type": "LTI", "lti_tool": plain.to_string()}))
+        .await);
+    assert!(
+        matches!(err(t.send(&tool_ctx, "POST", &format!("lti/ags/{read}/scores"), &score(asha.user, "Completed"), &[]).await), Error::NotFound(_)),
+        "a tool grades its own lessons only"
+    );
+    let marked = t.act(asha, "LmsEnrollment", enrolment, "complete_lesson", json!({"lesson": read.to_string()})).await;
+    assert_eq!(dec(&marked["progress_percent"]), n("83.33"), "five of six");
 }

@@ -1,5 +1,5 @@
 package: lms
-version: 0.2.0
+version: 0.3.0
 label: Learn
 description: Learning management — courses with chapters and lessons, learning paths, cohorts with live sessions, question banks and timed quizzes, graded assignments, enrolments with server-computed progress, certificates with public verification and a public course catalog.
 depends: [core]
@@ -10,7 +10,7 @@ modules:
     icon: graduation-cap
     order: 55
     items: [LmsCourse, LmsChapter, LmsLesson, LmsQuiz, LmsQuestion, LmsAssignment, LmsLearningPath, LmsCohort, LmsEnrollment, LmsLessonProgress, LmsPackageProgress,
-            LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsSettings,
+            LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsLtiTool, LmsSettings,
             report:lms_course_completion, report:lms_quiz_scores, report:lms_learner_progress, report:lms_overdue_assignments]
 
 roles:
@@ -19,6 +19,7 @@ roles:
     permissions:
       - {entity: LmsSettings, read: true, write: true, create: true}
       - {entity: LmsCategory, read: true, write: true, create: true, delete: true, export: true, import: true}
+      - {entity: LmsLtiTool, read: true, write: true, create: true, delete: true, export: true}
       - {entity: LmsCourse, read: true, write: true, create: true, delete: true, export: true, import: true}
       - {entity: LmsChapter, read: true, write: true, create: true, delete: true, export: true, import: true}
       - {entity: LmsLesson, read: true, write: true, create: true, delete: true, export: true, import: true}
@@ -38,6 +39,7 @@ roles:
     permissions:
       - {entity: LmsSettings, read: true}
       - {entity: LmsCategory, read: true}
+      - {entity: LmsLtiTool, read: true}
       - {entity: LmsCourse, read: true, create: true, export: true}
       - {entity: LmsCourse, write: true, delete: true, if_owner: true}
       - {entity: LmsChapter, read: true, write: true, create: true, delete: true}

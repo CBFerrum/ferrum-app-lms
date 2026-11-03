@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.0
+
+LTI 1.3 tools as lessons, Learn as the platform (the rest of FERRUM-LMS-002).
+
+- An LMS manager registers a tool (LTI Tool): its login and launch addresses, the parameters it
+  gets, whether it learns names and emails, and whether it sends grades. Learn gives it a client id
+  and a deployment id, and shows the addresses to enter in the tool: the issuer (Learn Settings'
+  public URL), the authorization endpoint, Learn's keys and its token endpoint.
+- An LTI lesson opens its tool in a new window. Learn starts the OIDC login at the tool, and
+  answers the tool's authorization request for the signed-in learner with an id_token signed with
+  Learn's own RSA key (made on first use, kept as a secret). It is posted only to an address the
+  tool registered, and names the learner by an opaque id, with the course, lesson, role and custom
+  parameters.
+- Tools that send grades get an access token for an hour for a client assertion signed with their
+  key (each assertion used once) and post scores to the lesson's line item (Assignment and Grade
+  Services). A completed activity completes the lesson, and the score is kept in Package Progress.
+  A tool that sends no grades leaves its lessons for the learner to mark done.
+
+Not yet: Deep Linking (choosing content in the tool), Names and Role Provisioning, line items
+other than the lesson's own, and authorization requests sent by form post.
+
 ## 0.4.0
 
 SCORM and xAPI lessons (part of FERRUM-LMS-002).

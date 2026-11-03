@@ -35,9 +35,9 @@ export function Glyph({ name, size = 16 }: { name: string; size?: number }) {
   );
 }
 
-const BY_TYPE: Record<LessonType, string> = { Article: "article", Video: "play", Document: "doc", Quiz: "quiz", Assignment: "assignment", SCORM: "package", xAPI: "package" };
+const BY_TYPE: Record<LessonType, string> = { Article: "article", Video: "play", Document: "doc", Quiz: "quiz", Assignment: "assignment", SCORM: "package", xAPI: "package", LTI: "link" };
 
 export const lessonGlyph = (type: LessonType) => BY_TYPE[type] ?? "article";
 
 /** What to call a kind of lesson. */
-export const LESSON_LABEL: Record<LessonType, string> = { Article: "Reading", Video: "Video", Document: "Document", Quiz: "Quiz", Assignment: "Assignment", SCORM: "SCORM package", xAPI: "xAPI package" };
+export const LESSON_LABEL: Record<LessonType, string> = { Article: "Reading", Video: "Video", Document: "Document", Quiz: "Quiz", Assignment: "Assignment", SCORM: "SCORM package", xAPI: "xAPI package", LTI: "External tool" };

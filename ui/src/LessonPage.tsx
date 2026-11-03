@@ -118,6 +118,21 @@ export function LessonPage({
         ) : (
           <Alert tone="info">The package of this lesson is not in yet.</Alert>
         ))}
+      {l.lesson_type === "LTI" &&
+        (view.lti ? (
+          <div className="lms-stack-sm">
+            <p>
+              This lesson is in <strong>{view.lti.tool_name ?? "an external tool"}</strong>, which opens in a new window signed in as you.
+            </p>
+            <div className="row">
+              <a className="btn btn-primary btn-md" href={view.lti.launch_url} target="_blank" rel="noopener">
+                <Glyph name="link" size={14} /> Open {view.lti.tool_name ?? "the tool"}
+              </a>
+            </div>
+          </div>
+        ) : (
+          <Alert tone="info">The tool of this lesson is not chosen yet.</Alert>
+        ))}
       {l.lesson_type === "xAPI" &&
         (view.xapi ? <XapiLesson player={view.xapi} title={l.title} done={view.completed} onProgress={onProgress} /> : <Alert tone="info">The package of this lesson is not in yet.</Alert>)}
       {l.lesson_type === "Assignment" &&

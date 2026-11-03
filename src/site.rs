@@ -14,6 +14,7 @@
 use crate::certificate;
 use crate::cohort;
 use crate::enrollment::{self, WITHDRAWN};
+use crate::lti;
 use crate::payments;
 use crate::scorm;
 use crate::util::{self, authors, id, is_manager, is_member, load, rows, s, sys, valid_slug};
@@ -47,20 +48,30 @@ impl Site for LearnSite {
         let path: Vec<&str> = req.path.split('/').filter(|p| !p.is_empty()).collect();
         match &req.user {
             Some(user) => {
+                // An LTI tool's grades come from its service user, which has no Learn role.
+                if let ["lti", "ags", lesson, rest @ ..] = path.as_slice() {
+                    return lti::ags(k, user, &req, uuid(lesson)?, rest).await;
+                }
                 if !is_member(user) {
                     return Err(Error::Forbidden("Learn needs the Learner, Instructor or LMS Manager role".into()));
                 }
                 // The xAPI endpoint of a lesson takes writes; everything else here only answers reads.
-                if let ["xapi", lesson, rest @ ..] = path.as_slice() {
-                    return xapi::handle(k, user, &req, uuid(lesson)?, rest).await;
+                match path.as_slice() {
+                    ["xapi", lesson, rest @ ..] => return xapi::handle(k, user, &req, uuid(lesson)?, rest).await,
+                    ["lti", "auth"] if req.method == "GET" => return lti::authorize(k, user, &req).await,
+                    ["lti", lesson, "launch"] if req.method == "GET" => return lti::start(k, user, uuid(lesson)?).await,
+                    _ => {}
                 }
                 if req.method != "GET" {
                     return Err(Error::NotFound("endpoint".into()));
                 }
                 signed_in(k, user, &req, &path).await
             }
-            None if req.method != "GET" => Err(Error::NotFound("endpoint".into())),
-            None => public(k, &req, &path).await,
+            None => match (req.method.as_str(), path.as_slice()) {
+                ("POST", ["lti", "token"]) => lti::token(k, &req).await,
+                ("GET", _) => public(k, &req, &path).await,
+                _ => Err(Error::NotFound("endpoint".into())),
+            },
         }
     }
 }
@@ -328,6 +339,10 @@ async fn public(k: &Kernel, req: &SiteRequest, path: &[&str]) -> Result<SiteResp
             let (mut courses, ids, next) = catalog(&mut tx, req.tenant, req, Audience::Public).await?;
             price_cards(&ctx, &mut tx, &mut courses, &ids).await?;
             json_response(&json!({"courses": courses, "next_cursor": next}), "public, max-age=60")
+        }
+        ["lti", "jwks"] => {
+            let keys = lti::jwks(k, &ctx, &mut tx).await?;
+            json_response(&keys, "public, max-age=300")
         }
         ["categories"] => {
             let cats: Vec<(Uuid, String, i64)> = sqlx::query_as(
