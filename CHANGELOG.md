@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.3.0, and Paid Courses 0.1.0
+
+Paid courses (part of FERRUM-LMS-002), in a connector app with Commerce, Paid Courses, offered where
+both are installed.
+
+- A course can have a price and the item it is sold as. Its page shows the price, in the catalog,
+  on the course page and on the public pages, and a Buy button where Enrol was. Nobody enrols
+  themselves in a paid course they have not paid for, also not through a learning path; its
+  instructors and LMS managers still enrol anyone, and try it themselves without paying.
+- Buying invoices the learner (their customer is found by email, or made) for the selling company
+  in Learn Settings, and asks for the invoice through the store's payment method named there. The
+  course page waits for the payment and opens up when it arrives: the payment enrols the learner,
+  or brings back the enrolment they left, progress kept. Buying again while a payment is due asks
+  for the same invoice again instead of invoicing twice.
+- Withdrawing within the refund period (14 days by default, from paying) credits the whole invoice
+  and asks for the payment to go back, through the gateway once a person approves the refund. Later,
+  the money is kept and enrolling again needs no new purchase.
+- A purchase whose payment request lapsed, failed or was cancelled is cancelled with its invoice
+  after a day, unless the learner asks to pay again first.
+- Each purchase is a Course Purchase record: who bought what, for how much, its invoice, payment
+  request, enrolment, credit note and refund. LMS managers and instructors read them; learners read
+  their own.
+
+Not yet: coupons and discounts, prices in more than one currency, refunds of part of the price,
+and buying a course for someone else.
+
 ## 0.2.0
 
 - Learn has an interface of its own at /lms/ (Ferrum docs/plan/apps-ui.md), in `ui/`, built into

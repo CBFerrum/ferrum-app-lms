@@ -1,0 +1,41 @@
+package: lms_payments
+version: 0.1.0
+label: Paid Courses
+description: Courses with a price, bought through the store's payment methods - the learner pays on the course page, is invoiced and enrolled when the payment arrives, and is refunded when they withdraw within the refund period.
+depends: [lms, commerce]
+field_prefix: lpay_
+
+overlays:
+  - entity: LmsCourse
+    ops:
+      - {op: add_field, column: true, after: self_enrollment, field: {name: lpay_price, type: currency, min: "0", label: Price,
+          description: "Learners pay it on the course page before they are enrolled, in the company's currency. Empty or 0: free"}}
+      - {op: add_field, column: true, after: lpay_price, field: {name: lpay_item, type: link, to: Item, label: Sold As, required_if: "doc.lpay_price > 0.0",
+          description: "The item its invoices carry: its income account and taxes apply"}}
+      - {op: add_action, action: {name: buy, label: Buy, permission: read, condition: "doc.lpay_price > 0.0 && doc.status == 'Published'", hidden: true}}
+  - entity: LmsSettings
+    ops:
+      - {op: add_field, column: true, field: {name: lpay_company, type: link, to: Company, label: Selling Company,
+          description: "The company that invoices paid courses"}}
+      - {op: add_field, column: true, field: {name: lpay_payment_method, type: data, max_length: 40, label: Course Payment Method,
+          description: "The store payment method (a gateway plugin's name) learners pay courses through. Empty: paid courses cannot be bought"}}
+      - {op: add_field, column: true, field: {name: lpay_refund_days, type: int, min: 0, max: 365, default: 14, label: Refund Period (Days),
+          description: "A learner who withdraws within this many days of paying, before completing the course, gets the whole price back"}}
+
+roles:
+  # Who sets a course's price picks the item it is sold as; the manager picks the selling company.
+  - name: LMS Manager
+    permissions:
+      - {entity: LmsCoursePurchase, read: true, write: true, export: true}
+      - {entity: Item, read: true}
+      - {entity: Company, read: true}
+  - name: Instructor
+    permissions:
+      - {entity: LmsCoursePurchase, read: true}
+      - {entity: Item, read: true}
+  - name: Learner
+    permissions:
+      - {entity: LmsCoursePurchase, read: true, if_owner: true}
+
+personal_data:
+  - {entity: LmsCoursePurchase, match: learner, erase: [learner, learner_name]}

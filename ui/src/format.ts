@@ -75,3 +75,18 @@ export function hue(seed: string, of = 8): number {
   for (const c of seed) h = (h * 31 + c.codePointAt(0)!) >>> 0;
   return (h % of) + 1;
 }
+
+/** A price in its currency ("₹1,500.00"), or the bare amount when the currency is unknown. */
+export function priceText(price: { amount: string; currency: string | null }, locale?: string): string {
+  const n = Number(price.amount);
+  if (!Number.isFinite(n)) return price.amount;
+  if (price.currency) {
+    try {
+      return new Intl.NumberFormat(locale, { style: "currency", currency: price.currency }).format(n);
+    } catch {
+      // A code Intl does not know: said as it is.
+    }
+  }
+  const amount = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  return price.currency ? `${price.currency} ${amount}` : amount;
+}

@@ -1,0 +1,25 @@
+- name: LmsCoursePurchase
+  label: Course Purchase
+  kind: document
+  module: learn
+  title_field: learner_name
+  search_fields: [learner]
+  owner_fields: [learner]
+  numbering: {template: "CPU-{YYYY}-{seq:6}"}
+  description: "A learner buying a paid course: invoiced when they ask to pay, enrolled when the payment arrives, refunded when they withdraw within the refund period. Made by the course's Buy action; changed only by Learn."
+  fields:
+    - {name: course, type: link, to: LmsCourse, required: true, read_only: true, in_list: true, in_filter: true}
+    - {name: learner, type: email, required: true, read_only: true, in_list: true, in_filter: true}
+    - {name: learner_name, type: data, read_only: true, in_list: true}
+    - {name: status, type: select, options: [Awaiting Payment, Paid, Cancelled, Refund Requested], default: Awaiting Payment, read_only: true, in_list: true, in_filter: true}
+    - {name: amount, type: currency, read_only: true, in_list: true}
+    - {name: sales_invoice, type: link, to: SalesInvoice, read_only: true, no_copy: true}
+    - {name: payment_request, type: link, to: PaymentRequest, read_only: true, no_copy: true}
+    - {name: paid_at, type: datetime, read_only: true, no_copy: true, in_filter: true}
+    - {name: enrollment, type: link, to: LmsEnrollment, read_only: true, no_copy: true, on_delete: set_null}
+    - {name: credit_note, type: link, to: SalesInvoice, read_only: true, no_copy: true}
+    - {name: refund, type: link, to: OrderRefund, read_only: true, no_copy: true}
+  form:
+    - {label: Purchase, fields: [course, learner, learner_name, status, amount, paid_at, enrollment]}
+    - {label: Accounting, fields: [sales_invoice, payment_request, credit_note, refund]}
+  list: {columns: [number, learner_name, course, status, amount], sort: created_at desc}
