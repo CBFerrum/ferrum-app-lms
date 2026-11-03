@@ -36,9 +36,12 @@ export interface LessonDoc {
   package_standard: string | null;
   package_launch: string | null;
   package_activity: string | null;
+  lti_tool: string | null;
+  lti_target_url: string | null;
+  lti_custom: string | null;
 }
 
-export const LESSON_TYPES: LessonType[] = ["Article", "Video", "Document", "Quiz", "Assignment", "SCORM", "xAPI"];
+export const LESSON_TYPES: LessonType[] = ["Article", "Video", "Document", "Quiz", "Assignment", "SCORM", "xAPI", "LTI"];
 export const docKey = (id: string) => ["lms", "lesson-doc", id] as const;
 
 const STATE_TEXT: Record<SaveState | "clean", string> = { clean: "All changes saved", idle: "All changes saved", waiting: "Saving…", saving: "Saving…", failed: "Could not save, trying again" };
@@ -270,6 +273,19 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
               )}
             </div>
           </Field>
+        )}
+        {type === "LTI" && (
+          <>
+            <Field label="Tool" htmlFor="le-lti" required error={errors.lti_tool ?? errors.lesson_type} hint="An LTI 1.3 tool an LMS manager registered.">
+              <LinkInput to="LmsLtiTool" id="le-lti" label="Tool" value={value("lti_tool")} onChange={(v) => set("lti_tool", v)} />
+            </Field>
+            <Field label="Address in the tool" htmlFor="le-lti-url" error={errors.lti_target_url} hint="Where in the tool this lesson opens; the tool's launch address when empty.">
+              <input id="le-lti-url" className="input" type="url" inputMode="url" placeholder="https://" value={value("lti_target_url") ?? ""} onChange={(e) => set("lti_target_url", e.target.value || null)} />
+            </Field>
+            <Field label="Custom parameters" htmlFor="le-lti-custom" error={errors.lti_custom} hint="name=value, one per line.">
+              <textarea id="le-lti-custom" className="input" rows={3} value={value("lti_custom") ?? ""} onChange={(e) => set("lti_custom", e.target.value || null)} />
+            </Field>
+          </>
         )}
         {type === "Quiz" && (
           <Field label="Quiz" htmlFor="le-quiz" required error={errors.quiz} hint="One of this course's quizzes; each belongs to one lesson.">

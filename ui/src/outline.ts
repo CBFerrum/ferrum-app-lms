@@ -117,8 +117,15 @@ export interface NextAction {
 /** The foot of a lesson for a learner: finishing and moving on in one step where the lesson is
  *  finished by saying so, a plain "Next" where it is not (quizzes and assignments finish when
  *  passed) or already done. `learning`: the viewer is enrolled and may record progress. */
-export function nextAction(chapters: OutlineChapter[], lesson: Pick<OutlineLesson, "id" | "lesson_type">, completed: boolean, learning: boolean): NextAction {
-  const completes = learning && !completed && selfPaced(lesson.lesson_type);
+export function nextAction(
+  chapters: OutlineChapter[],
+  lesson: Pick<OutlineLesson, "id" | "lesson_type">,
+  completed: boolean,
+  learning: boolean,
+  /** An LTI lesson is finished by saying so when its tool sends no grades. */
+  byHand?: boolean,
+): NextAction {
+  const completes = learning && !completed && (byHand ?? selfPaced(lesson.lesson_type));
   const after = completes ? markDone(chapters, lesson.id) : chapters;
   const found = whereNext(after, lesson.id);
   const target = found && found.id !== lesson.id ? found : null;

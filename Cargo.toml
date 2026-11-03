@@ -33,6 +33,10 @@ url = "2.5"
 # SCORM packages: their files are read from the zip, their imsmanifest.xml parsed without DTDs.
 zip = { version = "9", default-features = false, features = ["deflate"] }
 roxmltree = "0.20"
+# LTI 1.3: launches signed with Learn's RSA key (RS256), tools' client assertions checked, as the kernel's SSO does.
+jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"] }
+rsa = { version = "0.9", features = ["getrandom"] }
+base64 = "0.22"
 
 [dev-dependencies]
 # Paid Courses are tested on ERP's records (customers, invoices, the ledger).
