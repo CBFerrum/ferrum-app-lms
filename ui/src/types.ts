@@ -1,7 +1,7 @@
 // What Learn's endpoints answer (src/site.rs, enrollment.rs, quiz.rs, assignment.rs and the
 // package README). Decimals arrive as strings and stay strings until they are shown.
 
-export type LessonType = "Article" | "Video" | "Document" | "Quiz" | "Assignment" | "SCORM" | "xAPI";
+export type LessonType = "Article" | "Video" | "Document" | "Quiz" | "Assignment" | "SCORM" | "xAPI" | "LTI";
 export type Level = "Beginner" | "Intermediate" | "Advanced";
 export type EnrollmentStatus = "Active" | "Completed" | "Withdrawn";
 export type QuestionType = "Single Choice" | "Multiple Choice" | "True/False" | "Short Answer";
@@ -250,6 +250,8 @@ export interface LessonView {
   assignment?: AssignmentState;
   scorm?: ScormPlayer | null;
   xapi?: XapiPlayer | null;
+  /** An LTI lesson: its tool, and where the launch starts (a new window). */
+  lti?: { tool_name: string | null; launch_url: string; sends_grades: boolean } | null;
 }
 
 /** What `complete_lesson` answers. */

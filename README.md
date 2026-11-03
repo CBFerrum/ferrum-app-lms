@@ -89,8 +89,8 @@ Sold through the store with Paid Courses: invoiced, paid online, refunded in the
 </td>
 <td width="50%" valign="top">
 
-### 📦 SCORM and xAPI
-SCORM 1.2 and 2004 packages in Learn's player, xAPI packages with an endpoint of their own.
+### 📦 SCORM, xAPI and LTI
+SCORM 1.2 and 2004 packages in Learn's player, xAPI packages with an endpoint of their own, LTI 1.3 tools with grades back.
 
 </td>
 </tr>
@@ -292,6 +292,7 @@ CHANGELOG.md  what changed in each version
 
 | Version | Highlights |
 |---|---|
+| **0.5.0** | LTI 1.3 tools as lessons: registered with their keys, launched by OIDC with an id_token signed by Learn's key, and sending grades back through Assignment and Grade Services, which complete the lesson. |
 | **0.4.0** | SCORM 1.2 and 2004 lessons played through scorm-again, resumed where they stopped, and xAPI lessons with Learn's own xAPI endpoint for their statements and state; completed or passed, the lesson is completed. Packages are allowed in Learn Settings. |
 | **0.3.0** | Paid courses with Paid Courses (a connector with Commerce): a course with a price is bought on its page, invoiced and paid online through the store, enrols its learner when the payment arrives, and is refunded in full when they withdraw within the refund period. |
 | **0.2.0** | Learn's own interface at `/lms/`: the learner's course player, quiz player, assignments and certificates, the catalog and course pages (also public, with a certificate check), and for instructors the teaching dashboard, grading queue and course builder … |

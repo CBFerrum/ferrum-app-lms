@@ -53,7 +53,7 @@
     - {name: course, type: link, to: LmsCourse, read_only: true, in_list: true, in_filter: true}
     - {name: learner, type: email, read_only: true, in_list: true, in_filter: true}
     - {name: completed_at, type: datetime, read_only: true, in_list: true}
-    - {name: completed_via, type: select, options: [Learner, Instructor, Quiz, Assignment, SCORM, xAPI], read_only: true, in_list: true}
+    - {name: completed_via, type: select, options: [Learner, Instructor, Quiz, Assignment, SCORM, xAPI, LTI], read_only: true, in_list: true}
     - {name: completed_by, type: email, read_only: true}
   list: {columns: [lesson_title, learner, course, completed_at], sort: completed_at desc}
 
@@ -65,7 +65,7 @@
   title_field: lesson_title
   owner_fields: [learner]
   unique: [[enrollment, lesson]]
-  description: "A learner's run of a SCORM or xAPI lesson: its status, score and time, and for SCORM what the package recorded (resumed next time). Written by Learn's player and its xAPI endpoint; completed or passed, the lesson is completed."
+  description: "A learner's run of a SCORM, xAPI or LTI lesson: its status, score and time, and for SCORM what the package recorded (resumed next time). Written by Learn's player, its xAPI endpoint and the grades LTI tools send; completed or passed, the lesson is completed."
   fields:
     - {name: enrollment, type: link, to: LmsEnrollment, required: true, in_filter: true, on_delete: cascade}
     - {name: lesson, type: link, to: LmsLesson, required: true, in_filter: true, on_delete: cascade}
@@ -75,7 +75,7 @@
     - {name: status, type: select, options: [Not Attempted, Browsed, Incomplete, Completed, Passed, Failed], default: Not Attempted, read_only: true, in_list: true, in_filter: true}
     - {name: score_percent, type: percent, precision: 2, label: Score (%), read_only: true, in_list: true}
     - {name: total_seconds, type: int, label: Time (Seconds), read_only: true}
-    - {name: commits, type: int, label: Saves, read_only: true, description: "SCORM commits, or xAPI statements stored"}
+    - {name: commits, type: int, label: Saves, read_only: true, description: "SCORM commits, xAPI statements stored or LTI scores received"}
     - {name: last_commit_at, type: datetime, label: Last Saved, read_only: true, in_list: true}
     - {name: cmi, type: json, label: SCORM Data, read_only: true, description: "The package's own record of the run (its cmi data model)"}
   list: {columns: [lesson_title, learner, status, score_percent, last_commit_at], sort: last_commit_at desc}

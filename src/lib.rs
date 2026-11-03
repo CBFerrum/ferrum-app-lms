@@ -21,6 +21,7 @@ mod certificate;
 mod cohort;
 mod enrollment;
 mod grading;
+mod lti;
 mod notice;
 mod payments;
 mod quiz;
@@ -64,6 +65,7 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("LmsEnrollment", Arc::new(enrollment::EnrollmentHook))
         .register("LmsLessonProgress", Arc::new(enrollment::ProgressHook))
         .register("LmsPackageProgress", Arc::new(scorm::ProgressHook))
+        .register("LmsLtiTool", Arc::new(lti::ToolHook))
         .register("LmsCertificate", Arc::new(certificate::CertificateHook))
         .add_site(util::PACKAGE, Arc::new(site::LearnSite));
     // The connector with Commerce: only where Paid Courses is installed.
@@ -108,6 +110,7 @@ pub async fn maintenance(k: &Kernel) -> Result<()> {
             ("completions", enrollment::complete_ready(k, &ctx).await),
             ("lapsed purchases", payments::cancel_lapsed(k, &ctx).await),
             ("purge", purge(k, tenant).await),
+            ("lti tokens", lti::purge(k, tenant).await),
         ];
         for (step, outcome) in steps {
             match outcome {

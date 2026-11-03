@@ -129,3 +129,12 @@ describe("a course's outline", () => {
     });
   });
 });
+
+describe("an LTI lesson's foot", () => {
+  it("is finished by saying so only when its tool sends no grades", () => {
+    const chapters = [{ id: "c1", title: "One", summary: null, lessons: [{ id: "t", title: "Tool", lesson_type: "LTI" as const, duration_minutes: 0, is_preview: false, required: true, completed: false }] }];
+    expect(nextAction(chapters, { id: "t", lesson_type: "LTI" }, false, true, true).completes).toBe(true);
+    expect(nextAction(chapters, { id: "t", lesson_type: "LTI" }, false, true, false).completes).toBe(false);
+    expect(nextAction(chapters, { id: "t", lesson_type: "LTI" }, false, true).completes).toBe(false);
+  });
+});

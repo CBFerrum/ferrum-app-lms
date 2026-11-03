@@ -38,6 +38,7 @@ an LMS manager).
 | `certificate_issuer` | Organization named on certificates (the workspace name when empty) |
 | `certificate_signatory`, `certificate_signatory_title` | Printed under the signature line |
 | `video_hosts` | Extra video hosts, one per line (`video.example.com`; subdomains included): https links on them are embedded as they are |
+| `lti_private_key` | Secret: the RSA key Learn signs LTI launches with, made on first use; its public half is at `/api/site/{tenant}/lms/lti/jwks` |
 | `allow_packages` | Default off: instructors may make SCORM and xAPI lessons. A package's scripts run in Learn's pages with the learner's session (see SCORM and xAPI below), so allow them only when you trust your instructors' packages |
 
 ## Entities
@@ -113,7 +114,14 @@ an LMS manager).
 - **LmsLessonProgress** — one row per completed lesson of an enrolment (`enrollment`, `lesson`,
   `lesson_title`, `course`, `learner`, `completed_at`, `completed_via`: `Learner`, `Instructor`,
   `Quiz`, `Assignment`, `SCORM`, `xAPI`, `completed_by`). Written by Learn only.
-- **LmsPackageProgress** — a learner's run of a SCORM or xAPI lesson, one per enrolment and lesson:
+- **LmsLtiTool** — an LTI 1.3 tool: `tool_name`, `login_url` (OIDC login initiation), `launch_url`
+  (target link and redirect address), `redirect_uris` (others, one per line), `custom_parameters`
+  (`name=value` lines), `share_identity` (send names and emails), `sends_grades`, and its key for
+  grades: `public_key` (RSA, PEM) or `jwks_url`. Learn sets `client_id`, `deployment_id` and the
+  addresses to give the tool: `platform_issuer`, `platform_auth_url`, `platform_jwks_url`,
+  `platform_token_url` (from Learn Settings' public URL, which must be set first). LMS managers
+  register tools; instructors read them to make LTI lessons.
+- **LmsPackageProgress** — a learner's run of a SCORM, xAPI or LTI lesson, one per enrolment and lesson:
   `status` (`Not Attempted`, `Browsed`, `Incomplete`, `Completed`, `Passed`, `Failed`),
   `score_percent`, `total_seconds`, `commits` (SCORM commits or xAPI statements), `last_commit_at`
   and, for SCORM, `cmi` (the package's own data, resumed next time). Written by Learn only; an LMS
@@ -208,6 +216,9 @@ administrator), else `403`. All are `GET` (anything else is `404`) but the xAPI 
 | `/lessons/{id}/file` | → the lesson's uploaded file to the same people (PDFs and images inline, other types as downloads, `nosniff`, sandboxed) |
 | `/lessons/{id}/package/{file}/{path}` | → a file of a SCORM or xAPI lesson's package (`{file}`: the package's file id, so a new package is a new address) to the same people, from the zip, with a policy that lets its scripts run and talk to this server only (`frame-ancestors 'self'`); `404` for anything the package does not hold |
 | `/xapi/{lesson}/...` | the lesson's xAPI endpoint (below); takes `GET`, `PUT`, `POST` and `DELETE` |
+| `/lti/{lesson}/launch` | → `302` to the lesson's tool: the OIDC login initiation (below) |
+| `/lti/auth` | the OIDC authorization endpoint of LTI launches (`GET`) → a page posting the `id_token` to the tool |
+| `/lti/ags/{lesson}`, `/lti/ags/{lesson}/scores` | the lesson's line item and its scores, for the tool's access token only |
 | `/dashboard` | → `{courses: [{enrollment, course: {id, slug, title, cover_image}, status, progress_percent, completed_lessons, total_lessons, enrolled_on, last_activity_at, completed_at, next_lesson, cohort, certificate: {id, number, verification_code} \| null}], due_assignments: [{assignment, title, course: {id, title}, lesson, due_date, status: "Not Submitted" \| "Submitted" \| "Needs Revision" \| "Failed", overdue}], upcoming_sessions: [Session], certificates: [{id, number, course_title, verification_code}], learning_paths: [{id, title, courses, completed, progress_percent}]}` — in-progress courses first |
 | `/teaching` | → `{courses: [{id, slug, title, status, enrolled, active, completed, completion_rate, average_progress, submissions_to_grade}]}` — courses you author (every course for LMS managers), within your record scopes |
 | `/teaching/courses/{course}/roster` | `cohort?` → `{course, enrolled, completed, completion_rate, learners: [{enrollment, number, learner, learner_name, status, progress_percent, completed_lessons, total_lessons, enrolled_on, last_activity_at, completed_at, cohort, certificate, quizzes_passed, best_quiz_percentage, submissions_to_grade}]}` — the course's authors only (`403`) |
@@ -323,6 +334,38 @@ and is kept even when that statement is not there. A statement about the lesson'
 the lesson; `failed` marks the run failed; its scaled score (or raw against min and max) and
 duration are kept. Once done, a lesson stays done.
 
+## LTI lessons
+
+A lesson of type `LTI` opens `lti_tool` (at `lti_target_url`, else the tool's launch address, with
+`lti_custom` added to the tool's parameters). Learn is the platform:
+
+1. `GET /api/app/lms/lti/{lesson}/launch` (an enrolled learner or the course's authors) redirects to
+   the tool's `login_url` with `iss`, `login_hint` (the person's id), `target_link_uri`,
+   `lti_message_hint` (the lesson), `client_id` and `lti_deployment_id`.
+2. The tool sends the person to `GET /api/app/lms/lti/auth` (`scope=openid`,
+   `response_type=id_token`, `response_mode=form_post`, `client_id`, `redirect_uri`, `login_hint`,
+   `lti_message_hint`, `nonce`, `state`). Refused: another person's `login_hint`, a `client_id` other
+   than the lesson's tool, a `redirect_uri` the tool did not register, no `nonce`.
+3. Learn answers with a page that posts `id_token` and `state` to `redirect_uri` (its policy runs
+   nothing but that and lets the form go only there). The token is RS256 with Learn's key (`kid`),
+   lives five minutes and carries `sub` (an opaque id), `nonce`, the LTI claims of a resource link
+   request (deployment, target, resource link: the lesson, context: the course, role: Learner or
+   Instructor, tool platform, custom parameters), `name` and `email` only with `share_identity`, and
+   for learners of a tool that sends grades the AGS endpoint: the lesson's line item with the score
+   and line item scopes.
+
+**Grades** (`sends_grades`): the tool posts `grant_type=client_credentials` with a JWT client
+assertion to `POST /api/site/{tenant}/lms/lti/token`. The assertion is RS256 with the tool's key
+(`public_key`, or its `jwks_url` by `kid`), `iss` and `sub` its client id, `aud` the token endpoint,
+at most five minutes to live, and a `jti` never used before. The tool gets `{access_token,
+token_type: Bearer, expires_in: 3600, scope}`. The token is an API key of the tool's service user,
+which has no role, so it reaches nothing but the tool's own lessons' line items. `GET
+/api/app/lms/lti/ags/{lesson}` is the line item. `POST .../scores` takes AGS scores (`userId`: the
+`sub` of the launch, `scoreGiven`, `scoreMaximum`, `activityProgress`, `gradingProgress`). A fully
+graded score is kept as a percentage in Package Progress; activity `Completed` completes the lesson,
+and once done it stays done. Without `sends_grades`, learners mark the tool's lessons done
+themselves.
+
 ## Limits
 
 - Learners can list course metadata (`LmsCourse`) of drafts too; content stays behind enrolment.
@@ -338,5 +381,9 @@ duration are kept. Once done, a lesson stays done.
   SCO. A package with several SCOs is several lessons.
 - The xAPI endpoint is for Learn's own lessons only: no activity or agent profiles, no attachments,
   no `more` paging; cmi5 launches are not supported.
+- LTI: resource link launches and grades only. No Deep Linking, no Names and Role Provisioning, no
+  line items but the lesson's own, no authorization requests by form post (tools send a redirect,
+  as most do). The public URL must be the address learners sign in at, so their session reaches the
+  authorization endpoint.
 - Packages are read whole into memory (and kept there, 512 MB in all, the oldest dropped first),
   hence the 256 MB cap.
