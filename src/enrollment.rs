@@ -135,6 +135,7 @@ impl DocHook for EnrollmentHook {
                     if !missing.is_empty() {
                         return Err(Error::invalid(format!("complete these courses first: {}", missing.join(", "))));
                     }
+                    crate::payments::check_paid(ctx, hc.tx, &course, s(doc, "learner").unwrap_or_default()).await?;
                 }
                 if let Some(cohort) = id(doc, "cohort") {
                     check_cohort(ctx, hc.tx, &course, cohort, Some(me), author).await?;
@@ -209,6 +210,7 @@ async fn check_new(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc) -> Result<()> 
         if !missing.is_empty() {
             return Err(Error::field("course", format!("complete these courses first: {}", missing.join(", "))));
         }
+        crate::payments::check_paid(ctx, tx, &course, learner).await?;
     }
     if let Some(cohort) = id(doc, "cohort") {
         check_cohort(ctx, tx, &course, cohort, None, author).await?;

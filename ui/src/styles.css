@@ -237,6 +237,13 @@
   margin-left: 0.5rem;
 }
 
+/* A paid course's price, after its facts. */
+.lms-price {
+  margin-left: 0.5rem;
+  color: var(--text);
+  font-weight: 600;
+}
+
 .lms-card-body > :last-child:not(.lms-card-title):not(p) {
   margin-top: auto;
 }

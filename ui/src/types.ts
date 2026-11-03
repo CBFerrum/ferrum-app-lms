@@ -68,6 +68,33 @@ export interface Session {
 }
 
 /** A course in a catalog. */
+/** A price where courses are sold (Paid Courses): a decimal string and the currency's code. */
+export interface Price {
+  amount: string;
+  currency: string | null;
+}
+
+export type PurchaseStatus = "Awaiting Payment" | "Paid" | "Cancelled" | "Refund Requested";
+
+export interface Purchase {
+  id: string;
+  number: string | null;
+  status: PurchaseStatus;
+  amount: string | null;
+  paid_at: string | null;
+  /** The store's request for the money; its address while it is still due. */
+  payment: { status: string; payment_url: string | null } | null;
+}
+
+/** A paid course as the signed-in learner sees it. */
+export interface Sale {
+  price: Price;
+  purchase: Purchase | null;
+  /** They have paid for it (and not been refunded). */
+  paid: boolean;
+  can_buy: boolean;
+}
+
 export interface Card {
   id: string;
   slug: string;
@@ -84,6 +111,8 @@ export interface Card {
   visibility: "Internal" | "Public";
   category: { id: string; name: string | null } | null;
   instructors: string[];
+  /** Where courses are sold: nothing for a free course. */
+  price?: Price | null;
   /** The signed-in catalog's: the caller's own enrolment. */
   my_enrollment?: { id: string; status: EnrollmentStatus; progress_percent: string | null } | null;
 }
@@ -102,6 +131,8 @@ export interface CoursePage extends Omit<Card, "my_enrollment" | "lessons"> {
   my_enrollment?: Progress;
   next_lesson?: OutlineLesson | null;
   upcoming_sessions?: Session[];
+  /** A paid course, signed in. */
+  sale?: Sale | null;
 }
 
 export interface Path {

@@ -11,7 +11,7 @@ import { Badge, Button, EmptyState, ErrorState, Icon, PageLoading, useDebounced,
 import { certificatePage, checkCertificate, publicCatalog, publicCategories, publicCourse, publicLesson } from "./api";
 import { CourseLayout, Prerequisites } from "./CourseLayout";
 import { type Filters, filtersFrom, hasFilters, LEVELS, paramsFor, queryFor } from "./filters";
-import { duration, plural } from "./format";
+import { duration, plural, priceText } from "./format";
 import { Glyph, LESSON_LABEL } from "./Glyph";
 import { publicPaths } from "./lesson";
 import { LessonDocument, LessonVideo } from "./LessonPage";
@@ -197,11 +197,17 @@ export function PublicCourse() {
         aside={
           <>
             <div className="lms-box">
-              <h3 className="lms-box-head">Take this course</h3>
-              <p className="faint lms-box-line">{c.self_enrollment ? "Sign in to enrol and keep track of your progress." : "Enrolment is by invitation. Sign in if you were invited."}</p>
+              <h3 className="lms-box-head">{c.price ? `Buy this course: ${priceText(c.price)}` : "Take this course"}</h3>
+              <p className="faint lms-box-line">
+                {!c.self_enrollment
+                  ? "Enrolment is by invitation. Sign in if you were invited."
+                  : c.price
+                    ? "Sign in to buy it. You are enrolled as soon as your payment arrives."
+                    : "Sign in to enrol and keep track of your progress."}
+              </p>
               <div className="lms-box-actions">
                 <a className="btn btn-primary btn-md" href={signInTo(slug)}>
-                  Sign in to enrol
+                  {c.price && c.self_enrollment ? "Sign in to buy" : "Sign in to enrol"}
                 </a>
               </div>
               {c.cohorts.length > 0 && (
@@ -275,7 +281,7 @@ export function PublicLesson() {
                 Back to the course
               </Link>
               <a className="btn btn-primary btn-md" href={signInTo(slug)}>
-                Sign in to enrol
+                {course.data?.price ? "Sign in to buy" : "Sign in to enrol"}
               </a>
             </div>
           </article>
