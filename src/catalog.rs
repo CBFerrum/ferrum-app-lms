@@ -229,7 +229,7 @@ impl DocHook for LessonHook {
             None => Value::Null,
         };
         doc.insert("video_embed_url".into(), embed);
-        Ok(())
+        crate::scorm::on_save(hc.kernel, hc.ctx, hc.tx, doc).await
     }
 
     async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {

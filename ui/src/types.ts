@@ -1,7 +1,7 @@
 // What Learn's endpoints answer (src/site.rs, enrollment.rs, quiz.rs, assignment.rs and the
 // package README). Decimals arrive as strings and stay strings until they are shown.
 
-export type LessonType = "Article" | "Video" | "Document" | "Quiz" | "Assignment";
+export type LessonType = "Article" | "Video" | "Document" | "Quiz" | "Assignment" | "SCORM" | "xAPI";
 export type Level = "Beginner" | "Intermediate" | "Advanced";
 export type EnrollmentStatus = "Active" | "Completed" | "Withdrawn";
 export type QuestionType = "Single Choice" | "Multiple Choice" | "True/False" | "Short Answer";
@@ -209,6 +209,38 @@ export interface AssignmentState {
   submissions: SubmissionRow[];
 }
 
+/** What Learn's player needs to run a SCORM lesson (none until its package is in). */
+export interface ScormPlayer {
+  version: "1.2" | "2004";
+  /** The package's launch file, below the lesson's address on this server. */
+  launch_url: string;
+  mastery_score: string | null;
+  /** The enrolled learner, as the package knows them; none for an instructor's preview. */
+  learner: { id: string; name: string } | null;
+  /** What the package saved last time (to resume). */
+  saved: { cmi: Record<string, unknown>; status: string } | null;
+}
+
+/** What Learn's player needs to launch an xAPI lesson. */
+export interface XapiPlayer {
+  launch_url: string;
+  /** Learn's xAPI endpoint for the lesson, on this server. */
+  endpoint: string;
+  activity_id: string;
+  actor: Record<string, unknown>;
+  /** The enrolment, as the package's registration; none for an instructor's preview. */
+  registration: string | null;
+  preview: boolean;
+}
+
+/** What `scorm_commit` answers. */
+export interface ScormSaved {
+  status: string;
+  score_percent: string | null;
+  completed: boolean;
+  progress: CompletionSummary | null;
+}
+
 /** A lesson as a learner (or an author) opens it. */
 export interface LessonView {
   lesson: LessonBody;
@@ -216,6 +248,8 @@ export interface LessonView {
   completed_at?: string | null;
   quiz?: QuizState;
   assignment?: AssignmentState;
+  scorm?: ScormPlayer | null;
+  xapi?: XapiPlayer | null;
 }
 
 /** What `complete_lesson` answers. */

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.0
+
+SCORM and xAPI lessons (part of FERRUM-LMS-002).
+
+- An LMS manager allows packages in Learn Settings (off by default: a package's scripts run with the
+  learner's session). Instructors then make lessons of SCORM 1.2, SCORM 2004 or xAPI (Tin Can)
+  packages: they upload the zip, and Learn reads what it launches from its `imsmanifest.xml` or
+  `tincan.xml`, refusing what cannot play or reaches outside the package.
+- **SCORM** plays in Learn's player through scorm-again (MIT, vendored with its provenance). The
+  package knows the learner and resumes where it stopped, and what it records is saved as it
+  commits and when it finishes. Completed or passed, the lesson is completed; its status, score and
+  time are kept in the learner's Package Progress.
+- **xAPI** packages are launched with Learn's own xAPI endpoint, which speaks only for the signed-in
+  learner about that lesson. It keeps statements (stored once at their id, voided, read back) and
+  state documents (bookmarks and resume data, merged and guarded by their tags). A statement that
+  the lesson's activity was completed or passed completes the lesson, and once done it stays done.
+- An instructor's preview plays the package and keeps nothing. A new package is a new address, so
+  the old one stops being served.
+
+Not yet: SCORM 2004 sequencing between SCOs, cmi5, xAPI profiles and attachments, and a separate
+origin for package content.
+
 ## 0.3.0, and Paid Courses 0.1.0
 
 Paid courses (part of FERRUM-LMS-002), in a connector app with Commerce, Paid Courses, offered where
