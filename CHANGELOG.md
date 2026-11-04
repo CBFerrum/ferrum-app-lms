@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+Rebuilt with Ferrum-Frontend 80ff179: a field's label names its control for assistive technology, and a record whose title is a link shows that record's title, not its id.
+
 ## 0.5.0
 
 LTI 1.3 tools as lessons, Learn as the platform (the rest of FERRUM-LMS-002).
