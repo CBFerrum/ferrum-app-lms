@@ -242,6 +242,17 @@ where
 /// Both scenarios reset the one test database.
 static DB: Mutex<()> = Mutex::new(());
 
+/// An answer as the server sends it: a stored file it names (`SiteResponse::file`) becomes its
+/// body, as the server streams it from storage.
+async fn served(k: &Kernel, tenant: Uuid, mut r: SiteResponse) -> SiteResponse {
+    if let Some(i) = r.headers.iter().position(|(h, _)| h == ferrum_kernel::hooks::STREAM_FILE_HEADER) {
+        let id: Uuid = r.headers.remove(i).1.parse().expect("a file id");
+        assert!(r.body.is_empty(), "a named file is streamed, never read whole by the app");
+        r.body = k.read_file(&Ctx::system(tenant, k.registry.schema(tenant).await.unwrap()), id).await.unwrap().2;
+    }
+    r
+}
+
 #[test]
 fn learn_end_to_end() {
     let _db = DB.lock().unwrap_or_else(|e| e.into_inner());
@@ -981,7 +992,7 @@ async fn scenario() {
     assert_eq!(t.page(Some(outsider), &format!("/lessons/{l1}")).await["lesson"]["content"], json!("# Welcome\nWhat we will build."));
     let quiz_state = t.page(Some(&chen), &format!("/lessons/{l4}")).await["quiz"].clone();
     assert_eq!((quiz_state["attempts_used"].clone(), quiz_state["attempts_left"].clone(), quiz_state["passed"].clone()), (json!(3), json!(0), json!(false)));
-    let file = t.call(Some(&chen), "GET", &format!("/lessons/{l3}/file")).await.expect("lesson file");
+    let file = served(&t.k, t.tenant, t.call(Some(&chen), "GET", &format!("/lessons/{l3}/file")).await.expect("lesson file")).await;
     assert_eq!((file.content_type.as_str(), file.body.as_slice()), ("application/pdf", PDF));
 
     t.sql("update e_lms_enrollment set enrolled_on = enrolled_on - 30 where tenant_id = $1 and id = $2", echen).await;
@@ -1037,7 +1048,7 @@ async fn scenario() {
     assert_eq!(preview["lesson"]["content"], json!("# Welcome\nWhat we will build."));
     assert!(matches!(err(t.call(None, "GET", &format!("/courses/rust-basics/lessons/{l2}")).await), Error::NotFound(_)));
     assert!(matches!(err(t.call(None, "GET", &format!("/courses/rust-basics/lessons/{}", adv_lessons[0])).await), Error::NotFound(_)));
-    let public_file = t.call(None, "GET", &format!("/courses/rust-basics/lessons/{l3}/file")).await.expect("preview file");
+    let public_file = served(&t.k, t.tenant, t.call(None, "GET", &format!("/courses/rust-basics/lessons/{l3}/file")).await.expect("preview file")).await;
     assert_eq!(public_file.body.as_slice(), PDF);
     assert!(matches!(err(t.call(None, "POST", "/courses").await), Error::NotFound(_)));
 
