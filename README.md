@@ -292,6 +292,7 @@ CHANGELOG.md  what changed in each version
 
 | Version | Highlights |
 |---|---|
+| **0.5.2** | Rebuilt with Ferrum-Frontend daeadda: actions say what they did. |
 | **0.5.1** | Rebuilt with Ferrum-Frontend 80ff179: labels name their fields, and linked titles show their titles. |
 | **0.5.0** | LTI 1.3 tools as lessons: registered with their keys, launched by OIDC with an id_token signed by Learn's key, and sending grades back through Assignment and Grade Services, which complete the lesson. |
 | **0.4.0** | SCORM 1.2 and 2004 lessons played through scorm-again, resumed where they stopped, and xAPI lessons with Learn's own xAPI endpoint for their statements and state; completed or passed, the lesson is completed. Packages are allowed in Learn Settings. |
