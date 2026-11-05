@@ -16,6 +16,7 @@ import { Done } from "./Done";
 import { Home } from "./Home";
 import { PlayerRoute } from "./Player";
 import { PublicCatalog, PublicCertificate, PublicCourse, PublicLesson } from "./Public";
+import { docKey, type LessonDoc, LessonEditor } from "./LessonEditor";
 import { Intro, Result, Sitting } from "./QuizPlayer";
 import { Teaching } from "./Teaching";
 import type { Attempt, AssignmentState, CoursePage, Dashboard, LessonView, OutlineChapter, QuizState, Roster } from "./types";
@@ -489,5 +490,27 @@ describe("pages for anyone", () => {
     expect(draws(true)).toContain("Asha Rao");
     expect(draws(false)).toContain("This certificate was revoked");
     expect(draws(true)).toContain("/api/site/acme/lms/certificates/ABCD-EFGH/view");
+  });
+});
+
+describe("the lesson editor", () => {
+  const lesson = (over: Partial<LessonDoc> = {}): LessonDoc => ({
+    id: "l3", version: 1, title: "Ownership quiz", chapter: "c2", position: 1, lesson_type: "Quiz", duration_minutes: 15, is_preview: false, required: true,
+    content: null, video_url: null, video_embed_url: null, attachment: null, quiz: null, assignment: null, package_file: null, package_standard: null,
+    package_launch: null, package_activity: null, lti_tool: null, lti_target_url: null, lti_custom: null, ...over,
+  });
+  const editor = (doc: LessonDoc) =>
+    draw("/build/course-1", "/build/:course", <LessonEditor id={doc.id} course="course-1" slug="intro-to-rust" onChanged={() => {}} onDeleted={() => {}} />, (qc) => qc.setQueryData(docKey(doc.id), doc));
+
+  it("makes a new quiz where the lesson is, instead of leaving for a blank form that loses the lesson's kind", () => {
+    const html = editor(lesson());
+    expect(html).toContain("New quiz");
+    expect(html).not.toContain("/e/LmsQuiz/new");
+  });
+
+  it("opens the lesson's quiz once it has one", () => {
+    const html = editor(lesson({ quiz: "q1" }));
+    expect(html).toContain('href="/e/LmsQuiz/q1"');
+    expect(html).not.toContain("New quiz");
   });
 });

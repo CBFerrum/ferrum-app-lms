@@ -68,6 +68,7 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
   const [conflict, setConflict] = useState(false);
   const [view, setView] = useState<"write" | "preview">("write");
   const [uploading, setUploading] = useState(false);
+  const [making, setMaking] = useState(false);
   const saver = useRef<Saver<unknown> | null>(null);
   const unsaved = useRef<Record<string, unknown>>({});
 
@@ -131,6 +132,21 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
     saver.current?.add({ [k]: v });
   };
   const type = value("lesson_type");
+
+  // A new quiz or assignment is made here, titled after the lesson, and picked at once: a lesson of
+  // that kind saves only with it, and leaving for a blank form lost the kind. Its questions or
+  // instructions are added on its own page after.
+  const make = async (entity: "LmsQuiz" | "LmsAssignment", field: "quiz" | "assignment") => {
+    setMaking(true);
+    try {
+      const made = await api.post<{ id: string }>(docPath(entity), { course, title: value("title") || "Untitled" });
+      set(field, made.id);
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setMaking(false);
+    }
+  };
 
   const reload = async () => {
     unsaved.current = {};
@@ -288,26 +304,38 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
           </>
         )}
         {type === "Quiz" && (
-          <Field label="Quiz" htmlFor="le-quiz" required error={errors.quiz} hint="One of this course's quizzes; each belongs to one lesson.">
+          <Field label="Quiz" htmlFor="le-quiz" required error={errors.quiz} hint="One of this course's quizzes, or a new one named after the lesson; each belongs to one lesson.">
             <div className="row">
               <div className="lms-grow">
                 <LinkInput to="LmsQuiz" id="le-quiz" label="Quiz" value={value("quiz")} linkFilters={{ course }} onChange={(v) => set("quiz", v)} />
               </div>
-              <Link className="btn btn-default btn-md" to={`/e/LmsQuiz/new?course=${course}`}>
-                New quiz
-              </Link>
+              {value("quiz") ? (
+                <Link className="btn btn-default btn-md" to={`/e/LmsQuiz/${value("quiz")}`}>
+                  Edit quiz
+                </Link>
+              ) : (
+                <Button loading={making} onClick={() => void make("LmsQuiz", "quiz")}>
+                  New quiz
+                </Button>
+              )}
             </div>
           </Field>
         )}
         {type === "Assignment" && (
-          <Field label="Assignment" htmlFor="le-assignment" required error={errors.assignment} hint="One of this course's assignments; each belongs to one lesson.">
+          <Field label="Assignment" htmlFor="le-assignment" required error={errors.assignment} hint="One of this course's assignments, or a new one named after the lesson; each belongs to one lesson.">
             <div className="row">
               <div className="lms-grow">
                 <LinkInput to="LmsAssignment" id="le-assignment" label="Assignment" value={value("assignment")} linkFilters={{ course }} onChange={(v) => set("assignment", v)} />
               </div>
-              <Link className="btn btn-default btn-md" to={`/e/LmsAssignment/new?course=${course}`}>
-                New assignment
-              </Link>
+              {value("assignment") ? (
+                <Link className="btn btn-default btn-md" to={`/e/LmsAssignment/${value("assignment")}`}>
+                  Edit assignment
+                </Link>
+              ) : (
+                <Button loading={making} onClick={() => void make("LmsAssignment", "assignment")}>
+                  New assignment
+                </Button>
+              )}
             </div>
           </Field>
         )}
