@@ -292,6 +292,7 @@ CHANGELOG.md  what changed in each version
 
 | Version | Highlights |
 |---|---|
+| **0.5.3** | Rebuilt with Ferrum-Frontend 00dea07: a workflow state's kept fields are read-only, its needed ones required. |
 | **0.5.2** | Rebuilt with Ferrum-Frontend daeadda: actions say what they did. |
 | **0.5.1** | Rebuilt with Ferrum-Frontend 80ff179: labels name their fields, and linked titles show their titles. |
 | **0.5.0** | LTI 1.3 tools as lessons: registered with their keys, launched by OIDC with an id_token signed by Learn's key, and sending grades back through Assignment and Grade Services, which complete the lesson. |
