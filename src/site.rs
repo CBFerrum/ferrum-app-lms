@@ -312,20 +312,22 @@ fn preview_body(lesson: &Doc, file_base: &str) -> Value {
 /// A stored lesson file, inline for PDFs and images and as a download otherwise.
 async fn send_file(k: &Kernel, ctx: &Ctx, lesson: &Doc) -> Result<SiteResponse> {
     let file = s(lesson, "attachment").and_then(util::file_id).ok_or_else(|| not_found("file"))?;
-    let (name, ctype, data) = k.read_file(&sys(ctx), file).await?;
+    let f = k.file_info(&sys(ctx), file).await?;
+    let (name, ctype) = (f.name, f.content_type);
     let inline = ctype == "application/pdf" || (ctype.starts_with("image/") && ctype != "image/svg+xml");
     let ascii: String = name.chars().map(|c| if c.is_ascii_graphic() || c == ' ' { c } else { '_' }).collect();
-    Ok(SiteResponse {
-        status: 200,
-        content_type: if inline { ctype } else { "application/octet-stream".into() },
-        headers: vec![
+    // The server streams the stored file as the body, whatever its size.
+    Ok(SiteResponse::file(
+        200,
+        if inline { &ctype } else { "application/octet-stream" },
+        vec![
             ("content-disposition".into(), format!("{}; filename=\"{}\"", if inline { "inline" } else { "attachment" }, ascii.replace('"', ""))),
             ("x-content-type-options".into(), "nosniff".into()),
             ("content-security-policy".into(), "default-src 'none'; sandbox".into()),
             ("cache-control".into(), "private, max-age=300".into()),
         ],
-        body: data,
-    })
+        file,
+    ))
 }
 
 // ───────────────────────────── public ─────────────────────────────
