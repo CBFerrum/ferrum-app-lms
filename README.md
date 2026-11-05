@@ -292,6 +292,7 @@ CHANGELOG.md  what changed in each version
 
 | Version | Highlights |
 |---|---|
+| **0.6.1** | New quiz and New assignment make one in the lesson, so the lesson keeps its kind. |
 | **0.6.0** | Lesson files stream from storage, whatever their size. |
 | **0.5.3** | Rebuilt with Ferrum-Frontend 00dea07: a workflow state's kept fields are read-only, its needed ones required. |
 | **0.5.2** | Rebuilt with Ferrum-Frontend daeadda: actions say what they did. |
