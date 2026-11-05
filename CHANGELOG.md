@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1
+
+A lesson's New quiz and New assignment make one where the lesson is, named after it, and pick it, so a quiz or assignment lesson saves at once; Edit quiz and Edit assignment then open it for its questions or instructions. They used to leave for a blank form, and the lesson lost its kind, which saves only with its quiz or assignment. Rebuilt with Ferrum-Frontend 0f1a544: a settings page is headed by what it is.
+
 ## 0.6.0
 
 Lesson files stream: a lesson's file is sent by the server straight from storage, whatever its size, instead of being read whole into memory first (Ferrum's SiteResponse::file, FERRUM-OPS-006).
