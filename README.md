@@ -292,6 +292,7 @@ CHANGELOG.md  what changed in each version
 
 | Version | Highlights |
 |---|---|
+| **0.6.0** | Lesson files stream from storage, whatever their size. |
 | **0.5.3** | Rebuilt with Ferrum-Frontend 00dea07: a workflow state's kept fields are read-only, its needed ones required. |
 | **0.5.2** | Rebuilt with Ferrum-Frontend daeadda: actions say what they did. |
 | **0.5.1** | Rebuilt with Ferrum-Frontend 80ff179: labels name their fields, and linked titles show their titles. |
