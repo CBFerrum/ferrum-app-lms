@@ -168,7 +168,13 @@
     - {label: Timing, fields: [submitted_at, due_date, late]}
     - {label: Grade, fields: [status, score, max_score, passed, feedback, graded_by, graded_at]}
   actions:
-    - {name: grade, label: Grade, permission: write}
+    - name: grade
+      label: Grade
+      permission: write
+      params:
+        - {name: outcome, type: select, label: Outcome, options: [Graded, Needs Revision], description: "Graded when empty"}
+        - {name: score, type: data, label: Score, description: "Out of the assignment's maximum; needed to grade it"}
+        - {name: feedback, type: text, label: Feedback}
   list: {columns: [number, assignment_title, learner_name, status, score, passed], sort: created_at desc}
 
 - name: LmsCertificate
@@ -196,5 +202,11 @@
     - {name: status, type: select, options: [Valid, Revoked], default: Valid, read_only: true, in_list: true, in_filter: true}
     - {name: revoked_reason, type: text, read_only: true}
   actions:
-    - {name: revoke, label: Revoke, permission: write, condition: "doc.status == 'Valid'", confirm: "Revoke this certificate? Verification will show it as revoked."}
+    - name: revoke
+      label: Revoke
+      permission: write
+      condition: "doc.status == 'Valid'"
+      confirm: "Revoke this certificate? Verification will show it as revoked."
+      params:
+        - {name: reason, type: text, label: Reason, required: true, description: "Verification shows the certificate as revoked"}
   list: {columns: [number, learner_name, course_title, issued_on, status], sort: issued_on desc}
