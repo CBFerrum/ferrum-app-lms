@@ -851,7 +851,16 @@ async fn scenario() {
     assert!(matches!(err(t.try_act(&stranger, "LmsAssignmentSubmission", sub1, "grade", json!({"score": 90})).await), Error::Forbidden(_)));
     assert!(matches!(err(t.try_act(&asha, "LmsAssignmentSubmission", sub1, "grade", json!({"score": 100})).await), Error::Forbidden(_)));
     assert!(field_error(t.try_act(&teacher, "LmsAssignmentSubmission", sub1, "grade", json!({"score": 101})).await, "score").contains("between 0 and 100"));
-    let g1 = t.act(&teacher, "LmsAssignmentSubmission", sub1, "grade", json!({"score": 40, "feedback": "Explain lifetimes too."})).await;
+    // What the record pages can give, these actions ask for (a page's dialog sends the score as text).
+    let asks = |entity: &str, name: &str| -> Vec<String> {
+        let actions = &teacher.schema.entity(entity).unwrap().def.actions;
+        actions.iter().find(|a| a.name == name).unwrap().params.iter().map(|p| p.name.clone()).collect()
+    };
+    assert_eq!(asks("LmsAssignmentSubmission", "grade"), ["outcome", "score", "feedback"]);
+    assert_eq!(asks("LmsCertificate", "revoke"), ["reason"]);
+    assert_eq!(asks("LmsCourse", "enroll_learners"), ["learners", "cohort"]);
+    assert_eq!(asks("LmsCohort", "schedule_sessions"), ["first_date", "time", "count", "every_days", "duration_minutes", "title", "join_url"]);
+    let g1 = t.act(&teacher, "LmsAssignmentSubmission", sub1, "grade", json!({"score": "40", "feedback": "Explain lifetimes too."})).await;
     assert_eq!(
         (g1["submission"]["status"].clone(), g1["submission"]["passed"].clone(), dec(&g1["submission"]["score"])),
         (json!("Graded"), json!(false), n("40"))
