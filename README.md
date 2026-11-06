@@ -292,6 +292,7 @@ CHANGELOG.md  what changed in each version
 
 | Version | Highlights |
 |---|---|
+| **0.6.4** | Rebuilt with Ferrum-Frontend 24c3951: times on the workspace's clock; drafts headed as drafts. |
 | **0.6.3** | Rebuilt with Ferrum-Frontend bb60115: empty numbers read as the server reads them; settings open as their record. |
 | **0.6.2** | Revoke, Enrol Learners, Schedule Sessions and Grade ask for what they read. |
 | **0.6.1** | New quiz and New assignment make one in the lesson, so the lesson keeps its kind. |
