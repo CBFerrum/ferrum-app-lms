@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.3
+
+Rebuilt with Ferrum-Frontend bb60115: a record page reads an empty number or check as the server does, so an action whose condition needs one shows, and a workspace's settings open as their one record.
+
 ## 0.6.2
 
 The record pages ask for what their actions read: a certificate's Revoke needs a reason, a course's Enrol Learners their emails, a cohort's Schedule Sessions the first date and time, and a submission's Grade a score, and none asked, so from those pages they could not work. They now ask; Learn's own screens send them as before.
