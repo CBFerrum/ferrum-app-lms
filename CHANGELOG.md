@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.2
+
+The record pages ask for what their actions read: a certificate's Revoke needs a reason, a course's Enrol Learners their emails, a cohort's Schedule Sessions the first date and time, and a submission's Grade a score, and none asked, so from those pages they could not work. They now ask; Learn's own screens send them as before.
+
 ## 0.6.1
 
 A lesson's New quiz and New assignment make one where the lesson is, named after it, and pick it, so a quiz or assignment lesson saves at once; Edit quiz and Edit assignment then open it for its questions or instructions. They used to leave for a blank form, and the lesson lost its kind, which saves only with its quiz or assignment. Rebuilt with Ferrum-Frontend 0f1a544: a settings page is headed by what it is.
