@@ -11,7 +11,7 @@ import { Alert, Badge, Button, confirmDialog, ErrorState, PageLoading, toast, us
 import { buy, enrol, getCourse, keys, reactivate, withdraw } from "./api";
 import { CertificateActions } from "./Certificate";
 import { CourseLayout, Prerequisites } from "./CourseLayout";
-import { plural, priceText, sessionStart } from "./format";
+import { priceText, sessionStart } from "./format";
 import { Glyph } from "./Glyph";
 import { paths } from "./lesson";
 import { progressText, totals } from "./outline";
@@ -34,7 +34,7 @@ export function CourseRoute() {
   return ID.test(ref) ? <ById id={ref} /> : <CourseView key={ref} slug={ref} />;
 }
 
-const placesText = (c: CohortInfo) => (c.places.free === null ? tr("No limit on places") : c.places.free === 0 ? tr("Full") : tr("{value} left", { value: plural(c.places.free, "place") }));
+const placesText = (c: CohortInfo) => (c.places.free === null ? tr("No limit on places") : c.places.free === 0 ? tr("Full") : tr("{value} left", { value: (c.places.free === 1 ? tr("1 place") : tr("{n} places", { n: c.places.free })) }));
 
 function CohortChoice({ cohorts, value, onChange }: { cohorts: CohortInfo[]; value: string | null; onChange: (id: string | null) => void }) {
   if (!cohorts.length) return null;

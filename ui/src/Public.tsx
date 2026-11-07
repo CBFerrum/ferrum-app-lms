@@ -11,7 +11,7 @@ import { Badge, Button, EmptyState, ErrorState, Icon, PageLoading, useDebounced,
 import { certificatePage, checkCertificate, publicCatalog, publicCategories, publicCourse, publicLesson } from "./api";
 import { CourseLayout, Prerequisites } from "./CourseLayout";
 import { type Filters, filtersFrom, hasFilters, LEVELS, paramsFor, queryFor } from "./filters";
-import { duration, plural, priceText } from "./format";
+import { duration, priceText } from "./format";
 import { Glyph, LESSON_LABEL } from "./Glyph";
 import { publicPaths } from "./lesson";
 import { LessonDocument, LessonVideo } from "./LessonPage";
@@ -99,7 +99,7 @@ export function PublicCatalog() {
         <div>
           <h1 className="page-title">{tr("Courses")}</h1>
           <p className="page-sub" aria-live="polite">
-            {catalog.data ? `${plural(courses.length, "course")}${catalog.hasNextPage ? " and more" : ""}` : " "}
+            {catalog.data ? `${(courses.length === 1 ? tr("1 course") : tr("{n} courses", { n: courses.length }))}${catalog.hasNextPage ? " and more" : ""}` : " "}
           </p>
         </div>
         <CheckCertificate workspace={workspace} />
@@ -219,7 +219,7 @@ export function PublicCourse() {
                         <strong>{isolate(g.title)}</strong>
                         <br />
                         <span className="faint">
-                          {tr("{value} to {value2} ·", { value: formatDate(g.start_date), value2: formatDate(g.end_date) })} {g.places.free === null ? tr("No limit on places") : g.places.free === 0 ? tr("Full") : tr("{value} left", { value: plural(g.places.free, "place") })}
+                          {tr("{value} to {value2} ·", { value: formatDate(g.start_date), value2: formatDate(g.end_date) })} {g.places.free === null ? tr("No limit on places") : g.places.free === 0 ? tr("Full") : tr("{value} left", { value: (g.places.free === 1 ? tr("1 place") : tr("{n} places", { n: g.places.free })) })}
                         </span>
                       </li>
                     ))}

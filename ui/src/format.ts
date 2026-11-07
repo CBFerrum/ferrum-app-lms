@@ -1,3 +1,4 @@
+import { t } from "@ferrum/client";
 // Words for numbers and dates, the way a learner would say them. Pure, with the day passed in, so
 // they are tested without a clock.
 
@@ -7,9 +8,9 @@ export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n ==
 export function duration(minutes: number | null | undefined): string {
   const m = Math.round(minutes ?? 0);
   if (m <= 0) return "";
-  if (m < 60) return `${m} min`;
+  if (m < 60) return t("{m} min", { m });
   const h = Math.floor(m / 60);
-  return m % 60 ? `${h} h ${m % 60} min` : `${h} h`;
+  return m % 60 ? t("{h} h {value} min", { h, value: m % 60 }) : `${h} h`;
 }
 
 /** Seconds on a clock face: 75 → "1:15", 3725 → "1:02:05". */
@@ -35,9 +36,9 @@ export function dueLabel(due: string | null | undefined, today: string): string 
   const n = daysBetween(today, due);
   if (n === 0) return "Due today";
   if (n === 1) return "Due tomorrow";
-  if (n > 1 && n <= 14) return `Due in ${n} days`;
-  if (n < 0) return n === -1 ? "1 day late" : `${-n} days late`;
-  return `Due ${new Date(`${due}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" })}`;
+  if (n > 1 && n <= 14) return t("Due in {n} days", { n });
+  if (n < 0) return n === -1 ? "1 day late" : t("{value} days late", { value: -n });
+  return t("Due {date}", { date: new Date(`${due}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" }) });
 }
 
 /** A live session's start in the cohort's own time zone, with its name: "Thu, 6 Nov, 6:00 pm CET". */
@@ -54,7 +55,7 @@ export function sessionStart(startsAt: string, zone: string): string {
 /** "12 lessons · 3 h 20 min" for a card. */
 export function courseFacts(lessons: number | null | undefined, minutes: number | null | undefined, hours?: string | null): string {
   const time = duration(minutes) || (hours && Number(hours) > 0 ? `${Number(hours)} h` : "");
-  return [lessons ? plural(lessons, "lesson") : "", time].filter(Boolean).join(" · ");
+  return [lessons ? (lessons === 1 ? t("1 lesson") : t("{n} lessons", { n: lessons })) : "", time].filter(Boolean).join(" · ");
 }
 
 /** A name to show for a person, from what the server knows. */

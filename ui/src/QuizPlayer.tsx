@@ -8,7 +8,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ApiError, errorMessage, formatDateTime, t as tr, isolate } from "@ferrum/client";
 import { Alert, Badge, Button, confirmDialog, EmptyState, Spinner, toast } from "@ferrum/kit";
 import { getAttempt, getAttempts, keys, saveAnswers, startQuiz, submitAnswers } from "./api";
-import { clock, duration, plural } from "./format";
+import { clock, duration } from "./format";
 import { Glyph } from "./Glyph";
 import { Md } from "./Md";
 import { percentLabel } from "./outline";
@@ -45,7 +45,7 @@ function QuestionCard({ q, index, count, response, onChange, disabled }: { q: At
   return (
     <div className="lms-question">
       <p className="lms-q-meta faint">
-        {tr("Question")} {index + 1} {tr("of {count} · {points}", { count, points: plural(points, "point") })}
+        {tr("Question")} {index + 1} {tr("of {count} · {points}", { count, points: (points === 1 ? tr("1 point") : tr("{n} points", { n: points })) })}
         {multi ? tr(" · Choose every answer that applies") : ""}
       </p>
       <div id={text} className="lms-q-text">
@@ -181,7 +181,7 @@ export function Sitting({ attempt, onFinished, onGone }: { attempt: Attempt; onF
       const open = unanswered(attempt, answersRef.current);
       if (!auto && open.length) {
         const ok = await confirmDialog({
-          title: tr("{value} not answered", { value: plural(open.length, "question") }),
+          title: tr("{value} not answered", { value: (open.length === 1 ? tr("1 question") : tr("{n} questions", { n: open.length })) }),
           message: tr("You cannot change your answers after you submit."),
           confirmLabel: tr("Submit anyway"),
           cancelLabel: tr("Keep working"),
@@ -306,7 +306,7 @@ function Review({ attempt }: { attempt: Attempt }) {
                 <span className="lms-review-no">{n + 1}</span>
                 {a.is_correct ? <Badge tone="green">{tr("Correct")}</Badge> : <Badge tone="red">{given.length ? tr("Not correct") : tr("Not answered")}</Badge>}
                 <span className="faint">
-                  {tr("{value} of {value2}", { value: Number(a.points_awarded ?? 0), value2: plural(Number(a.points), "point") })}
+                  {tr("{value} of {value2}", { value: Number(a.points_awarded ?? 0), value2: ((Number(a.points)) === 1 ? tr("1 point") : tr("{n} points", { n: Number(a.points) })) })}
                 </span>
               </div>
               <Md source={a.question_text} />

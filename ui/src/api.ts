@@ -2,7 +2,7 @@
 // /api/app/lms for people signed in and /api/site/{workspace}/lms for everyone; what it changes
 // is a record or an action of the generic API, so the server's rules decide every time.
 
-import { api, bootstrap, docPath } from "@ferrum/client";
+import { api, bootstrap, docPath, t } from "@ferrum/client";
 import type {
   Attempt,
   AttemptRow,
@@ -79,7 +79,7 @@ export function scormCommit(enrollment: string, lesson: string, cmi: unknown, fi
   const headers: Record<string, string> = { accept: "application/json", "content-type": "application/json" };
   if (b?.app) headers["x-ferrum-ui"] = `${b.app.id}@${b.app.version}`;
   return fetch(docPath("LmsEnrollment", enrollment, "actions", "scorm_commit"), { method: "POST", headers, body, credentials: "same-origin", keepalive: true }).then(async (r) => {
-    if (!r.ok) throw new Error(`the SCORM data was not saved (${r.status})`);
+    if (!r.ok) throw new Error(t("the SCORM data was not saved ({status})", { status: r.status }));
     return (await r.json()) as ScormSaved;
   });
 }

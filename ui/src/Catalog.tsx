@@ -9,7 +9,6 @@ import { errorMessage, t, isolate } from "@ferrum/client";
 import { Alert, Badge, Button, confirmDialog, EmptyState, ErrorState, Icon, PageLoading, toast, useDebounced, useLiveEntity, useShellTitle } from "@ferrum/kit";
 import { getCatalog, getCategories, joinPath, keys } from "./api";
 import { type Filters, filtersFrom, hasFilters, LEVELS, paramsFor, queryFor } from "./filters";
-import { plural } from "./format";
 import { paths } from "./lesson";
 import { CourseCard, LearnTabs } from "./parts";
 import type { Path } from "./types";
@@ -59,7 +58,7 @@ export function Catalog() {
     try {
       const r = await joinPath(p.id);
       setSkipped(r.skipped.map((s) => `${s.course_title}: ${s.reason}`));
-      toast(r.enrolled.length ? t("Enrolled in {value}", { value: plural(r.enrolled.length, "course") }) : t("You are already in the courses you can take"));
+      toast(r.enrolled.length ? t("Enrolled in {value}", { value: (r.enrolled.length === 1 ? t("1 course") : t("{n} courses", { n: r.enrolled.length })) }) : t("You are already in the courses you can take"));
       void qc.invalidateQueries({ queryKey: ["lms"] });
     } catch (e) {
       toast(errorMessage(e), "error");
@@ -79,7 +78,7 @@ export function Catalog() {
           <h1 className="sr-only">{t("Course catalog")}</h1>
           <LearnTabs />
           <p className="page-sub" aria-live="polite">
-            {catalog.data ? `${plural(courses.length, "course")}${catalog.hasNextPage ? " and more" : ""}` : " "}
+            {catalog.data ? `${(courses.length === 1 ? t("1 course") : t("{n} courses", { n: courses.length }))}${catalog.hasNextPage ? " and more" : ""}` : " "}
           </p>
         </div>
       </header>
@@ -132,7 +131,7 @@ export function Catalog() {
                 <div className="lms-line-main">
                   <strong>{isolate(p.title)}</strong>
                   <span className="faint">
-                    {isolate(plural(p.courses, "course"))}
+                    {isolate((p.courses === 1 ? t("1 course") : t("{n} courses", { n: p.courses })))}
                     {p.summary ? ` · ${p.summary}` : ""}
                   </span>
                 </div>

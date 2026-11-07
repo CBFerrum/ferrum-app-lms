@@ -102,7 +102,7 @@ export const ids = (chapters: OutlineChapter[]): string[] => placed(chapters).ma
 /** "3 of 12 lessons", or "3 of 10 required lessons" when some lessons are optional. */
 export function progressText(done: number | null | undefined, total: number | null | undefined, lessonsInCourse: number): string {
   const [d, t] = [done ?? 0, total ?? 0];
-  return `${d} of ${t} ${t === lessonsInCourse ? "lessons" : "required lessons"}`;
+  return (t === lessonsInCourse ? tr("{done} of {total} lessons", { done: d, total: t }) : tr("{done} of {total} required lessons", { done: d, total: t }));
 }
 
 /** What the button at the foot of a lesson does. */
