@@ -3,6 +3,7 @@
 // instructor acts on are tested. The server computes each learner's progress; this only arranges it.
 
 import type { EnrollmentStatus, Roster, RosterLearner } from "./types";
+import { t as tr } from "@ferrum/client";
 
 export type Sort = "recent" | "quiet" | "progress" | "name";
 
@@ -14,10 +15,10 @@ export interface RosterFilter {
 }
 
 export const SORTS: { value: Sort; label: string }[] = [
-  { value: "recent", label: "Most recent activity" },
-  { value: "quiet", label: "Quiet the longest" },
-  { value: "progress", label: "Lowest progress" },
-  { value: "name", label: "Name" },
+  { value: "recent", get label() { return tr("Most recent activity"); } },
+  { value: "quiet", get label() { return tr("Quiet the longest"); } },
+  { value: "progress", get label() { return tr("Lowest progress"); } },
+  { value: "name", get label() { return tr("Name"); } },
 ];
 
 /** How many days without opening anything make a learner "quiet". */
@@ -79,12 +80,12 @@ export interface Band {
 export function distribution(learners: RosterLearner[]): Band[] {
   const live = learners.filter((l) => l.status !== "Withdrawn");
   const bands: Band[] = [
-    { label: "Not started", count: 0 },
-    { label: "Under 25%", count: 0 },
-    { label: "25% to 49%", count: 0 },
-    { label: "50% to 74%", count: 0 },
-    { label: "75% or more", count: 0 },
-    { label: "Finished", count: 0 },
+    { label: tr("Not started"), count: 0 },
+    { label: tr("Under 25%"), count: 0 },
+    { label: tr("25% to 49%"), count: 0 },
+    { label: tr("50% to 74%"), count: 0 },
+    { label: tr("75% or more"), count: 0 },
+    { label: tr("Finished"), count: 0 },
   ];
   for (const l of live) {
     const p = progressOf(l);

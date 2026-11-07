@@ -6,7 +6,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
-import { api, docPath, errorMessage, formatDate, t as tr } from "@ferrum/client";
+import { api, docPath, errorMessage, formatDate, t as tr, isolate } from "@ferrum/client";
 import { Alert, Badge, Button, confirmDialog, ErrorState, PageLoading, toast, useShellTitle } from "@ferrum/kit";
 import { buy, enrol, getCourse, keys, reactivate, withdraw } from "./api";
 import { CertificateActions } from "./Certificate";
@@ -34,7 +34,7 @@ export function CourseRoute() {
   return ID.test(ref) ? <ById id={ref} /> : <CourseView key={ref} slug={ref} />;
 }
 
-const placesText = (c: CohortInfo) => (c.places.free === null ? "No limit on places" : c.places.free === 0 ? "Full" : `${plural(c.places.free, "place")} left`);
+const placesText = (c: CohortInfo) => (c.places.free === null ? tr("No limit on places") : c.places.free === 0 ? tr("Full") : tr("{value} left", { value: plural(c.places.free, "place") }));
 
 function CohortChoice({ cohorts, value, onChange }: { cohorts: CohortInfo[]; value: string | null; onChange: (id: string | null) => void }) {
   if (!cohorts.length) return null;
@@ -52,9 +52,9 @@ function CohortChoice({ cohorts, value, onChange }: { cohorts: CohortInfo[]; val
         <label key={c.id} className="lms-option" data-chosen={value === c.id || undefined}>
           <input type="radio" name="cohort" disabled={c.places.free === 0} checked={value === c.id} onChange={() => onChange(c.id)} />
           <span>
-            <strong>{c.title}</strong>
+            <strong>{isolate(c.title)}</strong>
             <span className="faint lms-option-sub">
-              {formatDate(c.start_date)} to {formatDate(c.end_date)} · {placesText(c)}
+              {tr("{value} to {value2} · {c}", { value: formatDate(c.start_date), value2: formatDate(c.end_date), c: placesText(c) })}
             </span>
           </span>
         </label>
@@ -85,7 +85,7 @@ function BuyBox({ c, sale, left }: { c: CoursePage; sale: Sale; left: boolean })
       <>
         <h3 className="lms-box-head">{tr("Waiting for your payment")}</h3>
         <p className="faint lms-box-line">
-          {request.payment_url ? `Pay ${price} to start the course. This page opens it when the payment arrives.` : "Your payment page is being prepared. This page updates by itself."}
+          {request.payment_url ? tr("Pay {price} to start the course. This page opens it when the payment arrives.", { price }) : tr("Your payment page is being prepared. This page updates by itself.")}
         </p>
         <div className="lms-box-actions">
           {request.payment_url ? (
@@ -104,14 +104,14 @@ function BuyBox({ c, sale, left }: { c: CoursePage; sale: Sale; left: boolean })
   if (due || sale.can_buy) {
     return (
       <>
-        <h3 className="lms-box-head">{due ? "Your payment did not go through" : left ? "Buy the course again" : "Buy this course"}</h3>
+        <h3 className="lms-box-head">{due ? tr("Your payment did not go through") : left ? tr("Buy the course again") : tr("Buy this course")}</h3>
         <p className="faint lms-box-line">
-          {due ? "Nothing was taken. Try again to get a new payment page." : left ? `You left it and were refunded. Your progress is kept if you buy it again for ${price}.` : `${price}, paid online. You are enrolled as soon as it arrives.`}
+          {due ? tr("Nothing was taken. Try again to get a new payment page.") : left ? tr("You left it and were refunded. Your progress is kept if you buy it again for {price}.", { price }) : tr("{price}, paid online. You are enrolled as soon as it arrives.", { price })}
         </p>
-        {problem && <Alert tone="error">{problem}</Alert>}
+        {problem && <Alert tone="error">{isolate(problem)}</Alert>}
         <div className="lms-box-actions">
           <Button variant="primary" loading={go.isPending} onClick={() => (setProblem(null), go.mutate())}>
-            {due ? "Try again" : `Buy for ${price}`}
+            {due ? tr("Try again") : tr("Buy for {price}", { price })}
           </Button>
         </div>
       </>
@@ -158,7 +158,7 @@ function Box({ c, slug }: { c: CoursePage; slug: string }) {
     onError: (e) => toast(errorMessage(e), "error"),
   });
   const leave = async () => {
-    const ok = await confirmDialog({ title: `Leave ${c.title}?`, message: "Your progress is kept if you enrol again.", confirmLabel: "Leave course", danger: true });
+    const ok = await confirmDialog({ title: tr("Leave {title}?", { title: c.title }), message: tr("Your progress is kept if you enrol again."), confirmLabel: tr("Leave course"), danger: true });
     if (!ok) return;
     try {
       await withdraw(p!.enrollment);
@@ -194,10 +194,10 @@ function Box({ c, slug }: { c: CoursePage; slug: string }) {
           <>
             <h3 className="lms-box-head">{tr("Your progress")}</h3>
             <ProgressLine value={p.progress_percent} label={tr("Your progress in this course")} />
-            <p className="faint lms-box-line">{progressText(p.completed_lessons, p.total_lessons, sum.lessons)}</p>
+            <p className="faint lms-box-line">{isolate(progressText(p.completed_lessons, p.total_lessons, sum.lessons))}</p>
             <div className="lms-box-actions">
               <Link className="btn btn-primary btn-md" to={paths.learn(slug)}>
-                {p.completed_lessons ? "Continue" : "Start the course"} <Glyph name="arrowRight" size={14} />
+                {p.completed_lessons ? tr("Continue") : tr("Start the course")} <Glyph name="arrowRight" size={14} />
               </Link>
               <Button variant="ghost" onClick={() => void leave()}>
                 {tr("Leave course")}
@@ -230,9 +230,9 @@ function Box({ c, slug }: { c: CoursePage; slug: string }) {
           </>
         ) : c.can_enroll || c.is_author ? (
           <>
-            <h3 className="lms-box-head">{c.can_enroll ? "Take this course" : "Try it as a learner"}</h3>
+            <h3 className="lms-box-head">{c.can_enroll ? tr("Take this course") : tr("Try it as a learner")}</h3>
             <CohortChoice cohorts={c.cohorts} value={cohort} onChange={setCohort} />
-            {problem && <Alert tone="error">{problem}</Alert>}
+            {problem && <Alert tone="error">{isolate(problem)}</Alert>}
             <div className="lms-box-actions">
               <Button variant="primary" loading={join.isPending} onClick={() => (setProblem(null), join.mutate())}>
                 {tr("Enrol")}
@@ -257,12 +257,12 @@ function Box({ c, slug }: { c: CoursePage; slug: string }) {
           <ul className="lms-plain">
             {c.upcoming_sessions!.slice(0, 4).map((s) => (
               <li key={s.session}>
-                <strong>{s.title}</strong>
+                <strong>{isolate(s.title)}</strong>
                 <br />
-                <span className="faint">{sessionStart(s.starts_at, s.time_zone)}</span>
+                <span className="faint">{isolate(sessionStart(s.starts_at, s.time_zone))}</span>
                 {s.join_url && (
                   <>
-                    {" "}
+                    {isolate(" ")}
                     <a href={s.join_url} target="_blank" rel="noopener noreferrer">
                       {tr("Join")}
                     </a>
@@ -293,7 +293,7 @@ function CourseView({ slug }: { slug: string }) {
   return (
     <CourseLayout
       course={c}
-      crumb={{ to: paths.catalog, label: "Catalog" }}
+      crumb={{ to: paths.catalog, label: tr("Catalog") }}
       tagHref={(t) => `${paths.catalog}?${paramsFor({ tag: t })}`}
       lessonHref={(l) => paths.learn(slug, l.id)}
       visitor={!learning && !c.is_author}

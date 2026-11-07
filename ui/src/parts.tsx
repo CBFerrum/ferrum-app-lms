@@ -10,7 +10,7 @@ import { Glyph } from "./Glyph";
 import { percent, percentLabel } from "./outline";
 import { safeImage } from "./markdown";
 import type { Card, Level } from "./types";
-import { t } from "@ferrum/client";
+import { t, isolate } from "@ferrum/client";
 
 /** Whether the person teaches here: instructors, LMS managers and administrators. */
 export function useTeacher(): boolean {
@@ -58,7 +58,7 @@ export function ProgressLine({ value, label }: { value: number | string | null |
   return (
     <div className="lms-progress-line">
       <Progress value={value} label={label} />
-      <span className="lms-progress-text">{percentLabel(value)}</span>
+      <span className="lms-progress-text">{isolate(percentLabel(value))}</span>
     </div>
   );
 }
@@ -70,7 +70,7 @@ export function Cover({ title, slug, image }: { title: string; slug: string; ima
   if (src && !failed) return <img className="lms-cover" src={src} alt="" loading="lazy" onError={() => setFailed(true)} />;
   return (
     <div className="lms-cover lms-cover-mono" data-hue={hue(slug)} aria-hidden="true">
-      <span>{monogram(title)}</span>
+      <span>{isolate(monogram(title))}</span>
     </div>
   );
 }
@@ -78,7 +78,7 @@ export function Cover({ title, slug, image }: { title: string; slug: string; ima
 const LEVEL_TONE: Record<Level, Tone> = { Beginner: "green", Intermediate: "blue", Advanced: "purple" };
 
 export function LevelBadge({ level }: { level: Level | null | undefined }) {
-  return level ? <Badge tone={LEVEL_TONE[level] ?? "neutral"}>{level}</Badge> : null;
+  return level ? <Badge tone={LEVEL_TONE[level] ?? "neutral"}>{isolate(level)}</Badge> : null;
 }
 
 /** A card of a catalog, one link for the whole of it. */
@@ -90,28 +90,28 @@ export function CourseCard({ card, to, status }: { card: Card; to: string; statu
       <div className="lms-card-body">
         <div className="lms-card-tags">
           <LevelBadge level={card.level} />
-          {card.category?.name && <span className="faint">{card.category.name}</span>}
+          {card.category?.name && <span className="faint">{isolate(card.category.name)}</span>}
         </div>
         <h3 className="lms-card-title">
-          <Link to={to}>{card.title}</Link>
+          <Link to={to}>{isolate(card.title)}</Link>
         </h3>
-        {card.summary && <p className="lms-card-summary">{card.summary}</p>}
+        {card.summary && <p className="lms-card-summary">{isolate(card.summary)}</p>}
         <p className="lms-card-facts faint">
-          {courseFacts(card.lessons, card.total_minutes, card.estimated_hours)}
+          {isolate(courseFacts(card.lessons, card.total_minutes, card.estimated_hours))}
           {card.certificate && (
             <span className="lms-card-cert" title={t("You earn a certificate")}>
               <Glyph name="award" size={13} /> {t("Certificate")}
             </span>
           )}
-          {card.price && <strong className="lms-price">{priceText(card.price)}</strong>}
+          {card.price && <strong className="lms-price">{isolate(priceText(card.price))}</strong>}
         </p>
-        {card.instructors.length > 0 && <p className="lms-card-by faint">{t("By")} {card.instructors.slice(0, 2).join(", ")}{card.instructors.length > 2 ? ` and ${card.instructors.length - 2} more` : ""}</p>}
+        {card.instructors.length > 0 && <p className="lms-card-by faint">{t("By")} {isolate(card.instructors.slice(0, 2).join(", "))}{card.instructors.length > 2 ? t(" and {value} more", { value: card.instructors.length - 2 }) : ""}</p>}
         {status ??
           (enrolment && enrolment.status !== "Withdrawn" ? (
             enrolment.status === "Completed" ? (
               <Badge tone="green">{t("Completed")}</Badge>
             ) : (
-              <ProgressLine value={enrolment.progress_percent} label={`Your progress in ${card.title}`} />
+              <ProgressLine value={enrolment.progress_percent} label={t("Your progress in {title}", { title: card.title })} />
             )
           ) : null)}
       </div>
@@ -145,7 +145,7 @@ export function Sheet({ open, onClose, title, children }: { open: boolean; onClo
       {open && (
         <div className="lms-sheet-inner">
           <header>
-            <h2>{title}</h2>
+            <h2>{isolate(title)}</h2>
             <button type="button" className="icon-btn" aria-label={t("Close")} onClick={onClose}>
               <Icon name="x" />
             </button>

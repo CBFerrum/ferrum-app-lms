@@ -7,7 +7,7 @@
 // page's origin for the package to reach the API.
 
 import { useEffect, useRef, useState } from "react";
-import { errorMessage, t } from "@ferrum/client";
+import { errorMessage, t, isolate } from "@ferrum/client";
 import { Alert, Button, Spinner, toast } from "@ferrum/kit";
 import scorm12 from "../vendor/scorm-again/scorm12.min.js?url";
 import scorm2004 from "../vendor/scorm-again/scorm2004.min.js?url";
@@ -102,7 +102,7 @@ export function ScormLesson({ player, title, enrollment, lessonId, onProgress }:
           if (r.completed && !stopped) progress.current();
         })
         .catch((e: unknown) => {
-          if (!stopped) toast(`Your progress in this lesson was not saved: ${errorMessage(e)}`, "error");
+          if (!stopped) toast(t("Your progress in this lesson was not saved: {e}", { e: errorMessage(e) }), "error");
         })
         .finally(() => {
           busy = false;
@@ -140,7 +140,7 @@ export function ScormLesson({ player, title, enrollment, lessonId, onProgress }:
     };
   }, [player, enrollment, lessonId]);
 
-  if (problem) return <Alert tone="error">{problem}</Alert>;
+  if (problem) return <Alert tone="error">{isolate(problem)}</Alert>;
   return (
     <div className="lms-stack-sm">
       {!player.learner && <Alert tone="info">{t("A preview: the package runs, and nothing it records is kept.")}</Alert>}

@@ -5,7 +5,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
-import { errorMessage, t } from "@ferrum/client";
+import { errorMessage, t, isolate } from "@ferrum/client";
 import { Alert, Badge, Button, confirmDialog, EmptyState, ErrorState, Icon, PageLoading, toast, useDebounced, useLiveEntity, useShellTitle } from "@ferrum/kit";
 import { getCatalog, getCategories, joinPath, keys } from "./api";
 import { type Filters, filtersFrom, hasFilters, LEVELS, paramsFor, queryFor } from "./filters";
@@ -15,7 +15,7 @@ import { CourseCard, LearnTabs } from "./parts";
 import type { Path } from "./types";
 
 export function Catalog() {
-  useShellTitle("Catalog");
+  useShellTitle(t("Catalog"));
   const qc = useQueryClient();
   const [sp, setSp] = useSearchParams();
   const f = filtersFrom(sp);
@@ -54,12 +54,12 @@ export function Catalog() {
   const [skipped, setSkipped] = useState<string[]>([]);
 
   const join = async (p: Path) => {
-    const ok = await confirmDialog({ title: `Join ${p.title}?`, message: "You will be enrolled in each course of the path that you may take yourself.", confirmLabel: "Join path" });
+    const ok = await confirmDialog({ title: t("Join {title}?", { title: p.title }), message: t("You will be enrolled in each course of the path that you may take yourself."), confirmLabel: t("Join path") });
     if (!ok) return;
     try {
       const r = await joinPath(p.id);
       setSkipped(r.skipped.map((s) => `${s.course_title}: ${s.reason}`));
-      toast(r.enrolled.length ? `Enrolled in ${plural(r.enrolled.length, "course")}` : "You are already in the courses you can take");
+      toast(r.enrolled.length ? t("Enrolled in {value}", { value: plural(r.enrolled.length, "course") }) : t("You are already in the courses you can take"));
       void qc.invalidateQueries({ queryKey: ["lms"] });
     } catch (e) {
       toast(errorMessage(e), "error");
@@ -89,20 +89,20 @@ export function Catalog() {
           <option value="">{t("All categories")}</option>
           {(categories.data ?? []).map((c) => (
             <option key={c.id} value={c.id}>
-              {c.category_name}
+              {isolate(c.category_name)}
             </option>
           ))}
         </select>
         <select className="select lms-select" aria-label={t("Level")} value={f.level} onChange={(e) => set({ level: e.target.value })}>
           <option value="">{t("Any level")}</option>
           {LEVELS.map((l) => (
-            <option key={l}>{l}</option>
+            <option key={l}>{isolate(l)}</option>
           ))}
         </select>
         {f.tag && (
           <Badge tone="blue">
-            {f.tag}
-            <button type="button" className="lms-badge-x" aria-label={`Remove the ${f.tag} filter`} onClick={() => set({ tag: "" })}>
+            {isolate(f.tag)}
+            <button type="button" className="lms-badge-x" aria-label={t("Remove the {tag} filter", { tag: f.tag })} onClick={() => set({ tag: "" })}>
               <Icon name="x" size={11} />
             </button>
           </Badge>
@@ -118,7 +118,7 @@ export function Catalog() {
           {t("Some courses of the path could not be joined:")}
           <ul>
             {skipped.map((s) => (
-              <li key={s}>{s}</li>
+              <li key={s}>{isolate(s)}</li>
             ))}
           </ul>
         </Alert>
@@ -130,9 +130,9 @@ export function Catalog() {
             {bundles.map((p) => (
               <li key={p.id} className="lms-line">
                 <div className="lms-line-main">
-                  <strong>{p.title}</strong>
+                  <strong>{isolate(p.title)}</strong>
                   <span className="faint">
-                    {plural(p.courses, "course")}
+                    {isolate(plural(p.courses, "course"))}
                     {p.summary ? ` · ${p.summary}` : ""}
                   </span>
                 </div>
@@ -149,7 +149,7 @@ export function Catalog() {
       ) : !catalog.data ? (
         <PageLoading label={t("Loading courses")} />
       ) : !courses.length ? (
-        <EmptyState title={hasFilters(f) ? "No course matches" : "No courses are published yet"} icon="search">
+        <EmptyState title={hasFilters(f) ? t("No course matches") : t("No courses are published yet")} icon="search">
           {hasFilters(f) ? (
             <button type="button" className="btn btn-default btn-md" onClick={clear}>
               {t("Clear filters")}
