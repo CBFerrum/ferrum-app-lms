@@ -7,7 +7,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type DragEvent, type KeyboardEvent, useCallback, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import { api, ApiError, docPath, errorMessage, t as tr } from "@ferrum/client";
+import { api, ApiError, docPath, errorMessage, t as tr, isolate } from "@ferrum/client";
 import { Alert, Badge, Button, confirmDialog, Dialog, EmptyState, ErrorState, Icon, PageLoading, statusTone, toast, useShellTitle } from "@ferrum/kit";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@ferrum/kit/primitives";
 import { rowsOf } from "./api";
@@ -87,7 +87,7 @@ function Rename({ value, label, onSave }: { value: string; label: string; onSave
           setEditing(true);
         }}
       >
-        {value}
+        {isolate(value)}
       </button>
     );
   return (
@@ -128,7 +128,7 @@ function Builder({ course }: { course: string }) {
   const [sheet, setSheet] = useState(false);
   const [publishing, setPublishing] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
-  useShellTitle(data ? `Build · ${data.course.title}` : null);
+  useShellTitle(data ? tr("Build · {title}", { title: data.course.title }) : null);
 
   const stored = useMemo(() => (data ? layoutOf(data.chapters, data.lessons) : { chapters: [] }), [data]);
   const layout = local ?? stored;
@@ -196,7 +196,7 @@ function Builder({ course }: { course: string }) {
   const addChapter = async () => {
     setBusy(true);
     try {
-      await api.post(docPath("LmsChapter"), { course, title: "New chapter" });
+      await api.post(docPath("LmsChapter"), { course, title: tr("New chapter") });
       await qc.invalidateQueries({ queryKey: KEY(course) });
     } catch (e) {
       toast(errorMessage(e), "error");
@@ -207,7 +207,7 @@ function Builder({ course }: { course: string }) {
   const addLesson = async (chapter: string) => {
     setBusy(true);
     try {
-      const made = await api.post<{ id: string }>(docPath("LmsLesson"), { chapter, title: "Untitled lesson", lesson_type: "Article" });
+      const made = await api.post<{ id: string }>(docPath("LmsLesson"), { chapter, title: tr("Untitled lesson"), lesson_type: "Article" });
       await qc.invalidateQueries({ queryKey: KEY(course) });
       select(made.id);
     } catch (e) {
@@ -218,7 +218,7 @@ function Builder({ course }: { course: string }) {
   };
   const deleteChapter = async (id: string) => {
     const c = chapterOf.get(id);
-    const ok = await confirmDialog({ title: `Delete "${c?.title ?? "this chapter"}"?`, message: "A chapter with lessons cannot be deleted: move or delete its lessons first.", confirmLabel: "Delete chapter", danger: true });
+    const ok = await confirmDialog({ title: tr("Delete \"{value}\"?", { value: c?.title ?? "this chapter" }), message: tr("A chapter with lessons cannot be deleted: move or delete its lessons first."), confirmLabel: tr("Delete chapter"), danger: true });
     if (!ok) return;
     try {
       await api.del(docPath("LmsChapter", id));
@@ -237,7 +237,7 @@ function Builder({ course }: { course: string }) {
       const saved = await api.patch<CourseDoc>(docPath("LmsCourse", course), { status }, { ifMatch: data.course.version });
       patchData((d) => ({ ...d, course: { ...d.course, status: saved.status, version: saved.version } }));
       setPublishing(null);
-      toast(status === "Published" ? "Published. Learners can find it in the catalog." : "Back to draft");
+      toast(status === "Published" ? tr("Published. Learners can find it in the catalog.") : tr("Back to draft"));
       void qc.invalidateQueries({ queryKey: ["lms", "catalog"] });
     } catch (e) {
       // The server's own reasons, in its words.
@@ -303,7 +303,7 @@ function Builder({ course }: { course: string }) {
       <div className="lms-b-outline-head">
         <h2>{tr("Outline")}</h2>
         <span className="faint">
-          {data.chapters.length} {data.chapters.length === 1 ? "chapter" : "chapters"} · {total} {total === 1 ? "lesson" : "lessons"}
+          {data.chapters.length} {data.chapters.length === 1 ? tr("chapter") : tr("chapters")} · {total} {total === 1 ? tr("lesson") : tr("lessons")}
         </span>
       </div>
       {!layout.chapters.length && (
@@ -318,17 +318,17 @@ function Builder({ course }: { course: string }) {
               <span className="lms-grip" aria-hidden="true" title={tr("Drag to move the chapter")}>
                 <Glyph name="grip" size={14} />
               </span>
-              <Rename value={chapter.title} label={`Name of chapter ${ci + 1}`} onSave={(title) => patchRow("LmsChapter", c.id, { title })} />
+              <Rename value={chapter.title} label={tr("Name of chapter {value}", { value: ci + 1 })} onSave={(title) => patchRow("LmsChapter", c.id, { title })} />
               <span className="lms-b-moves">
-                <button type="button" className="icon-btn icon-btn-sm" aria-label={`Move ${chapter.title} up`} disabled={ci === 0 || moving} onClick={() => commit(shiftChapter(layout, c.id, -1))}>
+                <button type="button" className="icon-btn icon-btn-sm" aria-label={tr("Move {title} up", { title: chapter.title })} disabled={ci === 0 || moving} onClick={() => commit(shiftChapter(layout, c.id, -1))}>
                   <Icon name="up" size={14} />
                 </button>
-                <button type="button" className="icon-btn icon-btn-sm" aria-label={`Move ${chapter.title} down`} disabled={ci === layout.chapters.length - 1 || moving} onClick={() => commit(shiftChapter(layout, c.id, 1))}>
+                <button type="button" className="icon-btn icon-btn-sm" aria-label={tr("Move {title} down", { title: chapter.title })} disabled={ci === layout.chapters.length - 1 || moving} onClick={() => commit(shiftChapter(layout, c.id, 1))}>
                   <Icon name="down" size={14} />
                 </button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button type="button" className="icon-btn icon-btn-sm" aria-label={`More for ${chapter.title}`}>
+                    <button type="button" className="icon-btn icon-btn-sm" aria-label={tr("More for {title}", { title: chapter.title })}>
                       <Glyph name="more" size={14} />
                     </button>
                   </DropdownMenuTrigger>
@@ -357,16 +357,16 @@ function Builder({ course }: { course: string }) {
                       </span>
                       <button type="button" className="lms-b-open" aria-current={active ? "true" : undefined} onClick={() => select(id)}>
                         <Glyph name={lessonGlyph(l.lesson_type)} size={14} />
-                        <span className="lms-b-title">{l.title}</span>
+                        <span className="lms-b-title">{isolate(l.title)}</span>
                       </button>
                       <span className="lms-b-moves">
-                        <button type="button" className="icon-btn icon-btn-sm" aria-label={`Move ${l.title} up`} disabled={(ci === 0 && li === 0) || moving} onClick={() => commit(shiftLesson(layout, id, -1))}>
+                        <button type="button" className="icon-btn icon-btn-sm" aria-label={tr("Move {title} up", { title: l.title })} disabled={(ci === 0 && li === 0) || moving} onClick={() => commit(shiftLesson(layout, id, -1))}>
                           <Icon name="up" size={14} />
                         </button>
                         <button
                           type="button"
                           className="icon-btn icon-btn-sm"
-                          aria-label={`Move ${l.title} down`}
+                          aria-label={tr("Move {title} down", { title: l.title })}
                           disabled={(ci === layout.chapters.length - 1 && li === c.lessons.length - 1) || moving}
                           onClick={() => commit(shiftLesson(layout, id, 1))}
                         >
@@ -375,7 +375,7 @@ function Builder({ course }: { course: string }) {
                         {layout.chapters.length > 1 && (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <button type="button" className="icon-btn icon-btn-sm" aria-label={`Move ${l.title} to another chapter`}>
+                              <button type="button" className="icon-btn icon-btn-sm" aria-label={tr("Move {title} to another chapter", { title: l.title })}>
                                 <Glyph name="more" size={14} />
                               </button>
                             </DropdownMenuTrigger>
@@ -384,7 +384,7 @@ function Builder({ course }: { course: string }) {
                                 .filter((o) => o.id !== c.id)
                                 .map((o) => (
                                   <DropdownMenuItem key={o.id} disabled={moving} onSelect={() => commit(moveLesson(layout, id, o.id, o.lessons.length))}>
-                                    {tr("Move to")} {chapterOf.get(o.id)?.title}
+                                    {tr("Move to")} {isolate(chapterOf.get(o.id)?.title ?? "")}
                                   </DropdownMenuItem>
                                 ))}
                             </DropdownMenuContent>
@@ -394,7 +394,7 @@ function Builder({ course }: { course: string }) {
                     </div>
                     <div className="lms-b-lesson-meta">
                       <span className="faint">
-                        {LESSON_LABEL[l.lesson_type]}
+                        {isolate(LESSON_LABEL[l.lesson_type])}
                         {l.duration_minutes ? ` · ${duration(l.duration_minutes)}` : ""}
                       </span>
                       <span className="lms-b-flags">
@@ -432,10 +432,10 @@ function Builder({ course }: { course: string }) {
           <nav className="crumbs" aria-label={tr("Breadcrumb")}>
             <Link to={paths.teaching()}>{tr("Teaching")}</Link>
             <Glyph name="chevronRight" size={12} />
-            <Link to={paths.teaching(course)}>{data.course.title}</Link>
+            <Link to={paths.teaching(course)}>{isolate(data.course.title)}</Link>
           </nav>
           <h1 className="page-title">
-            {data.course.title} <Badge tone={status === "Published" ? "green" : statusTone(status)}>{status}</Badge>
+            {isolate(data.course.title)} <Badge tone={status === "Published" ? "green" : statusTone(status)}>{isolate(status)}</Badge>
           </h1>
         </div>
         <div className="lms-tools">
@@ -454,7 +454,7 @@ function Builder({ course }: { course: string }) {
             </Button>
           ) : (
             <Button variant="primary" loading={busy} onClick={() => setPublishing(issues.map((i) => i.text))}>
-              {tr("Publish")}{issues.length ? ` (${issues.length} to fix)` : ""}
+              {tr("Publish")}{issues.length ? tr(" ({length} to fix)", { length: issues.length }) : ""}
             </Button>
           )}
         </div>
@@ -474,8 +474,8 @@ function Builder({ course }: { course: string }) {
               }}
             />
           ) : (
-            <EmptyState title={total ? "Choose a lesson to write" : "No lessons yet"} icon="edit">
-              <p className="muted">{total ? "Pick one in the outline, or add another." : data.chapters.length ? "Add a lesson to a chapter." : "Add a chapter, then a lesson in it."}</p>
+            <EmptyState title={total ? tr("Choose a lesson to write") : tr("No lessons yet")} icon="edit">
+              <p className="muted">{total ? tr("Pick one in the outline, or add another.") : data.chapters.length ? tr("Add a lesson to a chapter.") : tr("Add a chapter, then a lesson in it.")}</p>
               {!data.chapters.length && (
                 <Button variant="primary" loading={busy} onClick={() => void addChapter()}>
                   {tr("Add a chapter")}
@@ -494,10 +494,10 @@ function Builder({ course }: { course: string }) {
       <Dialog
         open={publishing !== null}
         onClose={() => setPublishing(null)}
-        title={publishing && publishing.length ? "Before this course goes out" : "Publish this course?"}
+        title={publishing && publishing.length ? tr("Before this course goes out") : tr("Publish this course?")}
         footer={
           <>
-            <Button onClick={() => setPublishing(null)}>{publishing && publishing.length ? "Close" : "Not yet"}</Button>
+            <Button onClick={() => setPublishing(null)}>{publishing && publishing.length ? tr("Close") : tr("Not yet")}</Button>
             {(!publishing || !publishing.length) && (
               <Button variant="primary" loading={busy} onClick={() => void setStatus("Published")}>
                 {tr("Publish")}
@@ -519,7 +519,7 @@ function Builder({ course }: { course: string }) {
                           select(issue.lesson!);
                           setPublishing(null);
                         }}>
-                        {t}
+                        {isolate(t)}
                       </button>
                     ) : (
                       t

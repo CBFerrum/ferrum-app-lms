@@ -5,7 +5,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { ApiError, errorMessage, formatDateTime, t as tr } from "@ferrum/client";
+import { ApiError, errorMessage, formatDateTime, t as tr, isolate } from "@ferrum/client";
 import { Alert, Badge, Button, confirmDialog, EmptyState, Spinner, toast } from "@ferrum/kit";
 import { getAttempt, getAttempts, keys, saveAnswers, startQuiz, submitAnswers } from "./api";
 import { clock, duration, plural } from "./format";
@@ -45,8 +45,8 @@ function QuestionCard({ q, index, count, response, onChange, disabled }: { q: At
   return (
     <div className="lms-question">
       <p className="lms-q-meta faint">
-        {tr("Question")} {index + 1} of {count} · {plural(points, "point")}
-        {multi ? " · Choose every answer that applies" : ""}
+        {tr("Question")} {index + 1} {tr("of {count} · {points}", { count, points: plural(points, "point") })}
+        {multi ? tr(" · Choose every answer that applies") : ""}
       </p>
       <div id={text} className="lms-q-text">
         <Md source={q.question_text} />
@@ -58,7 +58,7 @@ function QuestionCard({ q, index, count, response, onChange, disabled }: { q: At
             return (
               <label key={o.key} className="lms-option" data-chosen={on || undefined}>
                 <input type={multi ? "checkbox" : "radio"} name={q.question} checked={on} disabled={disabled} onChange={() => onChange(choose(q, response, o.key))} />
-                <span>{o.text}</span>
+                <span>{isolate(o.text)}</span>
               </label>
             );
           })}
@@ -89,11 +89,11 @@ function QuestionCard({ q, index, count, response, onChange, disabled }: { q: At
 type SaveShown = SaveState | "fresh";
 
 const SAVE_TEXT: Record<SaveShown, string> = {
-  fresh: "Your answers are saved as you go",
-  idle: "All answers saved",
-  waiting: "Saving…",
-  saving: "Saving…",
-  failed: "Could not save yet, trying again",
+  get fresh() { return tr("Your answers are saved as you go"); },
+  get idle() { return tr("All answers saved"); },
+  get waiting() { return tr("Saving…"); },
+  get saving() { return tr("Saving…"); },
+  get failed() { return tr("Could not save yet, trying again"); },
 };
 
 export function Sitting({ attempt, onFinished, onGone }: { attempt: Attempt; onFinished: (r: SubmitResult) => void; onGone: () => void }) {
@@ -181,10 +181,10 @@ export function Sitting({ attempt, onFinished, onGone }: { attempt: Attempt; onF
       const open = unanswered(attempt, answersRef.current);
       if (!auto && open.length) {
         const ok = await confirmDialog({
-          title: `${plural(open.length, "question")} not answered`,
-          message: "You cannot change your answers after you submit.",
-          confirmLabel: "Submit anyway",
-          cancelLabel: "Keep working",
+          title: tr("{value} not answered", { value: plural(open.length, "question") }),
+          message: tr("You cannot change your answers after you submit."),
+          confirmLabel: tr("Submit anyway"),
+          cancelLabel: tr("Keep working"),
         });
         if (!ok) {
           setI(open[0]);
@@ -225,24 +225,24 @@ export function Sitting({ attempt, onFinished, onGone }: { attempt: Attempt; onF
     <section className="lms-sitting" aria-label={attempt.quiz_title}>
       <header className="lms-sit-head">
         <div className="lms-sit-title">
-          <h2>{attempt.quiz_title}</h2>
+          <h2>{isolate(attempt.quiz_title)}</h2>
           <p className="faint" aria-live="polite">
-            {tr("Attempt {attempt_no} ·", { attempt_no: attempt.attempt_no })} {SAVE_TEXT[saveState]}
+            {tr("Attempt {attempt_no} ·", { attempt_no: attempt.attempt_no })} {isolate(SAVE_TEXT[saveState])}
           </p>
         </div>
         {left !== null && (
           <div className="lms-timer" role="timer" aria-label={tr("Time left")} data-tone={tone}>
             <Glyph name="clock" size={15} />
-            <span>{clock(Math.ceil(left))}</span>
+            <span>{isolate(clock(Math.ceil(left)))}</span>
           </div>
         )}
       </header>
       <p className="sr-only" aria-live="polite">
-        {said}
+        {isolate(said)}
       </p>
       {problem && (
         <Alert tone="error" action={<Button onClick={onGone}>{tr("See where it stands")}</Button>}>
-          {problem}
+          {isolate(problem)}
         </Alert>
       )}
       {lateTry && (
@@ -260,7 +260,7 @@ export function Sitting({ attempt, onFinished, onGone }: { attempt: Attempt; onF
                 className="lms-chip"
                 data-state={n === i ? "current" : done ? "answered" : undefined}
                 aria-current={n === i ? "step" : undefined}
-                aria-label={`Question ${n + 1}, ${done ? "answered" : "not answered"}`}
+                aria-label={tr("Question {value}, {value2}", { value: n + 1, value2: done ? "answered" : "not answered" })}
                 onClick={() => setI(n)}
               >
                 {n + 1}
@@ -279,7 +279,7 @@ export function Sitting({ attempt, onFinished, onGone }: { attempt: Attempt; onF
         </Button>
         <span className="spacer" />
         <span className="faint lms-sit-count">
-          {attempt.answers.length - open.length} of {attempt.answers.length} answered
+          {attempt.answers.length - open.length} {tr("of {length} answered", { length: attempt.answers.length })}
         </span>
         <Button variant="primary" loading={busy} onClick={() => void submit(false)}>
           {tr("Submit quiz")}
@@ -304,18 +304,18 @@ function Review({ attempt }: { attempt: Attempt }) {
             <li key={a.question} className="lms-review-item" data-ok={a.is_correct}>
               <div className="lms-review-head">
                 <span className="lms-review-no">{n + 1}</span>
-                {a.is_correct ? <Badge tone="green">{tr("Correct")}</Badge> : <Badge tone="red">{given.length ? "Not correct" : "Not answered"}</Badge>}
+                {a.is_correct ? <Badge tone="green">{tr("Correct")}</Badge> : <Badge tone="red">{given.length ? tr("Not correct") : tr("Not answered")}</Badge>}
                 <span className="faint">
-                  {Number(a.points_awarded ?? 0)} of {plural(Number(a.points), "point")}
+                  {tr("{value} of {value2}", { value: Number(a.points_awarded ?? 0), value2: plural(Number(a.points), "point") })}
                 </span>
               </div>
               <Md source={a.question_text} />
               <p className="lms-review-line">
-                <strong>{tr("You answered:")}</strong> {given.length ? given.join(", ") : "nothing"}
+                <strong>{tr("You answered:")}</strong> {given.length ? given.join(", ") : tr("nothing")}
               </p>
               {!a.is_correct && a.correct_answer && a.correct_answer.length > 0 && (
                 <p className="lms-review-line">
-                  <strong>{tr("Correct answer:")}</strong> {a.correct_answer.join(", ")}
+                  <strong>{tr("Correct answer:")}</strong> {isolate(a.correct_answer.join(", "))}
                 </p>
               )}
               {a.explanation && (
@@ -339,14 +339,14 @@ export function Result({ attempt, late, quiz, onAgain, onBack, starting }: { att
     <section className="lms-result" data-verdict={v} aria-labelledby="lms-result-h">
       <div className="lms-score">
         <div className="lms-score-num" aria-hidden="true">
-          {percentLabel(attempt.percentage)}
+          {isolate(percentLabel(attempt.percentage))}
         </div>
         <div>
-          <h2 id="lms-result-h">{v === "passed" ? "You passed" : v === "timed-out" ? "Time ran out" : "Not passed this time"}</h2>
+          <h2 id="lms-result-h">{v === "passed" ? tr("You passed") : v === "timed-out" ? tr("Time ran out") : tr("Not passed this time")}</h2>
           <p className="muted">
-            {tr("{right} of {length} questions right ·", { right, length: attempt.answers.length })} {Number(attempt.score ?? 0)} of {Number(attempt.max_score)} points
+            {tr("{right} of {length} questions right ·", { right, length: attempt.answers.length })} {tr("{value} of {value2} points", { value: Number(attempt.score ?? 0), value2: Number(attempt.max_score) })}
           </p>
-          <p className="faint">{tr("Pass mark")} {percentLabel(attempt.passing_percentage)}</p>
+          <p className="faint">{tr("Pass mark")} {isolate(percentLabel(attempt.passing_percentage))}</p>
         </div>
       </div>
       {late && <Alert tone="warning">{tr("Time ran out before this was sent. Answers saved before the deadline were scored.")}</Alert>}
@@ -354,11 +354,11 @@ export function Result({ attempt, late, quiz, onAgain, onBack, starting }: { att
       <div className="row">
         {may && (
           <Button variant={v === "passed" ? "default" : "primary"} loading={starting} onClick={onAgain}>
-            {v === "passed" ? "Take it again" : "Try again"}
+            {v === "passed" ? tr("Take it again") : tr("Try again")}
             {quiz.attempts_left !== null && <span className="faint"> {tr("({attempts_left} left)", { attempts_left: quiz.attempts_left })}</span>}
           </Button>
         )}
-        {!may && !quiz.passed && <span className="muted">{attemptsText(quiz)}.</span>}
+        {!may && !quiz.passed && <span className="muted">{isolate(attemptsText(quiz))}.</span>}
         <Button variant="ghost" onClick={onBack}>
           {tr("Back to the quiz")}
         </Button>
@@ -392,8 +392,8 @@ function History({ quiz, onReview }: { quiz: QuizState; onReview: (id: string) =
             <li key={r.id}>
               <span className="lms-history-no">{tr("Attempt {attempt_no}", { attempt_no: r.attempt_no })}</span>
               <span className="faint">{r.submitted_at ? formatDateTime(r.submitted_at) : ""}</span>
-              <span className="lms-history-score">{percentLabel(r.percentage)}</span>
-              <Badge tone={b.tone}>{b.text}</Badge>
+              <span className="lms-history-score">{isolate(percentLabel(r.percentage))}</span>
+              <Badge tone={b.tone}>{isolate(b.text)}</Badge>
               <span className="spacer" />
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => onReview(r.id)}>
                 {tr("Review")}
@@ -412,7 +412,7 @@ export function Intro({ quiz, starting, error, onStart, onReview }: { quiz: Quiz
   return (
     <section className="lms-quiz-intro" aria-label={tr("Quiz")}>
       <div className="lms-quiz-head">
-        <h2>{quiz.title}</h2>
+        <h2>{isolate(quiz.title)}</h2>
         {quiz.passed && <Badge tone="green">{tr("Passed")}</Badge>}
       </div>
       <Md source={quiz.description} />
@@ -423,36 +423,36 @@ export function Intro({ quiz, starting, error, onStart, onReview }: { quiz: Quiz
         </div>
         <div>
           <dt>{tr("Pass mark")}</dt>
-          <dd>{percentLabel(quiz.passing_percentage)}</dd>
+          <dd>{isolate(percentLabel(quiz.passing_percentage))}</dd>
         </div>
         <div>
           <dt>{tr("Time")}</dt>
-          <dd>{quiz.time_limit_minutes ? duration(quiz.time_limit_minutes) : "No limit"}</dd>
+          <dd>{quiz.time_limit_minutes ? duration(quiz.time_limit_minutes) : tr("No limit")}</dd>
         </div>
         <div>
           <dt>{tr("Attempts")}</dt>
-          <dd>{attemptsText(quiz)}</dd>
+          <dd>{isolate(attemptsText(quiz))}</dd>
         </div>
         {quiz.best_percentage && (
           <div>
             <dt>{tr("Your best")}</dt>
-            <dd>{percentLabel(quiz.best_percentage)}</dd>
+            <dd>{isolate(percentLabel(quiz.best_percentage))}</dd>
           </div>
         )}
       </dl>
       {under ? (
         <Alert tone="info">
-          {tr("You have an attempt under way")}{under.deadline ? `, which ends at ${formatDateTime(under.deadline)}` : ""}{tr(". The answers you gave are saved; resume to carry on.")}
+          {tr("You have an attempt under way")}{under.deadline ? tr(", which ends at {value}", { value: formatDateTime(under.deadline) }) : ""}{tr(". The answers you gave are saved; resume to carry on.")}
         </Alert>
       ) : (
         quiz.time_limit_minutes > 0 && <p className="faint">{tr("The clock starts when you begin and keeps running if you leave the page.")}</p>
       )}
-      {error && <Alert tone="error">{error}</Alert>}
+      {error && <Alert tone="error">{isolate(error)}</Alert>}
       <div className="row">
         <Button variant="primary" loading={starting} disabled={!may} onClick={onStart}>
-          {quiz.in_progress ? "Resume quiz" : quiz.attempts_used ? (quiz.passed ? "Take it again" : "Try again") : "Start quiz"}
+          {quiz.in_progress ? tr("Resume quiz") : quiz.attempts_used ? (quiz.passed ? tr("Take it again") : tr("Try again")) : tr("Start quiz")}
         </Button>
-        {!may && <span className="muted">{attemptsText(quiz)}.</span>}
+        {!may && <span className="muted">{isolate(attemptsText(quiz))}.</span>}
       </div>
       <History quiz={quiz} onReview={onReview} />
     </section>

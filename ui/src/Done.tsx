@@ -15,7 +15,7 @@ export function Done({ title, certificate, onClose }: { title: string; certifica
       </span>
       <div className="lms-done-text">
         <h2 id="lms-done-h">{t("You completed {title}", { title })}</h2>
-        <p className="muted">{certificate ? "Your certificate is ready. Keep it, print it, or share the link that lets anyone check it." : "Well done. Every lesson the course asked for is finished."}</p>
+        <p className="muted">{certificate ? t("Your certificate is ready. Keep it, print it, or share the link that lets anyone check it.") : t("Well done. Every lesson the course asked for is finished.")}</p>
         <div className="row">
           {certificate && <CertificateActions id={certificate} />}
           <Link className="btn btn-default btn-md" to={paths.home}>

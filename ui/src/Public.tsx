@@ -6,7 +6,7 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
-import { ApiError, bootstrap, formatDate, routeBase, t as tr } from "@ferrum/client";
+import { ApiError, bootstrap, formatDate, routeBase, t as tr, isolate } from "@ferrum/client";
 import { Badge, Button, EmptyState, ErrorState, Icon, PageLoading, useDebounced, useShellTitle } from "@ferrum/kit";
 import { certificatePage, checkCertificate, publicCatalog, publicCategories, publicCourse, publicLesson } from "./api";
 import { CourseLayout, Prerequisites } from "./CourseLayout";
@@ -27,7 +27,7 @@ function Masthead({ workspace }: { workspace: string }) {
   return (
     <header className="lms-public-head">
       <Link to={publicPaths.catalog(workspace)} className="lms-public-brand">
-        <Glyph name="cap" size={20} /> {name}
+        <Glyph name="cap" size={20} /> {isolate(name)}
       </Link>
       <span className="faint">{tr("Courses")}</span>
     </header>
@@ -81,7 +81,7 @@ export function PublicCatalog() {
       setTyped(f.q);
     }
   }, [f.q]);
-  useShellTitle(`Courses · ${bootstrap()?.workspace.name ?? workspace}`);
+  useShellTitle(tr("Courses · {value}", { value: bootstrap()?.workspace.name ?? workspace }));
 
   const catalog = useInfiniteQuery({
     queryKey: ["lms", "public", workspace, f],
@@ -110,20 +110,20 @@ export function PublicCatalog() {
           <option value="">{tr("All categories")}</option>
           {(categories.data ?? []).map((c) => (
             <option key={c.id} value={c.id}>
-              {c.name} ({c.courses})
+              {isolate(c.name)} ({c.courses})
             </option>
           ))}
         </select>
         <select className="select lms-select" aria-label={tr("Level")} value={f.level} onChange={(e) => set({ level: e.target.value })}>
           <option value="">{tr("Any level")}</option>
           {LEVELS.map((l) => (
-            <option key={l}>{l}</option>
+            <option key={l}>{isolate(l)}</option>
           ))}
         </select>
         {f.tag && (
           <Badge tone="blue">
-            {f.tag}
-            <button type="button" className="lms-badge-x" aria-label={`Remove the ${f.tag} filter`} onClick={() => set({ tag: "" })}>
+            {isolate(f.tag)}
+            <button type="button" className="lms-badge-x" aria-label={tr("Remove the {tag} filter", { tag: f.tag })} onClick={() => set({ tag: "" })}>
               <Icon name="x" size={11} />
             </button>
           </Badge>
@@ -139,7 +139,7 @@ export function PublicCatalog() {
       ) : !catalog.data ? (
         <PageLoading label={tr("Loading courses")} />
       ) : !courses.length ? (
-        <EmptyState title={hasFilters(f) ? "No course matches" : "No courses are open yet"} icon="search" />
+        <EmptyState title={hasFilters(f) ? tr("No course matches") : tr("No courses are open yet")} icon="search" />
       ) : (
         <>
           <h2 className="sr-only">{tr("Courses")}</h2>
@@ -190,24 +190,24 @@ export function PublicCourse() {
       <Masthead workspace={workspace} />
       <CourseLayout
         course={c}
-        crumb={{ to: publicPaths.catalog(workspace), label: "All courses" }}
+        crumb={{ to: publicPaths.catalog(workspace), label: tr("All courses") }}
         tagHref={(t) => `${publicPaths.catalog(workspace)}?${paramsFor({ tag: t })}`}
         lessonHref={(l) => publicPaths.lesson(workspace, slug, l.id)}
         visitor
         aside={
           <>
             <div className="lms-box">
-              <h3 className="lms-box-head">{c.price ? `Buy this course: ${priceText(c.price)}` : "Take this course"}</h3>
+              <h3 className="lms-box-head">{c.price ? tr("Buy this course: {value}", { value: priceText(c.price) }) : tr("Take this course")}</h3>
               <p className="faint lms-box-line">
                 {!c.self_enrollment
-                  ? "Enrolment is by invitation. Sign in if you were invited."
+                  ? tr("Enrolment is by invitation. Sign in if you were invited.")
                   : c.price
-                    ? "Sign in to buy it. You are enrolled as soon as your payment arrives."
-                    : "Sign in to enrol and keep track of your progress."}
+                    ? tr("Sign in to buy it. You are enrolled as soon as your payment arrives.")
+                    : tr("Sign in to enrol and keep track of your progress.")}
               </p>
               <div className="lms-box-actions">
                 <a className="btn btn-primary btn-md" href={signInTo(slug)}>
-                  {c.price && c.self_enrollment ? "Sign in to buy" : "Sign in to enrol"}
+                  {c.price && c.self_enrollment ? tr("Sign in to buy") : tr("Sign in to enrol")}
                 </a>
               </div>
               {c.cohorts.length > 0 && (
@@ -216,10 +216,10 @@ export function PublicCourse() {
                   <ul className="lms-plain">
                     {c.cohorts.map((g) => (
                       <li key={g.id}>
-                        <strong>{g.title}</strong>
+                        <strong>{isolate(g.title)}</strong>
                         <br />
                         <span className="faint">
-                          {formatDate(g.start_date)} to {formatDate(g.end_date)} · {g.places.free === null ? "No limit on places" : g.places.free === 0 ? "Full" : `${plural(g.places.free, "place")} left`}
+                          {tr("{value} to {value2} ·", { value: formatDate(g.start_date), value2: formatDate(g.end_date) })} {g.places.free === null ? tr("No limit on places") : g.places.free === 0 ? tr("Full") : tr("{value} left", { value: plural(g.places.free, "place") })}
                         </span>
                       </li>
                     ))}
@@ -264,13 +264,13 @@ export function PublicLesson() {
         <div className="lms-player-main">
           <div className="lms-player-top">
             <Link className="lms-back" to={publicPaths.course(workspace, slug)}>
-              <Glyph name="arrowLeft" size={14} /> {course.data?.title ?? "The course"}
+              <Glyph name="arrowLeft" size={14} /> {course.data?.title ?? tr("The course")}
             </Link>
           </div>
           <article className="lms-lesson" aria-labelledby="lms-lesson-title">
             <header className="lms-lesson-head">
-              <p className="lms-eyebrow">{[here?.title, LESSON_LABEL[l.lesson_type], duration(l.duration_minutes)].filter(Boolean).join(" · ")}</p>
-              <h1 id="lms-lesson-title">{l.title}</h1>
+              <p className="lms-eyebrow">{isolate([here?.title, LESSON_LABEL[l.lesson_type], duration(l.duration_minutes)].filter(Boolean).join(" · "))}</p>
+              <h1 id="lms-lesson-title">{isolate(l.title)}</h1>
               <Badge tone="blue">{tr("Free preview")}</Badge>
             </header>
             {l.lesson_type === "Video" && <LessonVideo lesson={l} />}
@@ -281,7 +281,7 @@ export function PublicLesson() {
                 {tr("Back to the course")}
               </Link>
               <a className="btn btn-primary btn-md" href={signInTo(slug)}>
-                {course.data?.price ? "Sign in to buy" : "Sign in to enrol"}
+                {course.data?.price ? tr("Sign in to buy") : tr("Sign in to enrol")}
               </a>
             </div>
           </article>
@@ -301,7 +301,7 @@ export function PublicLesson() {
 export function PublicCertificate() {
   const { workspace = "", code = "" } = useParams();
   const q = useQuery({ queryKey: ["lms", "public", workspace, "certificate", code], queryFn: () => checkCertificate(workspace, code), staleTime: 0 });
-  useShellTitle("Certificate check");
+  useShellTitle(tr("Certificate check"));
   const missing = q.error instanceof ApiError && q.error.status === 404;
   return (
     <div className="lms-public-page lms-narrow">
@@ -321,15 +321,15 @@ export function PublicCertificate() {
           <span className="lms-done-mark">
             <Glyph name={q.data.valid ? "award" : "alert"} size={28} />
           </span>
-          <h1>{q.data.valid ? "This certificate is valid" : "This certificate was revoked"}</h1>
+          <h1>{q.data.valid ? tr("This certificate is valid") : tr("This certificate was revoked")}</h1>
           <dl className="lms-facts lms-cert-facts">
             <div>
               <dt>{tr("Awarded to")}</dt>
-              <dd>{q.data.learner_name}</dd>
+              <dd>{isolate(q.data.learner_name ?? "")}</dd>
             </div>
             <div>
               <dt>{tr("For completing")}</dt>
-              <dd>{q.data.course_title}</dd>
+              <dd>{isolate(q.data.course_title ?? "")}</dd>
             </div>
             <div>
               <dt>{tr("Issued")}</dt>
@@ -338,12 +338,12 @@ export function PublicCertificate() {
             {q.data.issuer && (
               <div>
                 <dt>{tr("By")}</dt>
-                <dd>{q.data.issuer}</dd>
+                <dd>{isolate(q.data.issuer)}</dd>
               </div>
             )}
             <div>
               <dt>{tr("Number")}</dt>
-              <dd>{q.data.number}</dd>
+              <dd>{isolate(q.data.number ?? "")}</dd>
             </div>
           </dl>
           <p className="faint lms-cert-code">{tr("Code {verification_code}", { verification_code: q.data.verification_code })}</p>

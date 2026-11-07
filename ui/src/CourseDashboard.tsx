@@ -6,7 +6,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, Fragment, useCallback, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import { ApiError, errorMessage, formatDateTime, relativeTime, t as tr } from "@ferrum/client";
+import { ApiError, errorMessage, formatDateTime, relativeTime, t as tr, isolate } from "@ferrum/client";
 import { Alert, Badge, Button, Dialog, EmptyState, ErrorState, Field, PageLoading, useLiveEntity, useShellTitle } from "@ferrum/kit";
 import { enrolLearners, type EnrolResult, getCourse, getRoster, keys, rowsOf } from "./api";
 import { Glyph } from "./Glyph";
@@ -61,15 +61,15 @@ function LearnerDetail({ l, slug }: { l: RosterLearner; slug: string }) {
         <h4 className="lms-subhead">{tr("Lessons")}</h4>
         {chapters.map((c) => (
           <div key={c.id} className="lms-detail-chapter">
-            <p className="lms-detail-title">{c.title}</p>
+            <p className="lms-detail-title">{isolate(c.title)}</p>
             <ul className="lms-plain">
               {c.lessons.map((x) => {
                 const d = when.get(x.id);
                 return (
                   <li key={x.id} className="lms-detail-lesson" data-done={!!d || undefined}>
                     <Glyph name={d ? "circleCheck" : "circle"} size={14} />
-                    <span>{x.title}</span>
-                    {d ? <span className="faint">{formatDateTime(d.completed_at)}</span> : x.required ? null : <span className="faint">optional</span>}
+                    <span>{isolate(x.title)}</span>
+                    {d ? <span className="faint">{isolate(formatDateTime(d.completed_at))}</span> : x.required ? null : <span className="faint">{tr("optional")}</span>}
                   </li>
                 );
               })}
@@ -83,17 +83,17 @@ function LearnerDetail({ l, slug }: { l: RosterLearner; slug: string }) {
           <ul className="lms-plain">
             {attempts.data.map((a) => (
               <li key={a.id}>
-                <strong>{a.quiz_title}</strong> <span className="faint">attempt {a.attempt_no}</span>
+                <strong>{isolate(a.quiz_title)}</strong> <span className="faint">{tr("attempt {attempt_no}", { attempt_no: a.attempt_no })}</span>
                 <br />
                 {a.status === "In Progress" ? (
                   <Badge tone="blue">{tr("In progress")}</Badge>
                 ) : (
                   <>
                     {a.percentage !== null && <span>{Number(a.percentage)}% </span>}
-                    <Badge tone={a.passed ? "green" : "red"}>{a.passed ? "Passed" : a.status === "Timed Out" ? "Timed out" : "Not passed"}</Badge>
+                    <Badge tone={a.passed ? "green" : "red"}>{a.passed ? tr("Passed") : a.status === "Timed Out" ? tr("Timed out") : tr("Not passed")}</Badge>
                   </>
                 )}
-                {a.submitted_at && <span className="faint"> {formatDateTime(a.submitted_at)}</span>}
+                {a.submitted_at && <span className="faint"> {isolate(formatDateTime(a.submitted_at))}</span>}
               </li>
             ))}
           </ul>
@@ -139,7 +139,7 @@ function Learners({ roster, now }: { roster: Roster; now: number }) {
             <option value="">{tr("All cohorts")}</option>
             {cohorts.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.title}
+                {isolate(c.title)}
               </option>
             ))}
           </select>
@@ -147,13 +147,13 @@ function Learners({ roster, now }: { roster: Roster; now: number }) {
         <select className="select lms-select" aria-label={tr("Order")} value={f.sort} onChange={(e) => set({ sort: e.target.value as RosterFilter["sort"] })}>
           {SORTS.map((s) => (
             <option key={s.value} value={s.value}>
-              {s.label}
+              {isolate(s.label)}
             </option>
           ))}
         </select>
       </div>
       {!shown.length ? (
-        <EmptyState title={roster.learners.length ? "No learner matches" : "Nobody is enrolled yet"} icon="user" />
+        <EmptyState title={roster.learners.length ? tr("No learner matches") : tr("Nobody is enrolled yet")} icon="user" />
       ) : (
         <div className="lms-panel">
           <div className="table-wrap">
@@ -179,26 +179,26 @@ function Learners({ roster, now }: { roster: Roster; now: number }) {
                             <Glyph name="chevronRight" size={12} />
                             <span className="lms-who">
                               <strong>{l.learner_name || l.learner}</strong>
-                              {l.learner_name && <span className="faint">{l.learner}</span>}
+                              {l.learner_name && <span className="faint">{isolate(l.learner)}</span>}
                             </span>
                           </button>
                           <div className="lms-marks">
                             {quiet && <Badge tone="amber">{tr("Quiet")}</Badge>}
                             {l.submissions_to_grade > 0 && <Badge tone="blue">{tr("{submissions_to_grade} to grade", { submissions_to_grade: l.submissions_to_grade })}</Badge>}
-                            {l.cohort?.title && <span className="faint">{l.cohort.title}</span>}
+                            {l.cohort?.title && <span className="faint">{isolate(l.cohort.title)}</span>}
                           </div>
                         </td>
                         <td className="lms-col-progress">
-                          <ProgressLine value={progressOf(l)} label={`Progress of ${l.learner_name || l.learner}`} />
+                          <ProgressLine value={progressOf(l)} label={tr("Progress of {value}", { value: l.learner_name || l.learner })} />
                           <span className="faint lms-lessons-done">
-                            {l.completed_lessons} of {l.total_lessons} lessons
+                            {tr("{completed_lessons} of {total_lessons} lessons", { completed_lessons: l.completed_lessons, total_lessons: l.total_lessons })}
                           </span>
                         </td>
-                        <td>{l.last_activity_at ? <span title={formatDateTime(l.last_activity_at)}>{relativeTime(l.last_activity_at)}</span> : <span className="faint">{tr("Not started")}</span>}</td>
+                        <td>{l.last_activity_at ? <span title={formatDateTime(l.last_activity_at)}>{isolate(relativeTime(l.last_activity_at))}</span> : <span className="faint">{tr("Not started")}</span>}</td>
                         <td>
                           {l.quizzes_passed || l.best_quiz_percentage ? (
                             <>
-                              {l.quizzes_passed} passed
+                              {tr("{quizzes_passed} passed", { quizzes_passed: l.quizzes_passed })}
                               {l.best_quiz_percentage && <span className="faint"> {tr("· best")} {Number(l.best_quiz_percentage)}%</span>}
                             </>
                           ) : (
@@ -206,7 +206,7 @@ function Learners({ roster, now }: { roster: Roster; now: number }) {
                           )}
                         </td>
                         <td>
-                          <Badge tone={STATUS_TONE[l.status]}>{l.status === "Active" ? "Learning" : l.status === "Completed" ? "Finished" : "Left"}</Badge>
+                          <Badge tone={STATUS_TONE[l.status]}>{l.status === "Active" ? tr("Learning") : l.status === "Completed" ? tr("Finished") : tr("Left")}</Badge>
                         </td>
                       </tr>
                       {expanded && (
@@ -265,14 +265,14 @@ function AddLearners({ course, open, onClose, onDone }: { course: string; open: 
       {result ? (
         <div className="stack">
           <Alert tone={result.enrolled.length ? "success" : "info"}>
-            {result.enrolled.length} added{result.already_enrolled.length ? `, ${result.already_enrolled.length} already in the course` : ""}
-            {result.skipped.length ? `, ${result.skipped.length} could not be added` : ""}.
+            {tr("{length} added", { length: result.enrolled.length })}{result.already_enrolled.length ? tr(", {length} already in the course", { length: result.already_enrolled.length }) : ""}
+            {result.skipped.length ? tr(", {length} could not be added", { length: result.skipped.length }) : ""}.
           </Alert>
           {result.skipped.length > 0 && (
             <ul className="lms-plain">
               {result.skipped.map((s) => (
                 <li key={s.learner}>
-                  <strong>{s.learner}</strong> <span className="muted">{s.reason}</span>
+                  <strong>{isolate(s.learner)}</strong> <span className="muted">{isolate(s.reason)}</span>
                 </li>
               ))}
             </ul>
@@ -285,9 +285,9 @@ function AddLearners({ course, open, onClose, onDone }: { course: string; open: 
         </div>
       ) : (
         <form className="stack" onSubmit={(e) => void submit(e)}>
-          {error && <Alert tone="error">{error}</Alert>}
+          {error && <Alert tone="error">{isolate(error)}</Alert>}
           <Field label={tr("Email addresses")} htmlFor="lms-add" required hint={tr("The addresses they sign in with, one to a line or separated by commas. Up to 500.")}>
-            <textarea id="lms-add" className="textarea" rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder={"asha@school.test\nbo@school.test"} />
+            <textarea id="lms-add" className="textarea" rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder={tr("asha@school.test\nbo@school.test")} />
           </Field>
           {(cohorts.data?.length ?? 0) > 0 && (
             <Field label={tr("Cohort")} htmlFor="lms-add-group">
@@ -295,7 +295,7 @@ function AddLearners({ course, open, onClose, onDone }: { course: string; open: 
                 <option value="">{tr("No cohort")}</option>
                 {cohorts.data!.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.title}
+                    {isolate(c.title)}
                   </option>
                 ))}
               </select>
@@ -319,7 +319,7 @@ function Figure({ value, label, tone }: { value: number | string; label: string;
   return (
     <div className="lms-figure" data-tone={tone}>
       <strong>{value}</strong>
-      <span className="faint">{label}</span>
+      <span className="faint">{isolate(label)}</span>
     </div>
   );
 }
@@ -339,7 +339,7 @@ function CourseDashboard({ course }: { course: string }) {
   useLiveEntity("LmsEnrollment", refresh);
   useLiveEntity("LmsAssignmentSubmission", refresh);
   const now = useMemo(() => Date.now(), [q.data]);
-  useShellTitle(q.data ? `${q.data.course.title} · Learners` : null);
+  useShellTitle(q.data ? tr("{title} · Learners", { title: q.data.course.title }) : null);
 
   if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} title={tr("Could not load this course's learners")} />;
   const roster = q.data;
@@ -357,7 +357,7 @@ function CourseDashboard({ course }: { course: string }) {
       </nav>
       <header className="lms-head">
         <div>
-          <h1 className="page-title">{roster.course.title}</h1>
+          <h1 className="page-title">{isolate(roster.course.title)}</h1>
           <p className="page-sub">{tr("Your learners")}</p>
         </div>
         <div className="lms-tools">
@@ -374,7 +374,7 @@ function CourseDashboard({ course }: { course: string }) {
       </header>
       <div className="lms-figures">
         <Figure value={sum.enrolled} label="enrolled" />
-        <Figure value={sum.completed} label={`finished (${Number(roster.completion_rate)}%)`} />
+        <Figure value={sum.completed} label={tr("finished ({value}%)", { value: Number(roster.completion_rate) })} />
         <Figure value={`${sum.average}%`} label={tr("average progress")} />
         <Figure value={sum.quiet} label={tr("gone quiet")} tone={sum.quiet ? "warn" : undefined} />
         <Figure value={sum.toGrade} label={tr("to grade")} tone={sum.toGrade ? "warn" : undefined} />
@@ -385,7 +385,7 @@ function CourseDashboard({ course }: { course: string }) {
           <ul className="lms-bands">
             {bands.map((b) => (
               <li key={b.label}>
-                <span>{b.label}</span>
+                <span>{isolate(b.label)}</span>
                 <span className="lms-band-bar" aria-hidden="true">
                   <span style={{ width: `${(b.count / widest) * 100}%` }} />
                 </span>

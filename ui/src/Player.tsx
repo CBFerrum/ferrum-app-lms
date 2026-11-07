@@ -8,7 +8,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
-import { ApiError, errorMessage, t } from "@ferrum/client";
+import { ApiError, errorMessage, t, isolate } from "@ferrum/client";
 import { Alert, Button, EmptyState, ErrorState, PageLoading, toast, useLiveEntity, useShellTitle } from "@ferrum/kit";
 import { completeLesson, getCourse, getLesson, keys, reactivate } from "./api";
 import { Done } from "./Done";
@@ -232,19 +232,19 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
                 <span />
               )}
               <span className="faint lms-pos">
-                {t("Lesson")} {nav.index + 1} of {nav.count}
+                {t("Lesson")} {nav.index + 1} {t("of {count}", { count: nav.count })}
               </span>
               {action.completes || action.target ? (
                 <Button variant={action.primary ? "primary" : "default"} loading={complete.isPending} onClick={() => void advance()}>
-                  {action.label} <Glyph name="arrowRight" size={14} />
+                  {isolate(action.label)} <Glyph name="arrowRight" size={14} />
                 </Button>
               ) : (
                 <Link className="btn btn-default btn-md" to={paths.course(slug)}>
-                  {action.label}
+                  {isolate(action.label)}
                 </Link>
               )}
             </nav>
-            {hint && <p className="faint lms-hint">{hint}</p>}
+            {hint && <p className="faint lms-hint">{isolate(hint)}</p>}
           </>
         )}
       </LessonPage>
@@ -256,7 +256,7 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
       <div className="lms-player-main">
         <div className="lms-player-top">
           <Link className="lms-back" to={paths.course(slug)}>
-            <Glyph name="arrowLeft" size={14} /> {data.title}
+            <Glyph name="arrowLeft" size={14} /> {isolate(data.title)}
           </Link>
           <Button size="sm" className="lms-outline-toggle" icon="list" onClick={() => setSheet(true)}>
             {t("Outline")}

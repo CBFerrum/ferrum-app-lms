@@ -6,7 +6,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { api, ApiError, docPath, errorMessage, uploadFile, t as tr } from "@ferrum/client";
+import { api, ApiError, docPath, errorMessage, uploadFile, t as tr, isolate } from "@ferrum/client";
 import { Alert, Button, confirmDialog, ErrorState, Field, PageLoading, Spinner, toast } from "@ferrum/kit";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@ferrum/kit/primitives";
 import { LinkInput } from "@ferrum/records";
@@ -44,7 +44,7 @@ export interface LessonDoc {
 export const LESSON_TYPES: LessonType[] = ["Article", "Video", "Document", "Quiz", "Assignment", "SCORM", "xAPI", "LTI"];
 export const docKey = (id: string) => ["lms", "lesson-doc", id] as const;
 
-const STATE_TEXT: Record<SaveState | "clean", string> = { clean: "All changes saved", idle: "All changes saved", waiting: "Saving…", saving: "Saving…", failed: "Could not save, trying again" };
+const STATE_TEXT: Record<SaveState | "clean", string> = { get clean() { return tr("All changes saved"); }, get idle() { return tr("All changes saved"); }, get waiting() { return tr("Saving…"); }, get saving() { return tr("Saving…"); }, get failed() { return tr("Could not save, trying again"); } };
 
 function Check({ id, checked, onChange, children }: { id: string; checked: boolean; onChange: (v: boolean) => void; children: ReactNode }) {
   return (
@@ -139,7 +139,7 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
   const make = async (entity: "LmsQuiz" | "LmsAssignment", field: "quiz" | "assignment") => {
     setMaking(true);
     try {
-      const made = await api.post<{ id: string }>(docPath(entity), { course, title: value("title") || "Untitled" });
+      const made = await api.post<{ id: string }>(docPath(entity), { course, title: value("title") || tr("Untitled") });
       set(field, made.id);
     } catch (e) {
       toast(errorMessage(e), "error");
@@ -156,7 +156,7 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
     await q.refetch();
   };
   const remove = async () => {
-    const ok = await confirmDialog({ title: `Delete "${doc.title}"?`, message: "This cannot be undone. A lesson that learners have completed cannot be deleted: make it optional instead.", confirmLabel: "Delete lesson", danger: true });
+    const ok = await confirmDialog({ title: tr("Delete \"{title}\"?", { title: doc.title }), message: tr("This cannot be undone. A lesson that learners have completed cannot be deleted: make it optional instead."), confirmLabel: tr("Delete lesson"), danger: true });
     if (!ok) return;
     try {
       unsaved.current = {};
@@ -183,9 +183,9 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
     <section className="lms-editor" aria-label={tr("Lesson editor")}>
       <header className="lms-editor-head">
         <div>
-          <p className="lms-eyebrow">{LESSON_LABEL[type]} lesson</p>
+          <p className="lms-eyebrow">{tr("{value} lesson", { value: LESSON_LABEL[type] })}</p>
           <p className="faint lms-editor-state" aria-live="polite">
-            {unsaved.current && Object.keys(unsaved.current).length ? "Not saved yet: see the notes below" : STATE_TEXT[state]}
+            {unsaved.current && Object.keys(unsaved.current).length ? tr("Not saved yet: see the notes below") : STATE_TEXT[state]}
           </p>
         </div>
         <div className="lms-tools">
@@ -211,7 +211,7 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
           {tr("Someone else changed this lesson. Reload it to see their version; your unsaved changes here will be dropped.")}
         </Alert>
       )}
-      {problem && <Alert tone="error">{problem}</Alert>}
+      {problem && <Alert tone="error">{isolate(problem)}</Alert>}
       <div className="stack lms-editor-fields">
         <Field label={tr("Title")} htmlFor="le-title" required error={errors.title}>
           <input id="le-title" className="input" value={value("title")} maxLength={200} onChange={(e) => set("title", e.target.value)} />
@@ -221,7 +221,7 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
             <select id="le-type" className="select" value={type} onChange={(e) => set("lesson_type", e.target.value as LessonType)}>
               {LESSON_TYPES.map((t) => (
                 <option key={t} value={t}>
-                  {LESSON_LABEL[t]}
+                  {isolate(LESSON_LABEL[t])}
                 </option>
               ))}
             </select>
@@ -244,7 +244,7 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
             htmlFor="le-video"
             required
             error={errors.video_url}
-            hint={doc.video_embed_url && !errors.video_url ? "Plays in the lesson from the host's own player." : "A link on YouTube, Vimeo, Loom, Wistia or Google Drive, or a host your administrator allowed."}
+            hint={doc.video_embed_url && !errors.video_url ? tr("Plays in the lesson from the host's own player.") : tr("A link on YouTube, Vimeo, Loom, Wistia or Google Drive, or a host your administrator allowed.")}
           >
             <input id="le-video" className="input" type="url" inputMode="url" placeholder="https://" value={value("video_url") ?? ""} onChange={(e) => set("video_url", e.target.value || null)} />
           </Field>
@@ -256,7 +256,7 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
                 <label className="btn btn-default btn-md" aria-busy={uploading || undefined}>
                   <input id="le-file" className="sr-only" type="file" onChange={(e) => void upload(e.target.files?.[0])} />
                   {uploading ? <Spinner small /> : <Glyph name="upload" />}
-                  {value("attachment") ? "Replace file" : "Upload a file"}
+                  {value("attachment") ? tr("Replace file") : tr("Upload a file")}
                 </label>
                 {value("attachment")?.startsWith("/files/") && <span className="faint">{tr("A file is attached.")}</span>}
               </div>
@@ -266,21 +266,21 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
         )}
         {(type === "SCORM" || type === "xAPI") && (
           <Field
-            label={type === "SCORM" ? "SCORM package" : "xAPI package"}
+            label={type === "SCORM" ? tr("SCORM package") : tr("xAPI package")}
             htmlFor="le-scorm"
             required
             error={errors.package_file ?? errors.lesson_type}
             hint={
               type === "SCORM"
-                ? "A SCORM 1.2 or 2004 package (.zip). It is completed when it reports completed or passed."
-                : "An xAPI (Tin Can) package (.zip with tincan.xml). It is completed when it states its activity completed or passed."
+                ? tr("A SCORM 1.2 or 2004 package (.zip). It is completed when it reports completed or passed.")
+                : tr("An xAPI (Tin Can) package (.zip with tincan.xml). It is completed when it states its activity completed or passed.")
             }
           >
             <div className="row">
               <label className="btn btn-default btn-md" aria-busy={uploading || undefined}>
                 <input id="le-scorm" className="sr-only" type="file" accept=".zip,application/zip" onChange={(e) => void upload(e.target.files?.[0], "package_file")} />
                 {uploading ? <Spinner small /> : <Glyph name="upload" />}
-                {value("package_file") ? "Replace the package" : "Upload a package"}
+                {value("package_file") ? tr("Replace the package") : tr("Upload a package")}
               </label>
               {doc?.package_standard && value("package_file") === doc.package_file && (
                 <span className="faint">
@@ -345,7 +345,7 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
             <span className="spacer" />
             {(["write", "preview"] as const).map((v) => (
               <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => setView(v)}>
-                {v === "write" ? "Write" : "Preview"}
+                {v === "write" ? tr("Write") : tr("Preview")}
               </button>
             ))}
           </div>
@@ -362,7 +362,7 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
           ) : (
             <div className="lms-content-preview">{value("content") ? <Md source={value("content")} /> : <p className="muted">{tr("Nothing written yet.")}</p>}</div>
           )}
-          {errors.content && <p className="field-error">{errors.content}</p>}
+          {errors.content && <p className="field-error">{isolate(errors.content)}</p>}
         </div>
       </div>
     </section>

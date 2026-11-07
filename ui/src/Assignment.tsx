@@ -4,7 +4,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { api, ApiError, docPath, errorMessage, formatDate, formatDateTime, todayIso, uploadFile, t } from "@ferrum/client";
+import { api, ApiError, docPath, errorMessage, formatDate, formatDateTime, todayIso, uploadFile, t, isolate } from "@ferrum/client";
 import { Alert, Badge, Button, Field, Spinner, toast } from "@ferrum/kit";
 import { keys } from "./api";
 import { dueLabel } from "./format";
@@ -41,7 +41,7 @@ function useDraft(key: string): [string, (v: string) => void, () => void] {
   return [text, set, () => set("")];
 }
 
-const fileName = (path: string) => (path.startsWith("/files/") ? "Attached file" : path);
+const fileName = (path: string) => (path.startsWith("/files/") ? t("Attached file") : path);
 
 function Form({ state, editing, onDone, onCancel }: { state: AssignmentState; editing: SubmissionRow | null; onDone: () => void; onCancel?: () => void }) {
   const wantsText = state.submission_type !== "File";
@@ -89,7 +89,7 @@ function Form({ state, editing, onDone, onCancel }: { state: AssignmentState; ed
       if (editing) await api.patch(docPath("LmsAssignmentSubmission", editing.id), body, { ifMatch: doc.data?.version });
       else await api.post(docPath("LmsAssignmentSubmission"), { assignment: state.id, ...body });
       clearDraft();
-      toast(editing ? "Changes saved" : "Handed in");
+      toast(editing ? t("Changes saved") : t("Handed in"));
       onDone();
     } catch (err) {
       setError(err instanceof ApiError ? err : errorMessage(err));
@@ -103,9 +103,9 @@ function Form({ state, editing, onDone, onCancel }: { state: AssignmentState; ed
   if (editing && doc.isLoading) return <Spinner label={t("Opening your work")} />;
   return (
     <form className="lms-form stack" onSubmit={(e) => void submit(e)}>
-      {general && <Alert tone="error">{general}</Alert>}
+      {general && <Alert tone="error">{isolate(general)}</Alert>}
       {wantsText && (
-        <Field label={t("Your answer")} htmlFor="lms-answer" error={fieldError("answer")} hint={editing ? undefined : "Saved on this device as you write. Markdown works."}>
+        <Field label={t("Your answer")} htmlFor="lms-answer" error={fieldError("answer")} hint={editing ? undefined : t("Saved on this device as you write. Markdown works.")}>
           <textarea id="lms-answer" className="textarea lms-essay" rows={9} value={text} onChange={(e) => setText(e.target.value)} />
         </Field>
       )}
@@ -115,12 +115,12 @@ function Form({ state, editing, onDone, onCancel }: { state: AssignmentState; ed
             <label className="btn btn-default btn-md" aria-busy={uploading || undefined}>
               <input id="lms-file" ref={pick} className="sr-only" type="file" onChange={(e) => void choose(e.target.files?.[0])} />
               {uploading ? <Spinner small /> : <Glyph name="upload" />}
-              {file ? "Replace file" : "Choose a file"}
+              {file ? t("Replace file") : t("Choose a file")}
             </label>
             {file && (
               <>
                 <a href={file} target="_blank" rel="noopener noreferrer">
-                  {fileName(file)}
+                  {isolate(fileName(file))}
                 </a>
                 <button type="button" className="lms-linklike" onClick={() => setAttachment(null)}>
                   {t("Remove")}
@@ -132,7 +132,7 @@ function Form({ state, editing, onDone, onCancel }: { state: AssignmentState; ed
       )}
       <div className="row">
         <Button type="submit" variant="primary" loading={busy} disabled={empty || uploading}>
-          {editing ? "Save changes" : "Hand in"}
+          {editing ? t("Save changes") : t("Hand in")}
         </Button>
         {onCancel && <Button onClick={onCancel}>{t("Cancel")}</Button>}
       </div>
@@ -150,7 +150,7 @@ function Standing({ s, state }: { s: SubmissionRow; state: AssignmentState }) {
     </div>
   ) : null;
   if (s.status === "Submitted")
-    return <Alert tone="info">{t("Handed in {when}", { when })}{s.late ? " (late)" : ""}{t(". Your instructor will grade it; you can change it until then.")}</Alert>;
+    return <Alert tone="info">{t("Handed in {when}", { when })}{s.late ? t(" (late)") : ""}{t(". Your instructor will grade it; you can change it until then.")}</Alert>;
   if (s.status === "Needs Revision")
     return (
       <Alert tone="warning">
@@ -160,7 +160,7 @@ function Standing({ s, state }: { s: SubmissionRow; state: AssignmentState }) {
     );
   return (
     <Alert tone={s.passed ? "success" : "warning"}>
-      <strong>{s.passed ? `Passed: ${score}` : `Not passed: ${score}, the pass mark is ${Number(state.passing_score)}`}</strong>
+      <strong>{s.passed ? t("Passed: {score}", { score }) : t("Not passed: {score}, the pass mark is {value}", { score, value: Number(state.passing_score) })}</strong>
       {feedback}
     </Alert>
   );
@@ -191,7 +191,7 @@ export function AssignmentPanel({ state, lessonId, onProgress }: { state: Assign
   return (
     <section className="lms-assignment" aria-label={t("Assignment")}>
       <div className="lms-quiz-head">
-        <h2>{state.title}</h2>
+        <h2>{isolate(state.title)}</h2>
         {state.passed && <Badge tone="green">{t("Passed")}</Badge>}
       </div>
       <Md source={state.instructions} />
@@ -200,7 +200,7 @@ export function AssignmentPanel({ state, lessonId, onProgress }: { state: Assign
           <div>
             <dt>{t("Due")}</dt>
             <dd className={state.overdue ? "lms-late" : undefined}>
-              {formatDate(state.due_date)} <span className="faint">· {due}</span>
+              {isolate(formatDate(state.due_date))} <span className="faint">· {isolate(due)}</span>
             </dd>
           </div>
         )}
@@ -210,16 +210,16 @@ export function AssignmentPanel({ state, lessonId, onProgress }: { state: Assign
         </div>
         <div>
           <dt>{t("Pass mark")}</dt>
-          <dd>{Number(state.passing_score) || "Any grade passes"}</dd>
+          <dd>{Number(state.passing_score) || t("Any grade passes")}</dd>
         </div>
         <div>
           <dt>{t("Hand in")}</dt>
-          <dd>{state.submission_type === "Text" ? "Text" : state.submission_type === "File" ? "A file" : "Text, a file, or both"}</dd>
+          <dd>{state.submission_type === "Text" ? t("Text") : state.submission_type === "File" ? t("A file") : t("Text, a file, or both")}</dd>
         </div>
         {state.due_date && (
           <div>
             <dt>{t("Late work")}</dt>
-            <dd>{state.accept_late ? "Accepted" : "Not accepted"}</dd>
+            <dd>{state.accept_late ? t("Accepted") : t("Not accepted")}</dd>
           </div>
         )}
       </dl>
@@ -240,8 +240,8 @@ export function AssignmentPanel({ state, lessonId, onProgress }: { state: Assign
               <li key={s.id}>
                 <span className="lms-history-no">{t("Submission {submission_no}", { submission_no: s.submission_no })}</span>
                 <span className="faint">{s.submitted_at ? formatDateTime(s.submitted_at) : ""}</span>
-                <Badge tone={s.passed ? "green" : s.status === "Needs Revision" ? "amber" : "red"}>{s.status === "Graded" ? (s.passed ? "Passed" : "Not passed") : s.status}</Badge>
-                {s.score !== null && <span>{Number(s.score)} of {Number(state.max_score)}</span>}
+                <Badge tone={s.passed ? "green" : s.status === "Needs Revision" ? "amber" : "red"}>{s.status === "Graded" ? (s.passed ? t("Passed") : t("Not passed")) : s.status}</Badge>
+                {s.score !== null && <span>{t("{value} of {value2}", { value: Number(s.score), value2: Number(state.max_score) })}</span>}
                 {s.feedback && <div className="lms-feedback lms-feedback-wide"><Md source={s.feedback} /></div>}
               </li>
             ))}

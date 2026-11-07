@@ -11,13 +11,13 @@ import { plural } from "./format";
 import { paths } from "./lesson";
 import { LearnTabs, ProgressLine } from "./parts";
 import type { TeachingCourse } from "./types";
-import { t } from "@ferrum/client";
+import { t, isolate } from "@ferrum/client";
 
 function Figure({ value, label }: { value: number | string; label: string }) {
   return (
     <div className="lms-figure">
       <strong>{value}</strong>
-      <span className="faint">{label}</span>
+      <span className="faint">{isolate(label)}</span>
     </div>
   );
 }
@@ -27,17 +27,17 @@ function Row({ c }: { c: TeachingCourse }) {
     <tr>
       <td>
         <Link className="cell-title lms-wrap" to={paths.teaching(c.id)}>
-          {c.title}
+          {isolate(c.title)}
         </Link>
         <div>
-          <Badge tone={c.status === "Published" ? "green" : statusTone(c.status)}>{c.status}</Badge>
+          <Badge tone={c.status === "Published" ? "green" : statusTone(c.status)}>{isolate(c.status)}</Badge>
         </div>
       </td>
       <td className="num">{c.enrolled}</td>
       <td className="num">{c.active}</td>
       <td className="num">{c.completed}</td>
       <td className="lms-col-progress">
-        <ProgressLine value={c.average_progress} label={`Average progress in ${c.title}`} />
+        <ProgressLine value={c.average_progress} label={t("Average progress in {title}", { title: c.title })} />
       </td>
       <td className="num">{c.submissions_to_grade > 0 ? <Badge tone="amber">{t("{submissions_to_grade} to grade", { submissions_to_grade: c.submissions_to_grade })}</Badge> : <span className="faint">{t("None")}</span>}</td>
       <td>
@@ -58,7 +58,7 @@ function Row({ c }: { c: TeachingCourse }) {
 }
 
 export function Teaching() {
-  useShellTitle("Teaching");
+  useShellTitle(t("Teaching"));
   const qc = useQueryClient();
   const q = useQuery({ queryKey: keys.teaching, queryFn: getTeaching });
   const refresh = useCallback(() => void qc.invalidateQueries({ queryKey: keys.teaching }), [qc]);

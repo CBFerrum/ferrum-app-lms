@@ -3,6 +3,7 @@
 // a browser. The server decides what is done and what is required; this only follows its rules.
 
 import type { LessonType, OutlineChapter, OutlineLesson } from "./types";
+import { t as tr } from "@ferrum/client";
 
 export interface Placed {
   lesson: OutlineLesson;
@@ -131,7 +132,7 @@ export function nextAction(
   const target = found && found.id !== lesson.id ? found : null;
   if (completes) {
     const last = remainingRequired(after) === 0 && !around(after, lesson.id).next;
-    return { label: target ? "Complete and continue" : last ? "Finish course" : "Mark as complete", completes, primary: true, target };
+    return { label: target ? tr("Complete and continue") : last ? tr("Finish course") : tr("Mark as complete"), completes, primary: true, target };
   }
-  return { label: target ? "Next lesson" : "Back to the course", completes: false, primary: completed && !!target, target };
+  return { label: target ? tr("Next lesson") : tr("Back to the course"), completes: false, primary: completed && !!target, target };
 }

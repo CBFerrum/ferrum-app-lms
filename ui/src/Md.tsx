@@ -3,6 +3,7 @@
 
 import { Fragment, useMemo } from "react";
 import { type Block, type Inline, type Item, type ListBlock, parseMarkdown } from "./markdown";
+import { t, isolate } from "@ferrum/client";
 
 function Inlines({ nodes }: { nodes: Inline[] }) {
   return (
@@ -10,9 +11,9 @@ function Inlines({ nodes }: { nodes: Inline[] }) {
       {nodes.map((n, i) => {
         switch (n.t) {
           case "text":
-            return <Fragment key={i}>{n.v}</Fragment>;
+            return <Fragment key={i}>{isolate(n.v)}</Fragment>;
           case "code":
-            return <code key={i}>{n.v}</code>;
+            return <code key={i}>{isolate(n.v)}</code>;
           case "b":
             return (
               <strong key={i}>
@@ -78,8 +79,8 @@ function BlockView({ block }: { block: Block }) {
       return <ListView list={block} />;
     case "code":
       return (
-        <pre tabIndex={0} aria-label={block.lang ? `${block.lang} code` : "Code"}>
-          <code>{block.v}</code>
+        <pre tabIndex={0} aria-label={block.lang ? t("{lang} code", { lang: block.lang }) : t("Code")}>
+          <code>{isolate(block.v)}</code>
         </pre>
       );
     case "hr":

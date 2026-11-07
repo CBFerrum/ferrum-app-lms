@@ -11,7 +11,7 @@ import { Md } from "./Md";
 import { QuizPanel } from "./QuizPlayer";
 import { ScormLesson, XapiLesson } from "./Scorm";
 import type { LessonBody, LessonView } from "./types";
-import { t } from "@ferrum/client";
+import { t, isolate } from "@ferrum/client";
 
 export function LessonVideo({ lesson }: { lesson: Pick<LessonBody, "title" | "video_embed_url"> & { video_url?: string | null } }) {
   const src = embedSrc(lesson.video_embed_url);
@@ -52,8 +52,8 @@ export function LessonDocument({ url }: { url: string }) {
         <Glyph name={outside ? "link" : "doc"} size={22} />
       </span>
       <div className="lms-doc-text">
-        <strong>{outside ? "A page to read" : "Document"}</strong>
-        <span className="faint">{outside ? hostOf(url) : "Opens in a new tab"}</span>
+        <strong>{outside ? t("A page to read") : t("Document")}</strong>
+        <span className="faint">{outside ? hostOf(url) : t("Opens in a new tab")}</span>
       </div>
       <a className="btn btn-primary btn-md" href={url} target="_blank" rel="noopener noreferrer">
         {t("Open")}
@@ -92,10 +92,10 @@ export function LessonPage({
     <article className="lms-lesson" aria-labelledby="lms-lesson-title">
       <header className="lms-lesson-head">
         <p className="lms-eyebrow">
-          {[chapterTitle, LESSON_LABEL[l.lesson_type], duration(l.duration_minutes)].filter(Boolean).join(" · ")}
+          {isolate([chapterTitle, LESSON_LABEL[l.lesson_type], duration(l.duration_minutes)].filter(Boolean).join(" · "))}
         </p>
         <h1 id="lms-lesson-title" ref={headingRef} tabIndex={-1}>
-          {l.title}
+          {isolate(l.title)}
         </h1>
         {view.completed && (
           <Badge tone="green" title={view.completed_at ?? undefined}>
@@ -111,7 +111,7 @@ export function LessonPage({
         (view.quiz && enrollment ? (
           <QuizPanel quiz={view.quiz} enrollment={enrollment} lessonId={l.id} onProgress={onProgress} onSitting={onSitting} />
         ) : (
-          <Alert tone="info">{learning ? "The quiz of this lesson is not ready yet." : "Quizzes run for enrolled learners. Enrol yourself in the course to try this one."}</Alert>
+          <Alert tone="info">{learning ? t("The quiz of this lesson is not ready yet.") : t("Quizzes run for enrolled learners. Enrol yourself in the course to try this one.")}</Alert>
         ))}
       {l.lesson_type === "SCORM" &&
         (view.scorm ? (
@@ -123,11 +123,11 @@ export function LessonPage({
         (view.lti ? (
           <div className="lms-stack-sm">
             <p>
-              {t("This lesson is in")} <strong>{view.lti.tool_name ?? "an external tool"}</strong>{t(", which opens in a new window signed in as you.")}
+              {t("This lesson is in")} <strong>{view.lti.tool_name ?? t("an external tool")}</strong>{t(", which opens in a new window signed in as you.")}
             </p>
             <div className="row">
               <a className="btn btn-primary btn-md" href={view.lti.launch_url} target="_blank" rel="noopener">
-                <Glyph name="link" size={14} /> {t("Open")} {view.lti.tool_name ?? "the tool"}
+                <Glyph name="link" size={14} /> {t("Open")} {view.lti.tool_name ?? t("the tool")}
               </a>
             </div>
           </div>
@@ -140,7 +140,7 @@ export function LessonPage({
         (view.assignment ? (
           <AssignmentPanel state={view.assignment} lessonId={l.id} onProgress={onProgress} />
         ) : (
-          <Alert tone="info">{learning ? "The assignment of this lesson is not ready yet." : "Assignments are handed in by enrolled learners. Enrol yourself in the course to try this one."}</Alert>
+          <Alert tone="info">{learning ? t("The assignment of this lesson is not ready yet.") : t("Assignments are handed in by enrolled learners. Enrol yourself in the course to try this one.")}</Alert>
         ))}
       {children}
     </article>

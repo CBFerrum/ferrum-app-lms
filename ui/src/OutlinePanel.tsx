@@ -10,7 +10,7 @@ import { Glyph, lessonGlyph, LESSON_LABEL } from "./Glyph";
 import { chapterCounts, progressText, totals } from "./outline";
 import { ProgressLine } from "./parts";
 import type { OutlineChapter, OutlineLesson, Progress } from "./types";
-import { t } from "@ferrum/client";
+import { t, isolate } from "@ferrum/client";
 
 /** A big course starts with only the open lesson's chapter unfolded. */
 const UNFOLDED = 8;
@@ -33,11 +33,11 @@ function Row({ href, lesson, current, reachable, visitor }: { href: string; less
   const body = (
     <>
       {mark}
-      <span className="lms-row-title">{lesson.title}</span>
+      <span className="lms-row-title">{isolate(lesson.title)}</span>
       <span className="lms-row-meta faint">
         <Glyph name={lessonGlyph(lesson.lesson_type)} size={12} />
-        <span className="sr-only">{LESSON_LABEL[lesson.lesson_type]}. </span>
-        {duration(lesson.duration_minutes)}
+        <span className="sr-only">{isolate(LESSON_LABEL[lesson.lesson_type])}. </span>
+        {isolate(duration(lesson.duration_minutes))}
       </span>
       {visitor && lesson.is_preview && <Badge tone="blue">{t("Free preview")}</Badge>}
       {!lesson.required && <Badge>{t("Optional")}</Badge>}
@@ -90,11 +90,11 @@ export function OutlinePanel({
         {progress && progress.status !== "Withdrawn" ? (
           <>
             <ProgressLine value={progress.progress_percent} label={t("Your progress in this course")} />
-            <p className="faint lms-outline-count">{progressText(progress.completed_lessons, progress.total_lessons, sum.lessons)}</p>
+            <p className="faint lms-outline-count">{isolate(progressText(progress.completed_lessons, progress.total_lessons, sum.lessons))}</p>
           </>
         ) : (
           <p className="faint lms-outline-count">
-            {sum.lessons} {sum.lessons === 1 ? "lesson" : "lessons"}
+            {sum.lessons} {sum.lessons === 1 ? t("lesson") : t("lessons")}
             {sum.minutes ? ` · ${duration(sum.minutes)}` : ""}
           </p>
         )}
@@ -114,7 +114,7 @@ export function OutlinePanel({
           >
             <summary>
               <Glyph name="chevronRight" size={12} />
-              <span className="lms-chapter-title">{c.title}</span>
+              <span className="lms-chapter-title">{isolate(c.title)}</span>
               <span className="faint lms-chapter-count">
                 {n.done}/{n.total}
                 <span className="sr-only"> {t("lessons completed")}</span>
