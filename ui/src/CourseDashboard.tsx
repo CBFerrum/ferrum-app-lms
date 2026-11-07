@@ -6,7 +6,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, Fragment, useCallback, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import { ApiError, errorMessage, formatDateTime, relativeTime } from "@ferrum/client";
+import { ApiError, errorMessage, formatDateTime, relativeTime, t as tr } from "@ferrum/client";
 import { Alert, Badge, Button, Dialog, EmptyState, ErrorState, Field, PageLoading, useLiveEntity, useShellTitle } from "@ferrum/kit";
 import { enrolLearners, type EnrolResult, getCourse, getRoster, keys, rowsOf } from "./api";
 import { Glyph } from "./Glyph";
@@ -53,12 +53,12 @@ function LearnerDetail({ l, slug }: { l: RosterLearner; slug: string }) {
     void done.refetch();
     void course.refetch();
   };
-  if (done.error || course.error) return <ErrorState error={done.error ?? course.error} onRetry={again} title="Could not load this learner" />;
-  if (!done.data || !course.data) return <PageLoading label="Loading this learner" />;
+  if (done.error || course.error) return <ErrorState error={done.error ?? course.error} onRetry={again} title={tr("Could not load this learner")} />;
+  if (!done.data || !course.data) return <PageLoading label={tr("Loading this learner")} />;
   return (
     <div className="lms-detail">
       <div>
-        <h4 className="lms-subhead">Lessons</h4>
+        <h4 className="lms-subhead">{tr("Lessons")}</h4>
         {chapters.map((c) => (
           <div key={c.id} className="lms-detail-chapter">
             <p className="lms-detail-title">{c.title}</p>
@@ -78,7 +78,7 @@ function LearnerDetail({ l, slug }: { l: RosterLearner; slug: string }) {
         ))}
       </div>
       <div>
-        <h4 className="lms-subhead">Quiz attempts</h4>
+        <h4 className="lms-subhead">{tr("Quiz attempts")}</h4>
         {attempts.data?.length ? (
           <ul className="lms-plain">
             {attempts.data.map((a) => (
@@ -86,7 +86,7 @@ function LearnerDetail({ l, slug }: { l: RosterLearner; slug: string }) {
                 <strong>{a.quiz_title}</strong> <span className="faint">attempt {a.attempt_no}</span>
                 <br />
                 {a.status === "In Progress" ? (
-                  <Badge tone="blue">In progress</Badge>
+                  <Badge tone="blue">{tr("In progress")}</Badge>
                 ) : (
                   <>
                     {a.percentage !== null && <span>{Number(a.percentage)}% </span>}
@@ -98,10 +98,10 @@ function LearnerDetail({ l, slug }: { l: RosterLearner; slug: string }) {
             ))}
           </ul>
         ) : (
-          <p className="muted">No quiz attempts yet.</p>
+          <p className="muted">{tr("No quiz attempts yet.")}</p>
         )}
         <p className="lms-detail-link">
-          <Link to={paths.record("LmsEnrollment", l.enrollment)}>Open the enrolment record</Link>
+          <Link to={paths.record("LmsEnrollment", l.enrollment)}>{tr("Open the enrolment record")}</Link>
         </p>
       </div>
     </div>
@@ -127,16 +127,16 @@ function Learners({ roster, now }: { roster: Roster; now: number }) {
   return (
     <>
       <div className="lms-filters" role="search">
-        <input className="input lms-search" type="search" aria-label="Find a learner" placeholder="Find a learner…" value={f.q} onChange={(e) => set({ q: e.target.value })} />
-        <select className="select lms-select" aria-label="Status" value={f.status} onChange={(e) => set({ status: e.target.value as RosterFilter["status"] })}>
-          <option value="">Everyone</option>
-          <option value="Active">Learning now</option>
-          <option value="Completed">Finished</option>
-          <option value="Withdrawn">Left the course</option>
+        <input className="input lms-search" type="search" aria-label={tr("Find a learner")} placeholder={tr("Find a learner…")} value={f.q} onChange={(e) => set({ q: e.target.value })} />
+        <select className="select lms-select" aria-label={tr("Status")} value={f.status} onChange={(e) => set({ status: e.target.value as RosterFilter["status"] })}>
+          <option value="">{tr("Everyone")}</option>
+          <option value="Active">{tr("Learning now")}</option>
+          <option value="Completed">{tr("Finished")}</option>
+          <option value="Withdrawn">{tr("Left the course")}</option>
         </select>
         {cohorts.length > 0 && (
-          <select className="select lms-select" aria-label="Cohort" value={f.cohort} onChange={(e) => set({ cohort: e.target.value })}>
-            <option value="">All cohorts</option>
+          <select className="select lms-select" aria-label={tr("Cohort")} value={f.cohort} onChange={(e) => set({ cohort: e.target.value })}>
+            <option value="">{tr("All cohorts")}</option>
             {cohorts.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.title}
@@ -144,7 +144,7 @@ function Learners({ roster, now }: { roster: Roster; now: number }) {
             ))}
           </select>
         )}
-        <select className="select lms-select" aria-label="Order" value={f.sort} onChange={(e) => set({ sort: e.target.value as RosterFilter["sort"] })}>
+        <select className="select lms-select" aria-label={tr("Order")} value={f.sort} onChange={(e) => set({ sort: e.target.value as RosterFilter["sort"] })}>
           {SORTS.map((s) => (
             <option key={s.value} value={s.value}>
               {s.label}
@@ -160,11 +160,11 @@ function Learners({ roster, now }: { roster: Roster; now: number }) {
             <table className="table">
               <thead>
                 <tr>
-                  <th scope="col">Learner</th>
-                  <th scope="col">Progress</th>
-                  <th scope="col">Last opened</th>
-                  <th scope="col">Quizzes</th>
-                  <th scope="col">Status</th>
+                  <th scope="col">{tr("Learner")}</th>
+                  <th scope="col">{tr("Progress")}</th>
+                  <th scope="col">{tr("Last opened")}</th>
+                  <th scope="col">{tr("Quizzes")}</th>
+                  <th scope="col">{tr("Status")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -183,8 +183,8 @@ function Learners({ roster, now }: { roster: Roster; now: number }) {
                             </span>
                           </button>
                           <div className="lms-marks">
-                            {quiet && <Badge tone="amber">Quiet</Badge>}
-                            {l.submissions_to_grade > 0 && <Badge tone="blue">{l.submissions_to_grade} to grade</Badge>}
+                            {quiet && <Badge tone="amber">{tr("Quiet")}</Badge>}
+                            {l.submissions_to_grade > 0 && <Badge tone="blue">{tr("{submissions_to_grade} to grade", { submissions_to_grade: l.submissions_to_grade })}</Badge>}
                             {l.cohort?.title && <span className="faint">{l.cohort.title}</span>}
                           </div>
                         </td>
@@ -194,15 +194,15 @@ function Learners({ roster, now }: { roster: Roster; now: number }) {
                             {l.completed_lessons} of {l.total_lessons} lessons
                           </span>
                         </td>
-                        <td>{l.last_activity_at ? <span title={formatDateTime(l.last_activity_at)}>{relativeTime(l.last_activity_at)}</span> : <span className="faint">Not started</span>}</td>
+                        <td>{l.last_activity_at ? <span title={formatDateTime(l.last_activity_at)}>{relativeTime(l.last_activity_at)}</span> : <span className="faint">{tr("Not started")}</span>}</td>
                         <td>
                           {l.quizzes_passed || l.best_quiz_percentage ? (
                             <>
                               {l.quizzes_passed} passed
-                              {l.best_quiz_percentage && <span className="faint"> · best {Number(l.best_quiz_percentage)}%</span>}
+                              {l.best_quiz_percentage && <span className="faint"> {tr("· best")} {Number(l.best_quiz_percentage)}%</span>}
                             </>
                           ) : (
-                            <span className="faint">None yet</span>
+                            <span className="faint">{tr("None yet")}</span>
                           )}
                         </td>
                         <td>
@@ -261,7 +261,7 @@ function AddLearners({ course, open, onClose, onDone }: { course: string; open: 
     }
   };
   return (
-    <Dialog open={open} onClose={close} title="Add learners">
+    <Dialog open={open} onClose={close} title={tr("Add learners")}>
       {result ? (
         <div className="stack">
           <Alert tone={result.enrolled.length ? "success" : "info"}>
@@ -279,20 +279,20 @@ function AddLearners({ course, open, onClose, onDone }: { course: string; open: 
           )}
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <Button variant="primary" onClick={close}>
-              Done
+              {tr("Done")}
             </Button>
           </div>
         </div>
       ) : (
         <form className="stack" onSubmit={(e) => void submit(e)}>
           {error && <Alert tone="error">{error}</Alert>}
-          <Field label="Email addresses" htmlFor="lms-add" required hint="The addresses they sign in with, one to a line or separated by commas. Up to 500.">
+          <Field label={tr("Email addresses")} htmlFor="lms-add" required hint={tr("The addresses they sign in with, one to a line or separated by commas. Up to 500.")}>
             <textarea id="lms-add" className="textarea" rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder={"asha@school.test\nbo@school.test"} />
           </Field>
           {(cohorts.data?.length ?? 0) > 0 && (
-            <Field label="Cohort" htmlFor="lms-add-group">
+            <Field label={tr("Cohort")} htmlFor="lms-add-group">
               <select id="lms-add-group" className="select" value={cohort} onChange={(e) => setCohort(e.target.value)}>
-                <option value="">No cohort</option>
+                <option value="">{tr("No cohort")}</option>
                 {cohorts.data!.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.title}
@@ -302,9 +302,9 @@ function AddLearners({ course, open, onClose, onDone }: { course: string; open: 
             </Field>
           )}
           <div className="row" style={{ justifyContent: "flex-end" }}>
-            <Button onClick={close}>Cancel</Button>
+            <Button onClick={close}>{tr("Cancel")}</Button>
             <Button type="submit" variant="primary" loading={busy} disabled={!text.trim()}>
-              Add learners
+              {tr("Add learners")}
             </Button>
           </div>
         </form>
@@ -341,9 +341,9 @@ function CourseDashboard({ course }: { course: string }) {
   const now = useMemo(() => Date.now(), [q.data]);
   useShellTitle(q.data ? `${q.data.course.title} · Learners` : null);
 
-  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} title="Could not load this course's learners" />;
+  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} title={tr("Could not load this course's learners")} />;
   const roster = q.data;
-  if (!roster) return <PageLoading label="Loading the learners" />;
+  if (!roster) return <PageLoading label={tr("Loading the learners")} />;
   const sum = summarize(roster, now);
   const bands = distribution(roster.learners);
   const widest = Math.max(1, ...bands.map((b) => b.count));
@@ -351,37 +351,37 @@ function CourseDashboard({ course }: { course: string }) {
 
   return (
     <div className="lms-page">
-      <nav className="crumbs" aria-label="Breadcrumb">
-        <Link to={paths.teaching()}>Teaching</Link>
+      <nav className="crumbs" aria-label={tr("Breadcrumb")}>
+        <Link to={paths.teaching()}>{tr("Teaching")}</Link>
         <Glyph name="chevronRight" size={12} />
       </nav>
       <header className="lms-head">
         <div>
           <h1 className="page-title">{roster.course.title}</h1>
-          <p className="page-sub">Your learners</p>
+          <p className="page-sub">{tr("Your learners")}</p>
         </div>
         <div className="lms-tools">
           <Button icon="plus" onClick={() => setAdding(true)}>
-            Add learners
+            {tr("Add learners")}
           </Button>
           <Link className="btn btn-default btn-md" to={paths.build(roster.course.id)}>
-            Build
+            {tr("Build")}
           </Link>
           <Link className="btn btn-default btn-md" to={paths.course(roster.course.slug)}>
-            Course page
+            {tr("Course page")}
           </Link>
         </div>
       </header>
       <div className="lms-figures">
         <Figure value={sum.enrolled} label="enrolled" />
         <Figure value={sum.completed} label={`finished (${Number(roster.completion_rate)}%)`} />
-        <Figure value={`${sum.average}%`} label="average progress" />
-        <Figure value={sum.quiet} label="gone quiet" tone={sum.quiet ? "warn" : undefined} />
-        <Figure value={sum.toGrade} label="to grade" tone={sum.toGrade ? "warn" : undefined} />
+        <Figure value={`${sum.average}%`} label={tr("average progress")} />
+        <Figure value={sum.quiet} label={tr("gone quiet")} tone={sum.quiet ? "warn" : undefined} />
+        <Figure value={sum.toGrade} label={tr("to grade")} tone={sum.toGrade ? "warn" : undefined} />
       </div>
       {sum.enrolled > 0 && (
-        <section aria-label="Where the class is">
-          <h2 className="lms-group">Where the class is</h2>
+        <section aria-label={tr("Where the class is")}>
+          <h2 className="lms-group">{tr("Where the class is")}</h2>
           <ul className="lms-bands">
             {bands.map((b) => (
               <li key={b.label}>
@@ -395,12 +395,12 @@ function CourseDashboard({ course }: { course: string }) {
           </ul>
         </section>
       )}
-      <div className="lms-switch" role="tablist" aria-label="Learners and grading">
+      <div className="lms-switch" role="tablist" aria-label={tr("Learners and grading")}>
         <button type="button" role="tab" aria-selected={tab === "learners"} onClick={() => go("learners")}>
-          Learners
+          {tr("Learners")}
         </button>
         <button type="button" role="tab" aria-selected={tab === "grading"} onClick={() => go("grading")}>
-          To grade {sum.toGrade > 0 && <Badge tone="amber">{sum.toGrade}</Badge>}
+          {tr("To grade")} {sum.toGrade > 0 && <Badge tone="amber">{sum.toGrade}</Badge>}
         </button>
       </div>
       {tab === "learners" ? <Learners roster={roster} now={now} /> : <Grading course={course} />}

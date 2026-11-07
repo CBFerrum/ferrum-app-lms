@@ -10,6 +10,7 @@ import { Glyph, lessonGlyph, LESSON_LABEL } from "./Glyph";
 import { chapterCounts, progressText, totals } from "./outline";
 import { ProgressLine } from "./parts";
 import type { OutlineChapter, OutlineLesson, Progress } from "./types";
+import { t } from "@ferrum/client";
 
 /** A big course starts with only the open lesson's chapter unfolded. */
 const UNFOLDED = 8;
@@ -19,12 +20,12 @@ function Row({ href, lesson, current, reachable, visitor }: { href: string; less
   const mark = done ? (
     <span className="lms-tick" data-state="done">
       <Glyph name="check" size={11} />
-      <span className="sr-only">Completed. </span>
+      <span className="sr-only">{t("Completed.")} </span>
     </span>
   ) : !reachable ? (
     <span className="lms-tick" data-state="locked">
       <Glyph name="lock" size={11} />
-      <span className="sr-only">Locked. </span>
+      <span className="sr-only">{t("Locked.")} </span>
     </span>
   ) : (
     <span className="lms-tick" aria-hidden="true" />
@@ -38,8 +39,8 @@ function Row({ href, lesson, current, reachable, visitor }: { href: string; less
         <span className="sr-only">{LESSON_LABEL[lesson.lesson_type]}. </span>
         {duration(lesson.duration_minutes)}
       </span>
-      {visitor && lesson.is_preview && <Badge tone="blue">Free preview</Badge>}
-      {!lesson.required && <Badge>Optional</Badge>}
+      {visitor && lesson.is_preview && <Badge tone="blue">{t("Free preview")}</Badge>}
+      {!lesson.required && <Badge>{t("Optional")}</Badge>}
     </>
   );
   return reachable ? (
@@ -47,7 +48,7 @@ function Row({ href, lesson, current, reachable, visitor }: { href: string; less
       {body}
     </Link>
   ) : (
-    <span className="lms-row" data-state="locked" title="Enrol to open this lesson">
+    <span className="lms-row" data-state="locked" title={t("Enrol to open this lesson")}>
       {body}
     </span>
   );
@@ -85,10 +86,10 @@ export function OutlinePanel({
   return (
     <div className="lms-outline-inner" ref={box}>
       <div className="lms-outline-head">
-        <h2>Course content</h2>
+        <h2>{t("Course content")}</h2>
         {progress && progress.status !== "Withdrawn" ? (
           <>
-            <ProgressLine value={progress.progress_percent} label="Your progress in this course" />
+            <ProgressLine value={progress.progress_percent} label={t("Your progress in this course")} />
             <p className="faint lms-outline-count">{progressText(progress.completed_lessons, progress.total_lessons, sum.lessons)}</p>
           </>
         ) : (
@@ -116,14 +117,14 @@ export function OutlinePanel({
               <span className="lms-chapter-title">{c.title}</span>
               <span className="faint lms-chapter-count">
                 {n.done}/{n.total}
-                <span className="sr-only"> lessons completed</span>
+                <span className="sr-only"> {t("lessons completed")}</span>
               </span>
             </summary>
             <div className="lms-rows">
               {c.lessons.map((l) => (
                 <Row key={l.id} href={href(l)} lesson={l} current={l.id === currentId} reachable={!visitor || l.is_preview} visitor={visitor} />
               ))}
-              {!c.lessons.length && <p className="faint lms-empty-chapter">No lessons yet.</p>}
+              {!c.lessons.length && <p className="faint lms-empty-chapter">{t("No lessons yet.")}</p>}
             </div>
           </details>
         );

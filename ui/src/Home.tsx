@@ -5,7 +5,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import { Link } from "react-router";
-import { formatDate, relativeTime, todayIso } from "@ferrum/client";
+import { formatDate, relativeTime, todayIso, t } from "@ferrum/client";
 import { Badge, EmptyState, ErrorState, PageLoading, useLiveEntity, useShellTitle } from "@ferrum/kit";
 import { getDashboard, keys } from "./api";
 import { CertificateActions } from "./Certificate";
@@ -31,18 +31,18 @@ const DUE_TEXT: Record<DueAssignment["status"], string> = {
 function Hero({ c }: { c: MyCourse }) {
   const next = c.next_lesson;
   return (
-    <section className="lms-hero" aria-label="Continue learning">
+    <section className="lms-hero" aria-label={t("Continue learning")}>
       <div className="lms-hero-cover">
         <Cover title={c.course.title} slug={c.course.slug} image={c.course.cover_image} />
       </div>
       <div className="lms-hero-body">
-        <p className="lms-eyebrow">Pick up where you left off</p>
+        <p className="lms-eyebrow">{t("Pick up where you left off")}</p>
         <h2>
           <Link to={paths.course(c.course.slug)}>{c.course.title}</Link>
         </h2>
         {next && (
           <p className="muted lms-hero-next">
-            <Glyph name="arrowRight" size={13} /> Up next: <strong>{next.title}</strong>
+            <Glyph name="arrowRight" size={13} /> {t("Up next:")} <strong>{next.title}</strong>
             <span className="faint">
               {" "}
               · {LESSON_LABEL[next.lesson_type]}
@@ -53,7 +53,7 @@ function Hero({ c }: { c: MyCourse }) {
         <ProgressLine value={c.progress_percent} label={`Your progress in ${c.course.title}`} />
         <div className="row">
           <Link className="btn btn-primary btn-md" to={paths.learn(c.course.slug, next?.id)}>
-            Continue
+            {t("Continue")}
           </Link>
           <span className="faint">{c.completed_lessons} of {c.total_lessons} done</span>
         </div>
@@ -73,16 +73,16 @@ function CourseTile({ c }: { c: MyCourse }) {
         </h3>
         {done ? (
           <p className="lms-card-facts">
-            <Badge tone="green">Completed</Badge>
+            <Badge tone="green">{t("Completed")}</Badge>
             {c.certificate && (
               <span className="lms-card-cert">
-                <Glyph name="award" size={13} /> Certificate
+                <Glyph name="award" size={13} /> {t("Certificate")}
               </span>
             )}
           </p>
         ) : (
           <>
-            {c.next_lesson && <p className="lms-card-summary">Next: {c.next_lesson.title}</p>}
+            {c.next_lesson && <p className="lms-card-summary">{t("Next: {title}", { title: c.next_lesson.title })}</p>}
             <ProgressLine value={c.progress_percent} label={`Your progress in ${c.course.title}`} />
           </>
         )}
@@ -116,33 +116,33 @@ export function Home() {
     <div className="lms-page">
       <header className="lms-head">
         <div>
-          <h1 className="sr-only">My learning</h1>
+          <h1 className="sr-only">{t("My learning")}</h1>
           <LearnTabs />
           <p className="page-sub" aria-live="polite">
             {sub}
           </p>
         </div>
         <Link className="btn btn-default btn-md" to={paths.catalog}>
-          Browse the catalog
+          {t("Browse the catalog")}
         </Link>
       </header>
       {q.error ? (
-        <ErrorState error={q.error} onRetry={() => void q.refetch()} title="Could not load your learning" />
+        <ErrorState error={q.error} onRetry={() => void q.refetch()} title={t("Could not load your learning")} />
       ) : !data ? (
-        <PageLoading label="Loading your learning" />
+        <PageLoading label={t("Loading your learning")} />
       ) : !data.courses.length && !data.learning_paths.length ? (
-        <EmptyState title="You have not started a course yet" icon="board">
-          <p className="muted">Find something to learn in the catalog. Your progress, deadlines and certificates will gather here.</p>
+        <EmptyState title={t("You have not started a course yet")} icon="board">
+          <p className="muted">{t("Find something to learn in the catalog. Your progress, deadlines and certificates will gather here.")}</p>
           <Link className="btn btn-primary btn-md" to={paths.catalog}>
-            Browse the catalog
+            {t("Browse the catalog")}
           </Link>
         </EmptyState>
       ) : (
         <>
           {hero && <Hero c={hero} />}
           {data.courses.length > 0 && (
-            <section aria-label="Your courses">
-              <h2 className="lms-group">Your courses</h2>
+            <section aria-label={t("Your courses")}>
+              <h2 className="lms-group">{t("Your courses")}</h2>
               <div className="lms-grid">
                 {data.courses.map((c) => (
                   <CourseTile key={c.enrollment} c={c} />
@@ -152,8 +152,8 @@ export function Home() {
           )}
           <div className="lms-two">
             {data.due_assignments.length > 0 && (
-              <section aria-label="Assignments">
-                <h2 className="lms-group">Assignments</h2>
+              <section aria-label={t("Assignments")}>
+                <h2 className="lms-group">{t("Assignments")}</h2>
                 <ul className="lms-lines">
                   {data.due_assignments.map((a) => {
                     const slug = slugOf.get(a.course.id);
@@ -172,8 +172,8 @@ export function Home() {
               </section>
             )}
             {data.upcoming_sessions.length > 0 && (
-              <section aria-label="Live sessions">
-                <h2 className="lms-group">Live sessions</h2>
+              <section aria-label={t("Live sessions")}>
+                <h2 className="lms-group">{t("Live sessions")}</h2>
                 <ul className="lms-lines">
                   {data.upcoming_sessions.map((s) => (
                     <li key={s.session} className="lms-line">
@@ -185,10 +185,10 @@ export function Home() {
                       </div>
                       {s.join_url ? (
                         <a className="btn btn-default btn-sm" href={s.join_url} target="_blank" rel="noopener noreferrer">
-                          Join
+                          {t("Join")}
                         </a>
                       ) : (
-                        <span className="faint">No link yet</span>
+                        <span className="faint">{t("No link yet")}</span>
                       )}
                     </li>
                   ))}
@@ -197,8 +197,8 @@ export function Home() {
             )}
           </div>
           {data.learning_paths.length > 0 && (
-            <section aria-label="Learning paths">
-              <h2 className="lms-group">Learning paths</h2>
+            <section aria-label={t("Learning paths")}>
+              <h2 className="lms-group">{t("Learning paths")}</h2>
               <ul className="lms-lines">
                 {data.learning_paths.map((p) => (
                   <li key={p.id} className="lms-line">
@@ -217,8 +217,8 @@ export function Home() {
             </section>
           )}
           {data.certificates.length > 0 && (
-            <section aria-label="Certificates">
-              <h2 className="lms-group">Certificates</h2>
+            <section aria-label={t("Certificates")}>
+              <h2 className="lms-group">{t("Certificates")}</h2>
               <ul className="lms-lines">
                 {data.certificates.map((c) => (
                   <li key={c.id} className="lms-line">

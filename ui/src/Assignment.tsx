@@ -4,7 +4,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { api, ApiError, docPath, errorMessage, formatDate, formatDateTime, todayIso, uploadFile } from "@ferrum/client";
+import { api, ApiError, docPath, errorMessage, formatDate, formatDateTime, todayIso, uploadFile, t } from "@ferrum/client";
 import { Alert, Badge, Button, Field, Spinner, toast } from "@ferrum/kit";
 import { keys } from "./api";
 import { dueLabel } from "./format";
@@ -100,17 +100,17 @@ function Form({ state, editing, onDone, onCancel }: { state: AssignmentState; ed
   const fieldError = (name: string) => (error instanceof ApiError ? error.fields.find((f) => f.field === name)?.message : undefined);
   const general = error instanceof ApiError ? (error.fields.length ? null : error.message) : error;
 
-  if (editing && doc.isLoading) return <Spinner label="Opening your work" />;
+  if (editing && doc.isLoading) return <Spinner label={t("Opening your work")} />;
   return (
     <form className="lms-form stack" onSubmit={(e) => void submit(e)}>
       {general && <Alert tone="error">{general}</Alert>}
       {wantsText && (
-        <Field label="Your answer" htmlFor="lms-answer" error={fieldError("answer")} hint={editing ? undefined : "Saved on this device as you write. Markdown works."}>
+        <Field label={t("Your answer")} htmlFor="lms-answer" error={fieldError("answer")} hint={editing ? undefined : "Saved on this device as you write. Markdown works."}>
           <textarea id="lms-answer" className="textarea lms-essay" rows={9} value={text} onChange={(e) => setText(e.target.value)} />
         </Field>
       )}
       {wantsFile && (
-        <Field label="File" htmlFor="lms-file" error={fieldError("attachment")}>
+        <Field label={t("File")} htmlFor="lms-file" error={fieldError("attachment")}>
           <div className="row">
             <label className="btn btn-default btn-md" aria-busy={uploading || undefined}>
               <input id="lms-file" ref={pick} className="sr-only" type="file" onChange={(e) => void choose(e.target.files?.[0])} />
@@ -123,7 +123,7 @@ function Form({ state, editing, onDone, onCancel }: { state: AssignmentState; ed
                   {fileName(file)}
                 </a>
                 <button type="button" className="lms-linklike" onClick={() => setAttachment(null)}>
-                  Remove
+                  {t("Remove")}
                 </button>
               </>
             )}
@@ -134,7 +134,7 @@ function Form({ state, editing, onDone, onCancel }: { state: AssignmentState; ed
         <Button type="submit" variant="primary" loading={busy} disabled={empty || uploading}>
           {editing ? "Save changes" : "Hand in"}
         </Button>
-        {onCancel && <Button onClick={onCancel}>Cancel</Button>}
+        {onCancel && <Button onClick={onCancel}>{t("Cancel")}</Button>}
       </div>
     </form>
   );
@@ -145,16 +145,16 @@ function Standing({ s, state }: { s: SubmissionRow; state: AssignmentState }) {
   const score = `${Number(s.score ?? 0)} of ${Number(state.max_score)}`;
   const feedback = s.feedback ? (
     <div className="lms-feedback">
-      <strong>Feedback</strong>
+      <strong>{t("Feedback")}</strong>
       <Md source={s.feedback} />
     </div>
   ) : null;
   if (s.status === "Submitted")
-    return <Alert tone="info">Handed in {when}{s.late ? " (late)" : ""}. Your instructor will grade it; you can change it until then.</Alert>;
+    return <Alert tone="info">{t("Handed in {when}", { when })}{s.late ? " (late)" : ""}{t(". Your instructor will grade it; you can change it until then.")}</Alert>;
   if (s.status === "Needs Revision")
     return (
       <Alert tone="warning">
-        <strong>Your instructor asked for changes.</strong> Hand in a new version below.
+        <strong>{t("Your instructor asked for changes.")}</strong> {t("Hand in a new version below.")}
         {feedback}
       </Alert>
     );
@@ -189,36 +189,36 @@ export function AssignmentPanel({ state, lessonId, onProgress }: { state: Assign
   const open = state.can_submit && !pending;
 
   return (
-    <section className="lms-assignment" aria-label="Assignment">
+    <section className="lms-assignment" aria-label={t("Assignment")}>
       <div className="lms-quiz-head">
         <h2>{state.title}</h2>
-        {state.passed && <Badge tone="green">Passed</Badge>}
+        {state.passed && <Badge tone="green">{t("Passed")}</Badge>}
       </div>
       <Md source={state.instructions} />
       <dl className="lms-facts">
         {state.due_date && (
           <div>
-            <dt>Due</dt>
+            <dt>{t("Due")}</dt>
             <dd className={state.overdue ? "lms-late" : undefined}>
               {formatDate(state.due_date)} <span className="faint">· {due}</span>
             </dd>
           </div>
         )}
         <div>
-          <dt>Marked out of</dt>
+          <dt>{t("Marked out of")}</dt>
           <dd>{Number(state.max_score)}</dd>
         </div>
         <div>
-          <dt>Pass mark</dt>
+          <dt>{t("Pass mark")}</dt>
           <dd>{Number(state.passing_score) || "Any grade passes"}</dd>
         </div>
         <div>
-          <dt>Hand in</dt>
+          <dt>{t("Hand in")}</dt>
           <dd>{state.submission_type === "Text" ? "Text" : state.submission_type === "File" ? "A file" : "Text, a file, or both"}</dd>
         </div>
         {state.due_date && (
           <div>
-            <dt>Late work</dt>
+            <dt>{t("Late work")}</dt>
             <dd>{state.accept_late ? "Accepted" : "Not accepted"}</dd>
           </div>
         )}
@@ -226,7 +226,7 @@ export function AssignmentPanel({ state, lessonId, onProgress }: { state: Assign
       {latest && <Standing s={latest} state={state} />}
       {pending && !changing && (
         <div className="row">
-          <Button onClick={() => setChanging(true)}>Change my work</Button>
+          <Button onClick={() => setChanging(true)}>{t("Change my work")}</Button>
         </div>
       )}
       {pending && changing && <Form state={state} editing={pending} onDone={refresh} onCancel={() => setChanging(false)} />}
@@ -234,11 +234,11 @@ export function AssignmentPanel({ state, lessonId, onProgress }: { state: Assign
       {!open && !pending && state.reason && !state.passed && <Alert tone="info">{state.reason.charAt(0).toUpperCase() + state.reason.slice(1)}.</Alert>}
       {earlier.length > 0 && (
         <details className="lms-earlier">
-          <summary>Earlier submissions ({earlier.length})</summary>
+          <summary>{t("Earlier submissions ({length})", { length: earlier.length })}</summary>
           <ul className="lms-history">
             {earlier.map((s) => (
               <li key={s.id}>
-                <span className="lms-history-no">Submission {s.submission_no}</span>
+                <span className="lms-history-no">{t("Submission {submission_no}", { submission_no: s.submission_no })}</span>
                 <span className="faint">{s.submitted_at ? formatDateTime(s.submitted_at) : ""}</span>
                 <Badge tone={s.passed ? "green" : s.status === "Needs Revision" ? "amber" : "red"}>{s.status === "Graded" ? (s.passed ? "Passed" : "Not passed") : s.status}</Badge>
                 {s.score !== null && <span>{Number(s.score)} of {Number(state.max_score)}</span>}

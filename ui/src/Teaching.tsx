@@ -11,6 +11,7 @@ import { plural } from "./format";
 import { paths } from "./lesson";
 import { LearnTabs, ProgressLine } from "./parts";
 import type { TeachingCourse } from "./types";
+import { t } from "@ferrum/client";
 
 function Figure({ value, label }: { value: number | string; label: string }) {
   return (
@@ -38,17 +39,17 @@ function Row({ c }: { c: TeachingCourse }) {
       <td className="lms-col-progress">
         <ProgressLine value={c.average_progress} label={`Average progress in ${c.title}`} />
       </td>
-      <td className="num">{c.submissions_to_grade > 0 ? <Badge tone="amber">{c.submissions_to_grade} to grade</Badge> : <span className="faint">None</span>}</td>
+      <td className="num">{c.submissions_to_grade > 0 ? <Badge tone="amber">{t("{submissions_to_grade} to grade", { submissions_to_grade: c.submissions_to_grade })}</Badge> : <span className="faint">{t("None")}</span>}</td>
       <td>
         <div className="lms-row-actions">
           <Link className="btn btn-default btn-sm" to={paths.teaching(c.id)}>
-            Learners
+            {t("Learners")}
           </Link>
           <Link className="btn btn-default btn-sm" to={paths.build(c.id)}>
-            Build
+            {t("Build")}
           </Link>
           <Link className="btn btn-ghost btn-sm" to={paths.course(c.slug)}>
-            Open
+            {t("Open")}
           </Link>
         </div>
       </td>
@@ -72,55 +73,55 @@ export function Teaching() {
     <div className="lms-page">
       <header className="lms-head">
         <div>
-          <h1 className="sr-only">Teaching</h1>
+          <h1 className="sr-only">{t("Teaching")}</h1>
           <LearnTabs />
           <p className="page-sub" aria-live="polite">
             {q.data ? plural(courses.length, "course") : " "}
           </p>
         </div>
         <Link className="btn btn-primary btn-md" to={paths.record("LmsCourse", "new")}>
-          New course
+          {t("New course")}
         </Link>
       </header>
       {q.error ? (
-        <ErrorState error={q.error} onRetry={() => void q.refetch()} title="Could not load your courses" />
+        <ErrorState error={q.error} onRetry={() => void q.refetch()} title={t("Could not load your courses")} />
       ) : !q.data ? (
-        <PageLoading label="Loading your courses" />
+        <PageLoading label={t("Loading your courses")} />
       ) : !courses.length ? (
-        <EmptyState title="You do not teach a course yet" icon="board">
-          <p className="muted">Create a course, add lessons, and publish it when it is ready for learners.</p>
+        <EmptyState title={t("You do not teach a course yet")} icon="board">
+          <p className="muted">{t("Create a course, add lessons, and publish it when it is ready for learners.")}</p>
           <Link className="btn btn-primary btn-md" to={paths.record("LmsCourse", "new")}>
-            New course
+            {t("New course")}
           </Link>
         </EmptyState>
       ) : (
         <>
           <div className="lms-figures">
-            <Figure value={learning} label="learning now" />
+            <Figure value={learning} label={t("learning now")} />
             <Figure value={done} label="finished" />
-            <Figure value={toGrade} label="to grade" />
+            <Figure value={toGrade} label={t("to grade")} />
           </div>
           <div className="lms-panel">
             <div className="table-wrap">
               <table className="table">
                 <thead>
                   <tr>
-                    <th scope="col">Course</th>
+                    <th scope="col">{t("Course")}</th>
                     <th scope="col" className="num">
-                      Learners
+                      {t("Learners")}
                     </th>
                     <th scope="col" className="num">
-                      Learning
+                      {t("Learning")}
                     </th>
                     <th scope="col" className="num">
-                      Finished
+                      {t("Finished")}
                     </th>
-                    <th scope="col">Average progress</th>
+                    <th scope="col">{t("Average progress")}</th>
                     <th scope="col" className="num">
-                      Grading
+                      {t("Grading")}
                     </th>
                     <th scope="col">
-                      <span className="sr-only">Open</span>
+                      <span className="sr-only">{t("Open")}</span>
                     </th>
                   </tr>
                 </thead>

@@ -8,7 +8,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
-import { ApiError, errorMessage } from "@ferrum/client";
+import { ApiError, errorMessage, t } from "@ferrum/client";
 import { Alert, Button, EmptyState, ErrorState, PageLoading, toast, useLiveEntity, useShellTitle } from "@ferrum/kit";
 import { completeLesson, getCourse, getLesson, keys, reactivate } from "./api";
 import { Done } from "./Done";
@@ -127,7 +127,7 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
     }
     if (action.target) navigate(paths.learn(slug, action.target.id));
     else if (!action.completes) navigate(paths.course(slug));
-    else if (!celebrate) toast("Lesson complete");
+    else if (!celebrate) toast(t("Lesson complete"));
   };
 
   // Left and Right move between lessons, unless the keys are doing something else.
@@ -156,8 +156,8 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
 
   useShellTitle(data ? (view ? `${view.lesson.title} · ${data.title}` : data.title) : null);
 
-  if (course.isLoading) return <PageLoading label="Opening the course" />;
-  if (course.error || !data) return <ErrorState error={course.error} onRetry={() => void course.refetch()} title="Could not open the course" />;
+  if (course.isLoading) return <PageLoading label={t("Opening the course")} />;
+  if (course.error || !data) return <ErrorState error={course.error} onRetry={() => void course.refetch()} title={t("Could not open the course")} />;
 
   if (!lessonId) {
     const target = learning ? (data.next_lesson ?? resume(data.chapters)) : author ? resume(data.chapters) : null;
@@ -174,7 +174,7 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
       footer={
         progress?.certificate && learning ? (
           <p className="lms-outline-cert">
-            <Glyph name="award" size={13} /> <Link to={paths.course(slug)}>Your certificate</Link>
+            <Glyph name="award" size={13} /> <Link to={paths.course(slug)}>{t("Your certificate")}</Link>
           </p>
         ) : undefined
       }
@@ -186,24 +186,24 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
       const missing = lessonQ.error instanceof ApiError && lessonQ.error.status === 404;
       if (missing && visitor)
         return (
-          <EmptyState title="This lesson is part of the full course" icon="user">
-            <p className="muted">Enrol to open every lesson and keep track of your progress.</p>
+          <EmptyState title={t("This lesson is part of the full course")} icon="user">
+            <p className="muted">{t("Enrol to open every lesson and keep track of your progress.")}</p>
             <Link className="btn btn-primary btn-md" to={paths.course(slug)}>
-              See the course
+              {t("See the course")}
             </Link>
           </EmptyState>
         );
       return missing ? (
-        <EmptyState title="This lesson is not available">
+        <EmptyState title={t("This lesson is not available")}>
           <Link className="btn btn-default btn-md" to={paths.course(slug)}>
-            Back to the course
+            {t("Back to the course")}
           </Link>
         </EmptyState>
       ) : (
-        <ErrorState error={lessonQ.error} onRetry={() => void lessonQ.refetch()} title="Could not open the lesson" />
+        <ErrorState error={lessonQ.error} onRetry={() => void lessonQ.refetch()} title={t("Could not open the lesson")} />
       );
     }
-    if (!view || !action || !nav) return <PageLoading label="Opening the lesson" />;
+    if (!view || !action || !nav) return <PageLoading label={t("Opening the lesson")} />;
     const prev = nav.prev?.lesson;
     const kind = view.lesson.lesson_type;
     // Quizzes and assignments finish when passed; everything else, by the button, or the arrow keys.
@@ -223,16 +223,16 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
       <LessonPage view={view} chapterTitle={here?.chapter.title} learning={learning} enrollment={enrollment} onProgress={refresh} onSitting={setSitting} headingRef={heading}>
         {!sitting && (
           <>
-            <nav className="lms-lesson-nav" aria-label="Lesson navigation">
+            <nav className="lms-lesson-nav" aria-label={t("Lesson navigation")}>
               {prev ? (
                 <Link className="btn btn-default btn-md" to={paths.learn(slug, prev.id)} rel="prev">
-                  <Glyph name="arrowLeft" size={14} /> Previous
+                  <Glyph name="arrowLeft" size={14} /> {t("Previous")}
                 </Link>
               ) : (
                 <span />
               )}
               <span className="faint lms-pos">
-                Lesson {nav.index + 1} of {nav.count}
+                {t("Lesson")} {nav.index + 1} of {nav.count}
               </span>
               {action.completes || action.target ? (
                 <Button variant={action.primary ? "primary" : "default"} loading={complete.isPending} onClick={() => void advance()}>
@@ -259,31 +259,31 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
             <Glyph name="arrowLeft" size={14} /> {data.title}
           </Link>
           <Button size="sm" className="lms-outline-toggle" icon="list" onClick={() => setSheet(true)}>
-            Outline
+            {t("Outline")}
           </Button>
         </div>
         {celebrate && <Done title={data.title} certificate={progress?.certificate} onClose={() => setCelebrate(false)} />}
         {progress?.status === "Withdrawn" && !author && (
-          <Alert tone="warning" action={<Button loading={again.isPending} onClick={() => again.mutate()}>Enrol again</Button>}>
-            You left this course. Your progress is kept if you enrol again.
+          <Alert tone="warning" action={<Button loading={again.isPending} onClick={() => again.mutate()}>{t("Enrol again")}</Button>}>
+            {t("You left this course. Your progress is kept if you enrol again.")}
           </Alert>
         )}
         {visitor && progress?.status !== "Withdrawn" && (
-          <Alert tone="info" action={<Link className="btn btn-primary btn-md" to={paths.course(slug)}>See the course</Link>}>
-            You are looking at a free preview. Enrol to open every lesson and keep your progress.
+          <Alert tone="info" action={<Link className="btn btn-primary btn-md" to={paths.course(slug)}>{t("See the course")}</Link>}>
+            {t("You are looking at a free preview. Enrol to open every lesson and keep your progress.")}
           </Alert>
         )}
         {author && !learning && (
-          <Alert tone="info" action={data.id ? <Link className="btn btn-default btn-md" to={paths.build(data.id, lessonId)}>Edit in the builder</Link> : undefined}>
-            You are looking at this course as its instructor. Nothing you do here counts as progress.
+          <Alert tone="info" action={data.id ? <Link className="btn btn-default btn-md" to={paths.build(data.id, lessonId)}>{t("Edit in the builder")}</Link> : undefined}>
+            {t("You are looking at this course as its instructor. Nothing you do here counts as progress.")}
           </Alert>
         )}
         {left}
       </div>
-      <aside className="lms-outline" aria-label="Course outline">
+      <aside className="lms-outline" aria-label={t("Course outline")}>
         {outline}
       </aside>
-      <Sheet open={sheet} onClose={() => setSheet(false)} title="Course outline">
+      <Sheet open={sheet} onClose={() => setSheet(false)} title={t("Course outline")}>
         <div onClick={(e) => (e.target as Element).closest("a") && setSheet(false)}>{outline}</div>
       </Sheet>
     </div>

@@ -5,6 +5,7 @@ import { Icon } from "@ferrum/kit";
 import { CertificateActions } from "./Certificate";
 import { Glyph } from "./Glyph";
 import { paths } from "./lesson";
+import { t } from "@ferrum/client";
 
 export function Done({ title, certificate, onClose }: { title: string; certificate: string | null | undefined; onClose?: () => void }) {
   return (
@@ -13,20 +14,20 @@ export function Done({ title, certificate, onClose }: { title: string; certifica
         <Glyph name={certificate ? "award" : "circleCheck"} size={28} />
       </span>
       <div className="lms-done-text">
-        <h2 id="lms-done-h">You completed {title}</h2>
+        <h2 id="lms-done-h">{t("You completed {title}", { title })}</h2>
         <p className="muted">{certificate ? "Your certificate is ready. Keep it, print it, or share the link that lets anyone check it." : "Well done. Every lesson the course asked for is finished."}</p>
         <div className="row">
           {certificate && <CertificateActions id={certificate} />}
           <Link className="btn btn-default btn-md" to={paths.home}>
-            My learning
+            {t("My learning")}
           </Link>
           <Link className="btn btn-default btn-md" to={paths.catalog}>
-            Find another course
+            {t("Find another course")}
           </Link>
         </div>
       </div>
       {onClose && (
-        <button type="button" className="icon-btn lms-done-close" aria-label="Dismiss" onClick={onClose}>
+        <button type="button" className="icon-btn lms-done-close" aria-label={t("Dismiss")} onClick={onClose}>
           <Icon name="x" size={16} />
         </button>
       )}

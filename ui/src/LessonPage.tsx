@@ -11,10 +11,11 @@ import { Md } from "./Md";
 import { QuizPanel } from "./QuizPlayer";
 import { ScormLesson, XapiLesson } from "./Scorm";
 import type { LessonBody, LessonView } from "./types";
+import { t } from "@ferrum/client";
 
 export function LessonVideo({ lesson }: { lesson: Pick<LessonBody, "title" | "video_embed_url"> & { video_url?: string | null } }) {
   const src = embedSrc(lesson.video_embed_url);
-  if (!src) return <Alert tone="info">The video of this lesson is not available yet.</Alert>;
+  if (!src) return <Alert tone="info">{t("The video of this lesson is not available yet.")}</Alert>;
   return (
     <>
       <div className="lms-video">
@@ -29,7 +30,7 @@ export function LessonVideo({ lesson }: { lesson: Pick<LessonBody, "title" | "vi
         />
       </div>
       <p className="faint lms-video-note">
-        Not playing? <a href={lesson.video_url || src} target="_blank" rel="noopener noreferrer">Open the video in a new tab</a>.
+        {t("Not playing?")} <a href={lesson.video_url || src} target="_blank" rel="noopener noreferrer">{t("Open the video in a new tab")}</a>.
       </p>
     </>
   );
@@ -55,11 +56,11 @@ export function LessonDocument({ url }: { url: string }) {
         <span className="faint">{outside ? hostOf(url) : "Opens in a new tab"}</span>
       </div>
       <a className="btn btn-primary btn-md" href={url} target="_blank" rel="noopener noreferrer">
-        Open
+        {t("Open")}
       </a>
       {!outside && (
         <a className="btn btn-default btn-md" href={url} download>
-          Download
+          {t("Download")}
         </a>
       )}
     </div>
@@ -98,13 +99,13 @@ export function LessonPage({
         </h1>
         {view.completed && (
           <Badge tone="green" title={view.completed_at ?? undefined}>
-            Completed
+            {t("Completed")}
           </Badge>
         )}
       </header>
       {l.lesson_type === "Video" && <LessonVideo lesson={l} />}
       {l.lesson_type === "Document" &&
-        (l.file_url ? <LessonDocument url={l.file_url} /> : <Alert tone="info">No document is attached to this lesson yet.</Alert>)}
+        (l.file_url ? <LessonDocument url={l.file_url} /> : <Alert tone="info">{t("No document is attached to this lesson yet.")}</Alert>)}
       <Md source={l.content} className="lms-reading" />
       {l.lesson_type === "Quiz" &&
         (view.quiz && enrollment ? (
@@ -116,25 +117,25 @@ export function LessonPage({
         (view.scorm ? (
           <ScormLesson player={view.scorm} title={l.title} enrollment={enrollment} lessonId={l.id} onProgress={onProgress} />
         ) : (
-          <Alert tone="info">The package of this lesson is not in yet.</Alert>
+          <Alert tone="info">{t("The package of this lesson is not in yet.")}</Alert>
         ))}
       {l.lesson_type === "LTI" &&
         (view.lti ? (
           <div className="lms-stack-sm">
             <p>
-              This lesson is in <strong>{view.lti.tool_name ?? "an external tool"}</strong>, which opens in a new window signed in as you.
+              {t("This lesson is in")} <strong>{view.lti.tool_name ?? "an external tool"}</strong>{t(", which opens in a new window signed in as you.")}
             </p>
             <div className="row">
               <a className="btn btn-primary btn-md" href={view.lti.launch_url} target="_blank" rel="noopener">
-                <Glyph name="link" size={14} /> Open {view.lti.tool_name ?? "the tool"}
+                <Glyph name="link" size={14} /> {t("Open")} {view.lti.tool_name ?? "the tool"}
               </a>
             </div>
           </div>
         ) : (
-          <Alert tone="info">The tool of this lesson is not chosen yet.</Alert>
+          <Alert tone="info">{t("The tool of this lesson is not chosen yet.")}</Alert>
         ))}
       {l.lesson_type === "xAPI" &&
-        (view.xapi ? <XapiLesson player={view.xapi} title={l.title} done={view.completed} onProgress={onProgress} /> : <Alert tone="info">The package of this lesson is not in yet.</Alert>)}
+        (view.xapi ? <XapiLesson player={view.xapi} title={l.title} done={view.completed} onProgress={onProgress} /> : <Alert tone="info">{t("The package of this lesson is not in yet.")}</Alert>)}
       {l.lesson_type === "Assignment" &&
         (view.assignment ? (
           <AssignmentPanel state={view.assignment} lessonId={l.id} onProgress={onProgress} />
