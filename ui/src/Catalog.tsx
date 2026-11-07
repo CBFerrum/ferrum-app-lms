@@ -5,7 +5,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
-import { errorMessage } from "@ferrum/client";
+import { errorMessage, t } from "@ferrum/client";
 import { Alert, Badge, Button, confirmDialog, EmptyState, ErrorState, Icon, PageLoading, toast, useDebounced, useLiveEntity, useShellTitle } from "@ferrum/kit";
 import { getCatalog, getCategories, joinPath, keys } from "./api";
 import { type Filters, filtersFrom, hasFilters, LEVELS, paramsFor, queryFor } from "./filters";
@@ -76,7 +76,7 @@ export function Catalog() {
     <div className="lms-page">
       <header className="lms-head">
         <div>
-          <h1 className="sr-only">Course catalog</h1>
+          <h1 className="sr-only">{t("Course catalog")}</h1>
           <LearnTabs />
           <p className="page-sub" aria-live="polite">
             {catalog.data ? `${plural(courses.length, "course")}${catalog.hasNextPage ? " and more" : ""}` : " "}
@@ -84,17 +84,17 @@ export function Catalog() {
         </div>
       </header>
       <div className="lms-filters" role="search">
-        <input className="input lms-search" type="search" aria-label="Search courses" placeholder="Search courses…" value={typed} onChange={(e) => setTyped(e.target.value)} />
-        <select className="select lms-select" aria-label="Category" value={f.category} onChange={(e) => set({ category: e.target.value })}>
-          <option value="">All categories</option>
+        <input className="input lms-search" type="search" aria-label={t("Search courses")} placeholder={t("Search courses…")} value={typed} onChange={(e) => setTyped(e.target.value)} />
+        <select className="select lms-select" aria-label={t("Category")} value={f.category} onChange={(e) => set({ category: e.target.value })}>
+          <option value="">{t("All categories")}</option>
           {(categories.data ?? []).map((c) => (
             <option key={c.id} value={c.id}>
               {c.category_name}
             </option>
           ))}
         </select>
-        <select className="select lms-select" aria-label="Level" value={f.level} onChange={(e) => set({ level: e.target.value })}>
-          <option value="">Any level</option>
+        <select className="select lms-select" aria-label={t("Level")} value={f.level} onChange={(e) => set({ level: e.target.value })}>
+          <option value="">{t("Any level")}</option>
           {LEVELS.map((l) => (
             <option key={l}>{l}</option>
           ))}
@@ -109,13 +109,13 @@ export function Catalog() {
         )}
         {hasFilters(f) && (
           <button type="button" className="btn btn-ghost btn-md" onClick={clear}>
-            Clear filters
+            {t("Clear filters")}
           </button>
         )}
       </div>
       {skipped.length > 0 && (
         <Alert tone="warning">
-          Some courses of the path could not be joined:
+          {t("Some courses of the path could not be joined:")}
           <ul>
             {skipped.map((s) => (
               <li key={s}>{s}</li>
@@ -124,8 +124,8 @@ export function Catalog() {
         </Alert>
       )}
       {bundles.length > 0 && (
-        <section aria-label="Learning paths">
-          <h2 className="lms-group">Learning paths</h2>
+        <section aria-label={t("Learning paths")}>
+          <h2 className="lms-group">{t("Learning paths")}</h2>
           <ul className="lms-lines">
             {bundles.map((p) => (
               <li key={p.id} className="lms-line">
@@ -137,7 +137,7 @@ export function Catalog() {
                   </span>
                 </div>
                 <Button size="sm" onClick={() => void join(p)}>
-                  Join path
+                  {t("Join path")}
                 </Button>
               </li>
             ))}
@@ -145,22 +145,22 @@ export function Catalog() {
         </section>
       )}
       {catalog.error ? (
-        <ErrorState error={catalog.error} onRetry={() => void catalog.refetch()} title="Could not load the catalog" />
+        <ErrorState error={catalog.error} onRetry={() => void catalog.refetch()} title={t("Could not load the catalog")} />
       ) : !catalog.data ? (
-        <PageLoading label="Loading courses" />
+        <PageLoading label={t("Loading courses")} />
       ) : !courses.length ? (
         <EmptyState title={hasFilters(f) ? "No course matches" : "No courses are published yet"} icon="search">
           {hasFilters(f) ? (
             <button type="button" className="btn btn-default btn-md" onClick={clear}>
-              Clear filters
+              {t("Clear filters")}
             </button>
           ) : (
-            <p className="muted">When an instructor publishes a course it will be here.</p>
+            <p className="muted">{t("When an instructor publishes a course it will be here.")}</p>
           )}
         </EmptyState>
       ) : (
         <>
-          <h2 className="sr-only">Courses</h2>
+          <h2 className="sr-only">{t("Courses")}</h2>
           <div className="lms-grid">
             {courses.map((c) => (
               <CourseCard key={c.id} card={c} to={paths.course(c.slug)} />
@@ -169,7 +169,7 @@ export function Catalog() {
           {catalog.hasNextPage && (
             <div className="lms-more">
               <Button loading={catalog.isFetchingNextPage} onClick={() => void catalog.fetchNextPage()}>
-                Show more courses
+                {t("Show more courses")}
               </Button>
             </div>
           )}

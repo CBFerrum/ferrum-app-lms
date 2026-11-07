@@ -7,7 +7,7 @@
 // page's origin for the package to reach the API.
 
 import { useEffect, useRef, useState } from "react";
-import { errorMessage } from "@ferrum/client";
+import { errorMessage, t } from "@ferrum/client";
 import { Alert, Button, Spinner, toast } from "@ferrum/kit";
 import scorm12 from "../vendor/scorm-again/scorm12.min.js?url";
 import scorm2004 from "../vendor/scorm-again/scorm2004.min.js?url";
@@ -143,13 +143,13 @@ export function ScormLesson({ player, title, enrollment, lessonId, onProgress }:
   if (problem) return <Alert tone="error">{problem}</Alert>;
   return (
     <div className="lms-stack-sm">
-      {!player.learner && <Alert tone="info">A preview: the package runs, and nothing it records is kept.</Alert>}
+      {!player.learner && <Alert tone="info">{t("A preview: the package runs, and nothing it records is kept.")}</Alert>}
       <div className="lms-scorm" ref={frame}>
         {ready ? <iframe src={player.launch_url} title={title} allow="fullscreen; autoplay" /> : <Spinner />}
       </div>
       <div className="row">
         <Button variant="ghost" onClick={() => void frame.current?.requestFullscreen?.()}>
-          <Glyph name="eye" size={14} /> Full screen
+          <Glyph name="eye" size={14} /> {t("Full screen")}
         </Button>
       </div>
     </div>
@@ -181,13 +181,13 @@ export function XapiLesson({ player, title, done, onProgress }: { player: XapiPl
   }, [done, player.preview]);
   return (
     <div className="lms-stack-sm">
-      {player.preview && <Alert tone="info">A preview: the package runs, and nothing it records is kept.</Alert>}
+      {player.preview && <Alert tone="info">{t("A preview: the package runs, and nothing it records is kept.")}</Alert>}
       <div className="lms-scorm" ref={frame}>
         <iframe src={launchUrl(player, window.location.origin)} title={title} allow="fullscreen; autoplay" />
       </div>
       <div className="row">
         <Button variant="ghost" onClick={() => void frame.current?.requestFullscreen?.()}>
-          <Glyph name="eye" size={14} /> Full screen
+          <Glyph name="eye" size={14} /> {t("Full screen")}
         </Button>
       </div>
     </div>

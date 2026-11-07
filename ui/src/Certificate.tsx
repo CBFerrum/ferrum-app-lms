@@ -1,7 +1,7 @@
 // A certificate in a learner's hands: see it (the print format, to print or save as a PDF) and
 // share the link anyone can check it with.
 
-import { api, bootstrap, docPath, errorMessage, openPrint, routeBase } from "@ferrum/client";
+import { api, bootstrap, docPath, errorMessage, openPrint, routeBase, t } from "@ferrum/client";
 import { Button, toast } from "@ferrum/kit";
 import { publicPaths } from "./lesson";
 
@@ -23,7 +23,7 @@ export function CertificateActions({ id, code, primary = true }: { id: string; c
     try {
       const known = code ?? (await api.get<{ verification_code: string }>(docPath("LmsCertificate", id))).verification_code;
       await navigator.clipboard.writeText(verifyUrl(known));
-      toast("Link copied. Anyone who has it can check your certificate.");
+      toast(t("Link copied. Anyone who has it can check your certificate."));
     } catch (e) {
       toast(errorMessage(e), "error");
     }
@@ -31,10 +31,10 @@ export function CertificateActions({ id, code, primary = true }: { id: string; c
   return (
     <>
       <Button variant={primary ? "primary" : "default"} icon="printer" onClick={() => void view()}>
-        View certificate
+        {t("View certificate")}
       </Button>
       <Button icon="copy" onClick={() => void copy()}>
-        Copy link to check it
+        {t("Copy link to check it")}
       </Button>
     </>
   );

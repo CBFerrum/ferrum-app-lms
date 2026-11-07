@@ -6,7 +6,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { api, ApiError, docPath, errorMessage, uploadFile } from "@ferrum/client";
+import { api, ApiError, docPath, errorMessage, uploadFile, t as tr } from "@ferrum/client";
 import { Alert, Button, confirmDialog, ErrorState, Field, PageLoading, Spinner, toast } from "@ferrum/kit";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@ferrum/kit/primitives";
 import { LinkInput } from "@ferrum/records";
@@ -123,8 +123,8 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} title="Could not open the lesson" />;
-  if (!doc) return <PageLoading label="Opening the lesson" />;
+  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} title={tr("Could not open the lesson")} />;
+  if (!doc) return <PageLoading label={tr("Opening the lesson")} />;
 
   const value = <K extends keyof LessonDoc>(k: K): LessonDoc[K] => (k in draft ? (draft[k] as LessonDoc[K]) : doc[k]);
   const set = <K extends keyof LessonDoc>(k: K, v: LessonDoc[K]) => {
@@ -180,7 +180,7 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
   };
 
   return (
-    <section className="lms-editor" aria-label="Lesson editor">
+    <section className="lms-editor" aria-label={tr("Lesson editor")}>
       <header className="lms-editor-head">
         <div>
           <p className="lms-eyebrow">{LESSON_LABEL[type]} lesson</p>
@@ -190,34 +190,34 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
         </div>
         <div className="lms-tools">
           <Link className="btn btn-default btn-sm" to={paths.learn(slug, id)}>
-            <Glyph name="eye" size={14} /> Preview
+            <Glyph name="eye" size={14} /> {tr("Preview")}
           </Link>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button type="button" className="icon-btn" aria-label="More for this lesson">
+              <button type="button" className="icon-btn" aria-label={tr("More for this lesson")}>
                 <Glyph name="more" size={16} />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => void saver.current?.flush()}>Save now</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void saver.current?.flush()}>{tr("Save now")}</DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => void remove()}>Delete lesson…</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void remove()}>{tr("Delete lesson…")}</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </header>
       {conflict && (
-        <Alert tone="warning" action={<Button onClick={() => void reload()}>Reload the lesson</Button>}>
-          Someone else changed this lesson. Reload it to see their version; your unsaved changes here will be dropped.
+        <Alert tone="warning" action={<Button onClick={() => void reload()}>{tr("Reload the lesson")}</Button>}>
+          {tr("Someone else changed this lesson. Reload it to see their version; your unsaved changes here will be dropped.")}
         </Alert>
       )}
       {problem && <Alert tone="error">{problem}</Alert>}
       <div className="stack lms-editor-fields">
-        <Field label="Title" htmlFor="le-title" required error={errors.title}>
+        <Field label={tr("Title")} htmlFor="le-title" required error={errors.title}>
           <input id="le-title" className="input" value={value("title")} maxLength={200} onChange={(e) => set("title", e.target.value)} />
         </Field>
         <div className="lms-editor-row">
-          <Field label="Kind of lesson" htmlFor="le-type" error={errors.lesson_type}>
+          <Field label={tr("Kind of lesson")} htmlFor="le-type" error={errors.lesson_type}>
             <select id="le-type" className="select" value={type} onChange={(e) => set("lesson_type", e.target.value as LessonType)}>
               {LESSON_TYPES.map((t) => (
                 <option key={t} value={t}>
@@ -226,21 +226,21 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
               ))}
             </select>
           </Field>
-          <Field label="Minutes it takes" htmlFor="le-min" error={errors.duration_minutes}>
+          <Field label={tr("Minutes it takes")} htmlFor="le-min" error={errors.duration_minutes}>
             <input id="le-min" className="input num" type="number" min={0} max={100000} value={value("duration_minutes") ?? ""} onChange={(e) => set("duration_minutes", e.target.value === "" ? null : Number(e.target.value))} />
           </Field>
         </div>
         <div className="lms-editor-checks">
           <Check id="le-preview" checked={value("is_preview")} onChange={(v) => set("is_preview", v)}>
-            Free preview <span className="faint">anyone can open it before enrolling</span>
+            {tr("Free preview")} <span className="faint">{tr("anyone can open it before enrolling")}</span>
           </Check>
           <Check id="le-required" checked={value("required")} onChange={(v) => set("required", v)}>
-            Required <span className="faint">counts towards finishing the course</span>
+            {tr("Required")} <span className="faint">{tr("counts towards finishing the course")}</span>
           </Check>
         </div>
         {type === "Video" && (
           <Field
-            label="Video link"
+            label={tr("Video link")}
             htmlFor="le-video"
             required
             error={errors.video_url}
@@ -250,7 +250,7 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
           </Field>
         )}
         {type === "Document" && (
-          <Field label="Document" htmlFor="le-file" required error={errors.attachment} hint="A file to open or download, or a link to a page.">
+          <Field label={tr("Document")} htmlFor="le-file" required error={errors.attachment} hint={tr("A file to open or download, or a link to a page.")}>
             <div className="lms-stack-sm">
               <div className="row">
                 <label className="btn btn-default btn-md" aria-busy={uploading || undefined}>
@@ -258,9 +258,9 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
                   {uploading ? <Spinner small /> : <Glyph name="upload" />}
                   {value("attachment") ? "Replace file" : "Upload a file"}
                 </label>
-                {value("attachment")?.startsWith("/files/") && <span className="faint">A file is attached.</span>}
+                {value("attachment")?.startsWith("/files/") && <span className="faint">{tr("A file is attached.")}</span>}
               </div>
-              <input className="input" type="url" aria-label="Or a link to a page" placeholder="Or paste a link: https://" value={value("attachment")?.startsWith("/files/") ? "" : (value("attachment") ?? "")} onChange={(e) => set("attachment", e.target.value || null)} />
+              <input className="input" type="url" aria-label={tr("Or a link to a page")} placeholder="Or paste a link: https://" value={value("attachment")?.startsWith("/files/") ? "" : (value("attachment") ?? "")} onChange={(e) => set("attachment", e.target.value || null)} />
             </div>
           </Field>
         )}
@@ -284,7 +284,7 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
               </label>
               {doc?.package_standard && value("package_file") === doc.package_file && (
                 <span className="faint">
-                  {doc.package_standard}, starts at {doc.package_launch}
+                  {tr("{package_standard}, starts at {package_launch}", { package_standard: doc.package_standard, package_launch: doc.package_launch ?? "" })}
                 </span>
               )}
             </div>
@@ -292,56 +292,56 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
         )}
         {type === "LTI" && (
           <>
-            <Field label="Tool" htmlFor="le-lti" required error={errors.lti_tool ?? errors.lesson_type} hint="An LTI 1.3 tool an LMS manager registered.">
-              <LinkInput to="LmsLtiTool" id="le-lti" label="Tool" value={value("lti_tool")} onChange={(v) => set("lti_tool", v)} />
+            <Field label={tr("Tool")} htmlFor="le-lti" required error={errors.lti_tool ?? errors.lesson_type} hint={tr("An LTI 1.3 tool an LMS manager registered.")}>
+              <LinkInput to="LmsLtiTool" id="le-lti" label={tr("Tool")} value={value("lti_tool")} onChange={(v) => set("lti_tool", v)} />
             </Field>
-            <Field label="Address in the tool" htmlFor="le-lti-url" error={errors.lti_target_url} hint="Where in the tool this lesson opens; the tool's launch address when empty.">
+            <Field label={tr("Address in the tool")} htmlFor="le-lti-url" error={errors.lti_target_url} hint={tr("Where in the tool this lesson opens; the tool's launch address when empty.")}>
               <input id="le-lti-url" className="input" type="url" inputMode="url" placeholder="https://" value={value("lti_target_url") ?? ""} onChange={(e) => set("lti_target_url", e.target.value || null)} />
             </Field>
-            <Field label="Custom parameters" htmlFor="le-lti-custom" error={errors.lti_custom} hint="name=value, one per line.">
+            <Field label={tr("Custom parameters")} htmlFor="le-lti-custom" error={errors.lti_custom} hint={tr("name=value, one per line.")}>
               <textarea id="le-lti-custom" className="input" rows={3} value={value("lti_custom") ?? ""} onChange={(e) => set("lti_custom", e.target.value || null)} />
             </Field>
           </>
         )}
         {type === "Quiz" && (
-          <Field label="Quiz" htmlFor="le-quiz" required error={errors.quiz} hint="One of this course's quizzes, or a new one named after the lesson; each belongs to one lesson.">
+          <Field label={tr("Quiz")} htmlFor="le-quiz" required error={errors.quiz} hint={tr("One of this course's quizzes, or a new one named after the lesson; each belongs to one lesson.")}>
             <div className="row">
               <div className="lms-grow">
-                <LinkInput to="LmsQuiz" id="le-quiz" label="Quiz" value={value("quiz")} linkFilters={{ course }} onChange={(v) => set("quiz", v)} />
+                <LinkInput to="LmsQuiz" id="le-quiz" label={tr("Quiz")} value={value("quiz")} linkFilters={{ course }} onChange={(v) => set("quiz", v)} />
               </div>
               {value("quiz") ? (
                 <Link className="btn btn-default btn-md" to={`/e/LmsQuiz/${value("quiz")}`}>
-                  Edit quiz
+                  {tr("Edit quiz")}
                 </Link>
               ) : (
                 <Button loading={making} onClick={() => void make("LmsQuiz", "quiz")}>
-                  New quiz
+                  {tr("New quiz")}
                 </Button>
               )}
             </div>
           </Field>
         )}
         {type === "Assignment" && (
-          <Field label="Assignment" htmlFor="le-assignment" required error={errors.assignment} hint="One of this course's assignments, or a new one named after the lesson; each belongs to one lesson.">
+          <Field label={tr("Assignment")} htmlFor="le-assignment" required error={errors.assignment} hint={tr("One of this course's assignments, or a new one named after the lesson; each belongs to one lesson.")}>
             <div className="row">
               <div className="lms-grow">
-                <LinkInput to="LmsAssignment" id="le-assignment" label="Assignment" value={value("assignment")} linkFilters={{ course }} onChange={(v) => set("assignment", v)} />
+                <LinkInput to="LmsAssignment" id="le-assignment" label={tr("Assignment")} value={value("assignment")} linkFilters={{ course }} onChange={(v) => set("assignment", v)} />
               </div>
               {value("assignment") ? (
                 <Link className="btn btn-default btn-md" to={`/e/LmsAssignment/${value("assignment")}`}>
-                  Edit assignment
+                  {tr("Edit assignment")}
                 </Link>
               ) : (
                 <Button loading={making} onClick={() => void make("LmsAssignment", "assignment")}>
-                  New assignment
+                  {tr("New assignment")}
                 </Button>
               )}
             </div>
           </Field>
         )}
         <div className="field">
-          <div className="lms-editor-tabs" role="tablist" aria-label="Content">
-            <span className="field-label">Text of the lesson</span>
+          <div className="lms-editor-tabs" role="tablist" aria-label={tr("Content")}>
+            <span className="field-label">{tr("Text of the lesson")}</span>
             <span className="spacer" />
             {(["write", "preview"] as const).map((v) => (
               <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => setView(v)}>
@@ -354,13 +354,13 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
               id="le-content"
               className="textarea lms-content"
               rows={16}
-              aria-label="Text of the lesson"
+              aria-label={tr("Text of the lesson")}
               placeholder="Write the lesson in Markdown: # headings, **bold**, lists, `code`, ```code blocks```, > quotes, [links](https://…)."
               value={value("content") ?? ""}
               onChange={(e) => set("content", e.target.value || null)}
             />
           ) : (
-            <div className="lms-content-preview">{value("content") ? <Md source={value("content")} /> : <p className="muted">Nothing written yet.</p>}</div>
+            <div className="lms-content-preview">{value("content") ? <Md source={value("content")} /> : <p className="muted">{tr("Nothing written yet.")}</p>}</div>
           )}
           {errors.content && <p className="field-error">{errors.content}</p>}
         </div>

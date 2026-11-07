@@ -11,6 +11,7 @@ import { Md } from "./Md";
 import { OutlinePanel } from "./OutlinePanel";
 import { Cover, LevelBadge } from "./parts";
 import type { CoursePage, OutlineLesson } from "./types";
+import { t as tr } from "@ferrum/client";
 
 export function CourseLayout({
   course,
@@ -32,7 +33,7 @@ export function CourseLayout({
   const facts = courseFacts(course.lessons, course.total_minutes, course.estimated_hours);
   return (
     <div className="lms-page lms-course">
-      <nav className="crumbs" aria-label="Breadcrumb">
+      <nav className="crumbs" aria-label={tr("Breadcrumb")}>
         <Link to={crumb.to}>{crumb.label}</Link>
         <Glyph name="chevronRight" size={12} />
       </nav>
@@ -41,7 +42,7 @@ export function CourseLayout({
           <div className="lms-card-tags">
             <LevelBadge level={course.level} />
             {course.category?.name && <span className="faint">{course.category.name}</span>}
-            {course.visibility === "Internal" && <Badge>Team only</Badge>}
+            {course.visibility === "Internal" && <Badge>{tr("Team only")}</Badge>}
           </div>
           <h1 className="page-title lms-course-title">{course.title}</h1>
           {course.summary && <p className="lms-course-summary">{course.summary}</p>}
@@ -49,14 +50,14 @@ export function CourseLayout({
             {facts}
             {course.certificate && (
               <span className="lms-card-cert">
-                <Glyph name="award" size={13} /> Certificate when you finish
+                <Glyph name="award" size={13} /> {tr("Certificate when you finish")}
               </span>
             )}
             {course.price && <strong className="lms-price">{priceText(course.price)}</strong>}
           </p>
-          {course.instructors.length > 0 && <p className="lms-course-by">Taught by {course.instructors.join(", ")}</p>}
+          {course.instructors.length > 0 && <p className="lms-course-by">{tr("Taught by")} {course.instructors.join(", ")}</p>}
           {course.tags.length > 0 && (
-            <ul className="lms-tags" aria-label="Topics">
+            <ul className="lms-tags" aria-label={tr("Topics")}>
               {course.tags.map((t) => (
                 <li key={t}>
                   <Link to={tagHref(t)}>{t}</Link>
@@ -72,19 +73,19 @@ export function CourseLayout({
       <div className="lms-course-body">
         <div className="lms-course-main">
           {course.description && (
-            <section aria-label="About this course">
-              <h2 className="lms-group">About this course</h2>
+            <section aria-label={tr("About this course")}>
+              <h2 className="lms-group">{tr("About this course")}</h2>
               <Md source={course.description} />
             </section>
           )}
-          <section aria-label="Course content">
-            <h2 className="lms-group">Course content</h2>
+          <section aria-label={tr("Course content")}>
+            <h2 className="lms-group">{tr("Course content")}</h2>
             {course.chapters.length ? (
               <div className="lms-outline-static">
                 <OutlinePanel href={lessonHref} chapters={course.chapters} progress={course.my_enrollment} visitor={visitor} />
               </div>
             ) : (
-              <p className="muted">No lessons have been added yet.</p>
+              <p className="muted">{tr("No lessons have been added yet.")}</p>
             )}
           </section>
         </div>
@@ -99,7 +100,7 @@ export function Prerequisites({ course, href }: { course: CoursePage; href: (slu
   if (!course.prerequisites.length) return null;
   return (
     <div className="lms-box-block">
-      <h3 className="lms-box-head">Complete first</h3>
+      <h3 className="lms-box-head">{tr("Complete first")}</h3>
       <ul className="lms-plain">
         {course.prerequisites.map((p) => (
           <li key={p.id}>

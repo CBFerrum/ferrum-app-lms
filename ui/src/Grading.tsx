@@ -6,7 +6,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
-import { api, docPath, errorMessage, formatDateTime, relativeTime } from "@ferrum/client";
+import { api, docPath, errorMessage, formatDateTime, relativeTime, t } from "@ferrum/client";
 import { Alert, Badge, Button, EmptyState, ErrorState, Field, PageLoading, toast, useLiveEntity } from "@ferrum/kit";
 import { rowsOf } from "./api";
 import { Glyph } from "./Glyph";
@@ -68,16 +68,16 @@ function GradePanel({ s, position, count, onGraded, onSkip }: { s: Submission; p
   };
 
   return (
-    <section className="lms-grade" aria-label="Grade this work">
+    <section className="lms-grade" aria-label={t("Grade this work")}>
       <header className="lms-grade-head">
         <div>
           <h3>{s.learner_name || s.learner}</h3>
           <p className="faint">
-            {s.assignment_title} · submission {s.submission_no} · {s.submitted_at ? formatDateTime(s.submitted_at) : ""}
+            {t("{assignment_title} · submission {submission_no} ·", { assignment_title: s.assignment_title ?? "", submission_no: s.submission_no })} {s.submitted_at ? formatDateTime(s.submitted_at) : ""}
             {s.late && (
               <>
                 {" "}
-                <Badge tone="amber">Late</Badge>
+                <Badge tone="amber">{t("Late")}</Badge>
               </>
             )}
           </p>
@@ -86,30 +86,30 @@ function GradePanel({ s, position, count, onGraded, onSkip }: { s: Submission; p
           {position} of {count}
         </span>
       </header>
-      {s.answer ? <Md source={s.answer} /> : <p className="muted">No text, only a file.</p>}
+      {s.answer ? <Md source={s.answer} /> : <p className="muted">{t("No text, only a file.")}</p>}
       {s.attachment && (
         <p>
           <a className="btn btn-default btn-md" href={s.attachment} target="_blank" rel="noopener noreferrer">
-            <Glyph name="doc" size={14} /> Open the file
+            <Glyph name="doc" size={14} /> {t("Open the file")}
           </a>
         </p>
       )}
       <form className="lms-form stack" onSubmit={(e) => void submit(e)} onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && void submit()}>
         {error && <Alert tone="error">{error}</Alert>}
-        <div className="lms-outcome" role="radiogroup" aria-label="What happens to this work">
+        <div className="lms-outcome" role="radiogroup" aria-label={t("What happens to this work")}>
           <label className="lms-option" data-chosen={outcome === "Graded" || undefined}>
             <input type="radio" name="outcome" checked={outcome === "Graded"} onChange={() => setOutcome("Graded")} />
-            <span>Grade it</span>
+            <span>{t("Grade it")}</span>
           </label>
           <label className="lms-option" data-chosen={outcome === "Needs Revision" || undefined}>
             <input type="radio" name="outcome" checked={outcome === "Needs Revision"} onChange={() => setOutcome("Needs Revision")} />
-            <span>Ask for changes</span>
+            <span>{t("Ask for changes")}</span>
           </label>
         </div>
         <Field label={`Score${max ? ` out of ${max}` : ""}`} htmlFor="lms-score" required={outcome === "Graded"} hint={verdict ? `This ${verdict}${pass ? ` (pass mark ${pass})` : ""}.` : undefined}>
           <input id="lms-score" className="input num lms-score-input" inputMode="decimal" value={score} onChange={(e) => setScore(e.target.value)} aria-invalid={outcome === "Graded" && score !== "" && bad ? true : undefined} />
         </Field>
-        <Field label="Feedback" htmlFor="lms-feedback" hint="The learner sees this. Markdown works.">
+        <Field label={t("Feedback")} htmlFor="lms-feedback" hint={t("The learner sees this. Markdown works.")}>
           <textarea id="lms-feedback" className="textarea" rows={5} value={feedback} onChange={(e) => setFeedback(e.target.value)} />
         </Field>
         <div className="row">
@@ -117,7 +117,7 @@ function GradePanel({ s, position, count, onGraded, onSkip }: { s: Submission; p
             {outcome === "Graded" ? "Save grade" : "Send back"}
             {count > 1 && " and go on"}
           </Button>
-          {count > 1 && <Button onClick={onSkip}>Skip for now</Button>}
+          {count > 1 && <Button onClick={onSkip}>{t("Skip for now")}</Button>}
         </div>
       </form>
     </section>
@@ -159,12 +159,12 @@ export function Grading({ course }: { course: string }) {
     setSp(next, { replace: true });
   };
 
-  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} title="Could not load the work to grade" />;
-  if (!q.data) return <PageLoading label="Loading the work to grade" />;
+  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} title={t("Could not load the work to grade")} />;
+  if (!q.data) return <PageLoading label={t("Loading the work to grade")} />;
   if (!list.length)
     return (
-      <EmptyState title="Nothing waits for a grade" icon="check">
-        <p className="muted">New work appears here as learners hand it in.</p>
+      <EmptyState title={t("Nothing waits for a grade")} icon="check">
+        <p className="muted">{t("New work appears here as learners hand it in.")}</p>
       </EmptyState>
     );
 
@@ -178,7 +178,7 @@ export function Grading({ course }: { course: string }) {
 
   return (
     <div className="lms-grading">
-      <ul className="lms-queue" aria-label="Work to grade">
+      <ul className="lms-queue" aria-label={t("Work to grade")}>
         {list.map((s) => (
           <li key={s.id}>
             <button type="button" className="lms-queue-item" aria-current={s.id === current.id ? "true" : undefined} onClick={() => open(s.id)}>

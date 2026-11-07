@@ -7,7 +7,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type DragEvent, type KeyboardEvent, useCallback, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import { api, ApiError, docPath, errorMessage } from "@ferrum/client";
+import { api, ApiError, docPath, errorMessage, t as tr } from "@ferrum/client";
 import { Alert, Badge, Button, confirmDialog, Dialog, EmptyState, ErrorState, Icon, PageLoading, statusTone, toast, useShellTitle } from "@ferrum/kit";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@ferrum/kit/primitives";
 import { rowsOf } from "./api";
@@ -80,7 +80,7 @@ function Rename({ value, label, onSave }: { value: string; label: string; onSave
       <button
         type="button"
         className="lms-b-name"
-        title="Rename"
+        title={tr("Rename")}
         onClick={() => {
           over.current = false;
           setText(value);
@@ -294,20 +294,20 @@ function Builder({ course }: { course: string }) {
     "data-drop": over?.kind === kind && over.id === id && drag?.id !== id ? over.edge : undefined,
   });
 
-  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} title="Could not open the course" />;
-  if (!data) return <PageLoading label="Opening the course" />;
+  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} title={tr("Could not open the course")} />;
+  if (!data) return <PageLoading label={tr("Opening the course")} />;
 
   const total = data.lessons.length;
   const outline = (
     <div className="lms-b-outline">
       <div className="lms-b-outline-head">
-        <h2>Outline</h2>
+        <h2>{tr("Outline")}</h2>
         <span className="faint">
           {data.chapters.length} {data.chapters.length === 1 ? "chapter" : "chapters"} · {total} {total === 1 ? "lesson" : "lessons"}
         </span>
       </div>
       {!layout.chapters.length && (
-        <p className="muted lms-b-empty">A course is chapters of lessons. Start with a chapter.</p>
+        <p className="muted lms-b-empty">{tr("A course is chapters of lessons. Start with a chapter.")}</p>
       )}
       {layout.chapters.map((c, ci) => {
         const chapter = chapterOf.get(c.id);
@@ -315,7 +315,7 @@ function Builder({ course }: { course: string }) {
         return (
           <section key={c.id} className="lms-b-chapter" aria-label={chapter.title} {...dragProps("chapter", c.id)}>
             <div className="lms-b-chapter-head">
-              <span className="lms-grip" aria-hidden="true" title="Drag to move the chapter">
+              <span className="lms-grip" aria-hidden="true" title={tr("Drag to move the chapter")}>
                 <Glyph name="grip" size={14} />
               </span>
               <Rename value={chapter.title} label={`Name of chapter ${ci + 1}`} onSave={(title) => patchRow("LmsChapter", c.id, { title })} />
@@ -334,11 +334,11 @@ function Builder({ course }: { course: string }) {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem disabled={busy || moving} onSelect={() => void addLesson(c.id)}>
-                      Add a lesson
+                      {tr("Add a lesson")}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem disabled={busy || moving} onSelect={() => void deleteChapter(c.id)}>
-                      Delete chapter…
+                      {tr("Delete chapter…")}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -352,7 +352,7 @@ function Builder({ course }: { course: string }) {
                 return (
                   <li key={id} className="lms-b-lesson" data-active={active || undefined} {...dragProps("lesson", id)}>
                     <div className="lms-b-lesson-main">
-                      <span className="lms-grip" aria-hidden="true" title="Drag to move the lesson">
+                      <span className="lms-grip" aria-hidden="true" title={tr("Drag to move the lesson")}>
                         <Glyph name="grip" size={14} />
                       </span>
                       <button type="button" className="lms-b-open" aria-current={active ? "true" : undefined} onClick={() => select(id)}>
@@ -384,7 +384,7 @@ function Builder({ course }: { course: string }) {
                                 .filter((o) => o.id !== c.id)
                                 .map((o) => (
                                   <DropdownMenuItem key={o.id} disabled={moving} onSelect={() => commit(moveLesson(layout, id, o.id, o.lessons.length))}>
-                                    Move to {chapterOf.get(o.id)?.title}
+                                    {tr("Move to")} {chapterOf.get(o.id)?.title}
                                   </DropdownMenuItem>
                                 ))}
                             </DropdownMenuContent>
@@ -398,27 +398,27 @@ function Builder({ course }: { course: string }) {
                         {l.duration_minutes ? ` · ${duration(l.duration_minutes)}` : ""}
                       </span>
                       <span className="lms-b-flags">
-                        <button type="button" aria-pressed={l.is_preview} disabled={moving} title="Free preview: anyone can open it before enrolling" onClick={() => patchRow("LmsLesson", id, { is_preview: !l.is_preview })}>
-                          Preview
+                        <button type="button" aria-pressed={l.is_preview} disabled={moving} title={tr("Free preview: anyone can open it before enrolling")} onClick={() => patchRow("LmsLesson", id, { is_preview: !l.is_preview })}>
+                          {tr("Preview")}
                         </button>
-                        <button type="button" aria-pressed={l.required} disabled={moving} title="Required: counts towards finishing the course" onClick={() => patchRow("LmsLesson", id, { required: !l.required })}>
-                          Required
+                        <button type="button" aria-pressed={l.required} disabled={moving} title={tr("Required: counts towards finishing the course")} onClick={() => patchRow("LmsLesson", id, { required: !l.required })}>
+                          {tr("Required")}
                         </button>
                       </span>
                     </div>
                   </li>
                 );
               })}
-              {!c.lessons.length && <li className="lms-b-none faint">No lessons in this chapter yet.</li>}
+              {!c.lessons.length && <li className="lms-b-none faint">{tr("No lessons in this chapter yet.")}</li>}
             </ul>
             <button type="button" className="lms-b-add" disabled={busy || moving} onClick={() => void addLesson(c.id)}>
-              <Icon name="plus" size={13} /> Add a lesson
+              <Icon name="plus" size={13} /> {tr("Add a lesson")}
             </button>
           </section>
         );
       })}
       <button type="button" className="btn btn-default btn-md lms-b-add-chapter" disabled={busy || moving} onClick={() => void addChapter()}>
-        <Icon name="plus" size={14} /> Add a chapter
+        <Icon name="plus" size={14} /> {tr("Add a chapter")}
       </button>
     </div>
   );
@@ -429,8 +429,8 @@ function Builder({ course }: { course: string }) {
     <div className="lms-build-page">
       <header className="lms-build-bar">
         <div className="lms-build-title">
-          <nav className="crumbs" aria-label="Breadcrumb">
-            <Link to={paths.teaching()}>Teaching</Link>
+          <nav className="crumbs" aria-label={tr("Breadcrumb")}>
+            <Link to={paths.teaching()}>{tr("Teaching")}</Link>
             <Glyph name="chevronRight" size={12} />
             <Link to={paths.teaching(course)}>{data.course.title}</Link>
           </nav>
@@ -440,21 +440,21 @@ function Builder({ course }: { course: string }) {
         </div>
         <div className="lms-tools">
           <Button className="lms-outline-toggle" icon="list" onClick={() => setSheet(true)}>
-            Outline
+            {tr("Outline")}
           </Button>
           <Link className="btn btn-default btn-md" to={paths.record("LmsCourse", course)}>
-            Settings
+            {tr("Settings")}
           </Link>
           <Link className="btn btn-default btn-md" to={paths.course(slug)}>
-            <Glyph name="eye" size={14} /> Course page
+            <Glyph name="eye" size={14} /> {tr("Course page")}
           </Link>
           {status === "Published" ? (
             <Button loading={busy} onClick={() => void setStatus("Draft")}>
-              Back to draft
+              {tr("Back to draft")}
             </Button>
           ) : (
             <Button variant="primary" loading={busy} onClick={() => setPublishing(issues.map((i) => i.text))}>
-              Publish{issues.length ? ` (${issues.length} to fix)` : ""}
+              {tr("Publish")}{issues.length ? ` (${issues.length} to fix)` : ""}
             </Button>
           )}
         </div>
@@ -478,17 +478,17 @@ function Builder({ course }: { course: string }) {
               <p className="muted">{total ? "Pick one in the outline, or add another." : data.chapters.length ? "Add a lesson to a chapter." : "Add a chapter, then a lesson in it."}</p>
               {!data.chapters.length && (
                 <Button variant="primary" loading={busy} onClick={() => void addChapter()}>
-                  Add a chapter
+                  {tr("Add a chapter")}
                 </Button>
               )}
             </EmptyState>
           )}
         </div>
-        <aside className="lms-build-side" aria-label="Course outline">
+        <aside className="lms-build-side" aria-label={tr("Course outline")}>
           {outline}
         </aside>
       </div>
-      <Sheet open={sheet} onClose={() => setSheet(false)} title="Outline">
+      <Sheet open={sheet} onClose={() => setSheet(false)} title={tr("Outline")}>
         {outline}
       </Sheet>
       <Dialog
@@ -500,7 +500,7 @@ function Builder({ course }: { course: string }) {
             <Button onClick={() => setPublishing(null)}>{publishing && publishing.length ? "Close" : "Not yet"}</Button>
             {(!publishing || !publishing.length) && (
               <Button variant="primary" loading={busy} onClick={() => void setStatus("Published")}>
-                Publish
+                {tr("Publish")}
               </Button>
             )}
           </>
@@ -508,7 +508,7 @@ function Builder({ course }: { course: string }) {
       >
         {publishing && publishing.length ? (
           <>
-            <p className="muted">These need fixing first:</p>
+            <p className="muted">{tr("These need fixing first:")}</p>
             <ul className="lms-plain lms-issues">
               {publishing.map((t) => {
                 const issue = issues.find((i) => i.text === t);
@@ -531,8 +531,8 @@ function Builder({ course }: { course: string }) {
           </>
         ) : (
           <>
-            <Alert tone="success">Everything the course needs is in place.</Alert>
-            <p className="muted">Learners find published courses in the catalog and can enrol. You can take it back to draft at any time.</p>
+            <Alert tone="success">{tr("Everything the course needs is in place.")}</Alert>
+            <p className="muted">{tr("Learners find published courses in the catalog and can enrol. You can take it back to draft at any time.")}</p>
           </>
         )}
       </Dialog>

@@ -6,7 +6,7 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
-import { ApiError, bootstrap, formatDate, routeBase } from "@ferrum/client";
+import { ApiError, bootstrap, formatDate, routeBase, t as tr } from "@ferrum/client";
 import { Badge, Button, EmptyState, ErrorState, Icon, PageLoading, useDebounced, useShellTitle } from "@ferrum/kit";
 import { certificatePage, checkCertificate, publicCatalog, publicCategories, publicCourse, publicLesson } from "./api";
 import { CourseLayout, Prerequisites } from "./CourseLayout";
@@ -29,7 +29,7 @@ function Masthead({ workspace }: { workspace: string }) {
       <Link to={publicPaths.catalog(workspace)} className="lms-public-brand">
         <Glyph name="cap" size={20} /> {name}
       </Link>
-      <span className="faint">Courses</span>
+      <span className="faint">{tr("Courses")}</span>
     </header>
   );
 }
@@ -45,11 +45,11 @@ function CheckCertificate({ workspace }: { workspace: string }) {
   };
   return (
     <form className="lms-check" onSubmit={go}>
-      <label htmlFor="lms-code">Check a certificate</label>
+      <label htmlFor="lms-code">{tr("Check a certificate")}</label>
       <div className="row">
-        <input id="lms-code" className="input lms-code" placeholder="Code on the certificate" autoComplete="off" spellCheck={false} value={code} onChange={(e) => setCode(e.target.value)} />
+        <input id="lms-code" className="input lms-code" placeholder={tr("Code on the certificate")} autoComplete="off" spellCheck={false} value={code} onChange={(e) => setCode(e.target.value)} />
         <Button type="submit" disabled={!code.trim()}>
-          Check
+          {tr("Check")}
         </Button>
       </div>
     </form>
@@ -97,7 +97,7 @@ export function PublicCatalog() {
       <Masthead workspace={workspace} />
       <div className="lms-head">
         <div>
-          <h1 className="page-title">Courses</h1>
+          <h1 className="page-title">{tr("Courses")}</h1>
           <p className="page-sub" aria-live="polite">
             {catalog.data ? `${plural(courses.length, "course")}${catalog.hasNextPage ? " and more" : ""}` : " "}
           </p>
@@ -105,17 +105,17 @@ export function PublicCatalog() {
         <CheckCertificate workspace={workspace} />
       </div>
       <div className="lms-filters" role="search">
-        <input className="input lms-search" type="search" aria-label="Search courses" placeholder="Search courses…" value={typed} onChange={(e) => setTyped(e.target.value)} />
-        <select className="select lms-select" aria-label="Category" value={f.category} onChange={(e) => set({ category: e.target.value })}>
-          <option value="">All categories</option>
+        <input className="input lms-search" type="search" aria-label={tr("Search courses")} placeholder={tr("Search courses…")} value={typed} onChange={(e) => setTyped(e.target.value)} />
+        <select className="select lms-select" aria-label={tr("Category")} value={f.category} onChange={(e) => set({ category: e.target.value })}>
+          <option value="">{tr("All categories")}</option>
           {(categories.data ?? []).map((c) => (
             <option key={c.id} value={c.id}>
               {c.name} ({c.courses})
             </option>
           ))}
         </select>
-        <select className="select lms-select" aria-label="Level" value={f.level} onChange={(e) => set({ level: e.target.value })}>
-          <option value="">Any level</option>
+        <select className="select lms-select" aria-label={tr("Level")} value={f.level} onChange={(e) => set({ level: e.target.value })}>
+          <option value="">{tr("Any level")}</option>
           {LEVELS.map((l) => (
             <option key={l}>{l}</option>
           ))}
@@ -130,19 +130,19 @@ export function PublicCatalog() {
         )}
         {hasFilters(f) && (
           <button type="button" className="btn btn-ghost btn-md" onClick={clear}>
-            Clear filters
+            {tr("Clear filters")}
           </button>
         )}
       </div>
       {catalog.error ? (
-        <ErrorState error={catalog.error} onRetry={() => void catalog.refetch()} title="Could not load the courses" />
+        <ErrorState error={catalog.error} onRetry={() => void catalog.refetch()} title={tr("Could not load the courses")} />
       ) : !catalog.data ? (
-        <PageLoading label="Loading courses" />
+        <PageLoading label={tr("Loading courses")} />
       ) : !courses.length ? (
         <EmptyState title={hasFilters(f) ? "No course matches" : "No courses are open yet"} icon="search" />
       ) : (
         <>
-          <h2 className="sr-only">Courses</h2>
+          <h2 className="sr-only">{tr("Courses")}</h2>
           <div className="lms-grid">
             {courses.map((c) => (
               <CourseCard key={c.id} card={c} to={publicPaths.course(workspace, c.slug)} />
@@ -151,7 +151,7 @@ export function PublicCatalog() {
           {catalog.hasNextPage && (
             <div className="lms-more">
               <Button loading={catalog.isFetchingNextPage} onClick={() => void catalog.fetchNextPage()}>
-                Show more courses
+                {tr("Show more courses")}
               </Button>
             </div>
           )}
@@ -173,18 +173,18 @@ export function PublicCourse() {
       <div className="lms-public-page">
         <Masthead workspace={workspace} />
         {missing ? (
-          <EmptyState title="This course is not open to the public" icon="search">
+          <EmptyState title={tr("This course is not open to the public")} icon="search">
             <Link className="btn btn-default btn-md" to={publicPaths.catalog(workspace)}>
-              See the courses that are
+              {tr("See the courses that are")}
             </Link>
           </EmptyState>
         ) : (
-          <ErrorState error={q.error} onRetry={() => void q.refetch()} title="Could not open the course" />
+          <ErrorState error={q.error} onRetry={() => void q.refetch()} title={tr("Could not open the course")} />
         )}
       </div>
     );
   const c = q.data;
-  if (!c) return <PageLoading label="Opening the course" />;
+  if (!c) return <PageLoading label={tr("Opening the course")} />;
   return (
     <div className="lms-public-page">
       <Masthead workspace={workspace} />
@@ -212,7 +212,7 @@ export function PublicCourse() {
               </div>
               {c.cohorts.length > 0 && (
                 <div className="lms-box-block">
-                  <h3 className="lms-box-head">Cohorts</h3>
+                  <h3 className="lms-box-head">{tr("Cohorts")}</h3>
                   <ul className="lms-plain">
                     {c.cohorts.map((g) => (
                       <li key={g.id}>
@@ -228,7 +228,7 @@ export function PublicCourse() {
               )}
               <Prerequisites course={c} href={(s) => publicPaths.course(workspace, s)} />
             </div>
-            {c.chapters.some((ch) => ch.lessons.some((l) => l.is_preview)) && <p className="faint lms-box-line">Lessons marked as free previews open without signing in.</p>}
+            {c.chapters.some((ch) => ch.lessons.some((l) => l.is_preview)) && <p className="faint lms-box-line">{tr("Lessons marked as free previews open without signing in.")}</p>}
           </>
         }
       />
@@ -248,15 +248,15 @@ export function PublicLesson() {
     return (
       <div className="lms-public-page">
         <Masthead workspace={workspace} />
-        <EmptyState title="This lesson is not a free preview" icon="search">
+        <EmptyState title={tr("This lesson is not a free preview")} icon="search">
           <Link className="btn btn-default btn-md" to={publicPaths.course(workspace, slug)}>
-            See the course
+            {tr("See the course")}
           </Link>
         </EmptyState>
       </div>
     );
   const l = q.data;
-  if (!l) return <PageLoading label="Opening the lesson" />;
+  if (!l) return <PageLoading label={tr("Opening the lesson")} />;
   return (
     <div className="lms-public-page">
       <Masthead workspace={workspace} />
@@ -271,14 +271,14 @@ export function PublicLesson() {
             <header className="lms-lesson-head">
               <p className="lms-eyebrow">{[here?.title, LESSON_LABEL[l.lesson_type], duration(l.duration_minutes)].filter(Boolean).join(" · ")}</p>
               <h1 id="lms-lesson-title">{l.title}</h1>
-              <Badge tone="blue">Free preview</Badge>
+              <Badge tone="blue">{tr("Free preview")}</Badge>
             </header>
             {l.lesson_type === "Video" && <LessonVideo lesson={l} />}
             {l.lesson_type === "Document" && l.file_url && <LessonDocument url={l.file_url} />}
             <Md source={l.content} className="lms-reading" />
             <div className="lms-lesson-nav">
               <Link className="btn btn-default btn-md" to={publicPaths.course(workspace, slug)}>
-                Back to the course
+                {tr("Back to the course")}
               </Link>
               <a className="btn btn-primary btn-md" href={signInTo(slug)}>
                 {course.data?.price ? "Sign in to buy" : "Sign in to enrol"}
@@ -287,7 +287,7 @@ export function PublicLesson() {
           </article>
         </div>
         {course.data && (
-          <aside className="lms-outline" aria-label="Course outline">
+          <aside className="lms-outline" aria-label={tr("Course outline")}>
             <OutlinePanel href={(x) => publicPaths.lesson(workspace, slug, x.id)} chapters={course.data.chapters} currentId={lesson} visitor />
           </aside>
         )}
@@ -307,15 +307,15 @@ export function PublicCertificate() {
     <div className="lms-public-page lms-narrow">
       <Masthead workspace={workspace} />
       {q.isLoading ? (
-        <PageLoading label="Checking the certificate" />
+        <PageLoading label={tr("Checking the certificate")} />
       ) : missing ? (
         <section className="lms-cert-card" data-state="unknown" aria-live="polite">
-          <h1>No certificate has this code</h1>
-          <p className="muted">Check that the code is copied in full. Letters of either case and dashes or spaces do not matter.</p>
+          <h1>{tr("No certificate has this code")}</h1>
+          <p className="muted">{tr("Check that the code is copied in full. Letters of either case and dashes or spaces do not matter.")}</p>
           <CheckCertificate workspace={workspace} />
         </section>
       ) : q.error || !q.data ? (
-        <ErrorState error={q.error} onRetry={() => void q.refetch()} title="Could not check the certificate" />
+        <ErrorState error={q.error} onRetry={() => void q.refetch()} title={tr("Could not check the certificate")} />
       ) : (
         <section className="lms-cert-card" data-state={q.data.valid ? "valid" : "revoked"} aria-live="polite">
           <span className="lms-done-mark">
@@ -324,35 +324,35 @@ export function PublicCertificate() {
           <h1>{q.data.valid ? "This certificate is valid" : "This certificate was revoked"}</h1>
           <dl className="lms-facts lms-cert-facts">
             <div>
-              <dt>Awarded to</dt>
+              <dt>{tr("Awarded to")}</dt>
               <dd>{q.data.learner_name}</dd>
             </div>
             <div>
-              <dt>For completing</dt>
+              <dt>{tr("For completing")}</dt>
               <dd>{q.data.course_title}</dd>
             </div>
             <div>
-              <dt>Issued</dt>
+              <dt>{tr("Issued")}</dt>
               <dd>{q.data.issued_on ? formatDate(q.data.issued_on) : ""}</dd>
             </div>
             {q.data.issuer && (
               <div>
-                <dt>By</dt>
+                <dt>{tr("By")}</dt>
                 <dd>{q.data.issuer}</dd>
               </div>
             )}
             <div>
-              <dt>Number</dt>
+              <dt>{tr("Number")}</dt>
               <dd>{q.data.number}</dd>
             </div>
           </dl>
-          <p className="faint lms-cert-code">Code {q.data.verification_code}</p>
+          <p className="faint lms-cert-code">{tr("Code {verification_code}", { verification_code: q.data.verification_code })}</p>
           <div className="row">
             <a className="btn btn-default btn-md" href={certificatePage(workspace, code)} target="_blank" rel="noopener noreferrer">
-              <Icon name="external" size={14} /> See the certificate
+              <Icon name="external" size={14} /> {tr("See the certificate")}
             </a>
             <Link className="btn btn-ghost btn-md" to={publicPaths.catalog(workspace)}>
-              Courses
+              {tr("Courses")}
             </Link>
           </div>
         </section>
