@@ -4,6 +4,7 @@
 // out. This mirrors them so the builder can say what to fix in advance.
 
 import type { LessonType } from "./types";
+import { t } from "@ferrum/client";
 
 export interface Publishable {
   id: string;
@@ -24,9 +25,9 @@ export function publishIssues(lessons: Publishable[], quizzes: Map<string, numbe
   const out: Issue[] = [];
   for (const l of lessons) {
     if (l.lesson_type === "Quiz") {
-      if (!l.quiz) out.push({ lesson: l.id, text: `"${l.title}" needs a quiz.` });
-      else if (!(quizzes.get(l.quiz) ?? 0)) out.push({ lesson: l.id, text: `The quiz of "${l.title}" has no questions yet.` });
-    } else if (l.lesson_type === "Assignment" && !l.assignment) out.push({ lesson: l.id, text: `"${l.title}" needs an assignment.` });
+      if (!l.quiz) out.push({ lesson: l.id, text: t("\"{title}\" needs a quiz.", { title: l.title }) });
+      else if (!(quizzes.get(l.quiz) ?? 0)) out.push({ lesson: l.id, text: t("The quiz of \"{title}\" has no questions yet.", { title: l.title }) });
+    } else if (l.lesson_type === "Assignment" && !l.assignment) out.push({ lesson: l.id, text: t("\"{title}\" needs an assignment.", { title: l.title }) });
   }
   return out;
 }

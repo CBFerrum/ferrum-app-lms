@@ -9,7 +9,7 @@ import { formatDate, relativeTime, todayIso, t, isolate } from "@ferrum/client";
 import { Badge, EmptyState, ErrorState, PageLoading, useLiveEntity, useShellTitle } from "@ferrum/kit";
 import { getDashboard, keys } from "./api";
 import { CertificateActions } from "./Certificate";
-import { dueLabel, duration, plural, sessionStart } from "./format";
+import { dueLabel, duration, sessionStart } from "./format";
 import { Glyph, LESSON_LABEL } from "./Glyph";
 import { paths } from "./lesson";
 import { Cover, LearnTabs, ProgressLine } from "./parts";
@@ -108,7 +108,7 @@ export function Home() {
 
   const sub = data
     ? data.courses.length
-      ? t("{value} · {length} completed", { value: plural(data.courses.length, "course"), length: data.courses.filter((c) => c.status === "Completed").length })
+      ? t("{value} · {length} completed", { value: (data.courses.length === 1 ? t("1 course") : t("{n} courses", { n: data.courses.length })), length: data.courses.filter((c) => c.status === "Completed").length })
       : t("Nothing started yet")
     : " ";
 
@@ -205,7 +205,7 @@ export function Home() {
                     <div className="lms-line-main">
                       <strong>{isolate(p.title)}</strong>
                       <span className="faint">
-                        {t("{completed} of {value} completed", { completed: p.completed, value: plural(p.courses, "course") })}
+                        {t("{completed} of {value} completed", { completed: p.completed, value: (p.courses === 1 ? t("1 course") : t("{n} courses", { n: p.courses })) })}
                       </span>
                     </div>
                     <div className="lms-line-bar">

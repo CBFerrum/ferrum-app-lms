@@ -142,7 +142,7 @@ function Form({ state, editing, onDone, onCancel }: { state: AssignmentState; ed
 
 function Standing({ s, state }: { s: SubmissionRow; state: AssignmentState }) {
   const when = s.submitted_at ? formatDateTime(s.submitted_at) : "";
-  const score = `${Number(s.score ?? 0)} of ${Number(state.max_score)}`;
+  const score = t("{value} of {value2}", { value: Number(s.score ?? 0), value2: Number(state.max_score) });
   const feedback = s.feedback ? (
     <div className="lms-feedback">
       <strong>{t("Feedback")}</strong>

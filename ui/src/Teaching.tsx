@@ -7,7 +7,6 @@ import { useCallback } from "react";
 import { Link } from "react-router";
 import { Badge, EmptyState, ErrorState, PageLoading, statusTone, useLiveEntity, useShellTitle } from "@ferrum/kit";
 import { getTeaching, keys } from "./api";
-import { plural } from "./format";
 import { paths } from "./lesson";
 import { LearnTabs, ProgressLine } from "./parts";
 import type { TeachingCourse } from "./types";
@@ -76,7 +75,7 @@ export function Teaching() {
           <h1 className="sr-only">{t("Teaching")}</h1>
           <LearnTabs />
           <p className="page-sub" aria-live="polite">
-            {q.data ? plural(courses.length, "course") : " "}
+            {q.data ? (courses.length === 1 ? t("1 course") : t("{n} courses", { n: courses.length })) : " "}
           </p>
         </div>
         <Link className="btn btn-primary btn-md" to={paths.record("LmsCourse", "new")}>

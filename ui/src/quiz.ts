@@ -3,6 +3,7 @@
 // server holds the answer keys and the real clock; this only shows what it says.
 
 import type { Attempt, AttemptAnswer, QuestionType, QuizState, Response } from "./types";
+import { t } from "@ferrum/client";
 
 export type Answers = Record<string, Response>;
 
@@ -74,7 +75,7 @@ export function milestone(before: number, after: number, total: number): number 
 }
 
 export function milestoneText(seconds: number): string {
-  return seconds >= 60 ? `${seconds / 60} ${seconds === 60 ? "minute" : "minutes"} left` : `${seconds} seconds left`;
+  return seconds >= 60 ? (seconds === 60 ? t("1 minute left") : t("{minutes} minutes left", { minutes: seconds / 60 })) : t("{seconds} seconds left", { seconds });
 }
 
 // ───────────────────────────── the verdict ─────────────────────────────
@@ -109,8 +110,8 @@ export function canStart(state: Pick<QuizState, "max_attempts" | "attempts_left"
 }
 
 export function attemptsText(state: Pick<QuizState, "max_attempts" | "attempts_used" | "attempts_left">): string {
-  if (state.max_attempts === 0) return state.attempts_used ? `${state.attempts_used} so far · no limit` : "No limit on attempts";
+  if (state.max_attempts === 0) return state.attempts_used ? t("{attempts_used} so far · no limit", { attempts_used: state.attempts_used }) : "No limit on attempts";
   const left = state.attempts_left ?? 0;
-  if (left === 0) return `All ${state.max_attempts} attempts used`;
-  return `${left} of ${state.max_attempts} ${state.max_attempts === 1 ? "attempt" : "attempts"} left`;
+  if (left === 0) return t("All {max_attempts} attempts used", { max_attempts: state.max_attempts });
+  return (state.max_attempts === 1 ? t("{left} of 1 attempt left", { left }) : t("{left} of {max} attempts left", { left, max: state.max_attempts }));
 }
