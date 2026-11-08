@@ -6,7 +6,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ApiError, errorMessage, formatDateTime, t as tr, isolate } from "@ferrum/client";
-import { Alert, Badge, Button, confirmDialog, EmptyState, Spinner, toast } from "@ferrum/kit";
+import { Alert, Badge, Button, confirmDialog, EmptyState, Spinner, toast, placed } from "@ferrum/kit";
 import { getAttempt, getAttempts, keys, saveAnswers, startQuiz, submitAnswers } from "./api";
 import { clock, duration } from "./format";
 import { Glyph } from "./Glyph";
@@ -45,8 +45,7 @@ function QuestionCard({ q, index, count, response, onChange, disabled }: { q: At
   return (
     <div className="lms-question">
       <p className="lms-q-meta faint">
-        {tr("Question")} {index + 1} {tr("of {count} · {points}", { count, points: (points === 1 ? tr("1 point") : tr("{n} points", { n: points })) })}
-        {multi ? tr(" · Choose every answer that applies") : ""}
+        {placed(tr("Question {p1} of {count} · {points}{p2}"), { p1: index + 1, count: count, points: (points === 1 ? tr("1 point") : tr("{n} points", { n: points })), p2: multi ? tr(" · Choose every answer that applies") : "" })}
       </p>
       <div id={text} className="lms-q-text">
         <Md source={q.question_text} />
@@ -260,7 +259,7 @@ export function Sitting({ attempt, onFinished, onGone }: { attempt: Attempt; onF
                 className="lms-chip"
                 data-state={n === i ? "current" : done ? "answered" : undefined}
                 aria-current={n === i ? "step" : undefined}
-                aria-label={tr("Question {value}, {value2}", { value: n + 1, value2: done ? "answered" : "not answered" })}
+                aria-label={(done ? tr("Question {value}, answered", { value: n + 1 }) : tr("Question {value}, not answered", { value: n + 1 }))}
                 onClick={() => setI(n)}
               >
                 {n + 1}
@@ -371,9 +370,9 @@ export function Result({ attempt, late, quiz, onAgain, onBack, starting }: { att
 // ───────────────────────────── before the quiz ─────────────────────────────
 
 const STATUS_BADGE: Record<string, { tone: "green" | "red" | "amber"; text: string }> = {
-  passed: { tone: "green", text: "Passed" },
-  failed: { tone: "red", text: "Not passed" },
-  "timed-out": { tone: "amber", text: "Timed out" },
+  passed: { tone: "green", get text() { return tr("Passed"); } },
+  failed: { tone: "red", get text() { return tr("Not passed"); } },
+  "timed-out": { tone: "amber", get text() { return tr("Timed out"); } },
 };
 
 function History({ quiz, onReview }: { quiz: QuizState; onReview: (id: string) => void }) {
@@ -442,7 +441,7 @@ export function Intro({ quiz, starting, error, onStart, onReview }: { quiz: Quiz
       </dl>
       {under ? (
         <Alert tone="info">
-          {tr("You have an attempt under way")}{under.deadline ? tr(", which ends at {value}", { value: formatDateTime(under.deadline) }) : ""}{tr(". The answers you gave are saved; resume to carry on.")}
+          {placed(tr("You have an attempt under way{p1}. The answers you gave are saved; resume to carry on."), { p1: under.deadline ? tr(", which ends at {value}", { value: formatDateTime(under.deadline) }) : "" })}
         </Alert>
       ) : (
         quiz.time_limit_minutes > 0 && <p className="faint">{tr("The clock starts when you begin and keeps running if you leave the page.")}</p>

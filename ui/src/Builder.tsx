@@ -207,7 +207,7 @@ function Builder({ course }: { course: string }) {
   const addLesson = async (chapter: string) => {
     setBusy(true);
     try {
-      const made = await api.post<{ id: string }>(docPath("LmsLesson"), { chapter, title: tr("Untitled lesson"), lesson_type: "Article" });
+      const made = await api.post<{ id: string }>(docPath("LmsLesson"), { chapter, title: tr("Untitled lesson"), lesson_type: tr("Article") });
       await qc.invalidateQueries({ queryKey: KEY(course) });
       select(made.id);
     } catch (e) {
@@ -218,7 +218,7 @@ function Builder({ course }: { course: string }) {
   };
   const deleteChapter = async (id: string) => {
     const c = chapterOf.get(id);
-    const ok = await confirmDialog({ title: tr("Delete \"{value}\"?", { value: c?.title ?? "this chapter" }), message: tr("A chapter with lessons cannot be deleted: move or delete its lessons first."), confirmLabel: tr("Delete chapter"), danger: true });
+    const ok = await confirmDialog({ title: tr("Delete \"{value}\"?", { value: c?.title ?? tr("this chapter") }), message: tr("A chapter with lessons cannot be deleted: move or delete its lessons first."), confirmLabel: tr("Delete chapter"), danger: true });
     if (!ok) return;
     try {
       await api.del(docPath("LmsChapter", id));
@@ -454,7 +454,7 @@ function Builder({ course }: { course: string }) {
             </Button>
           ) : (
             <Button variant="primary" loading={busy} onClick={() => setPublishing(issues.map((i) => i.text))}>
-              {tr("Publish")}{issues.length ? tr(" ({length} to fix)", { length: issues.length }) : ""}
+              {(issues.length ? tr("Publish ({length} to fix)", { length: issues.length }) : tr("Publish"))}
             </Button>
           )}
         </div>

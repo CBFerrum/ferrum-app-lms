@@ -212,13 +212,13 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
       ? !view.completed &&
         learning &&
         (kind === "Quiz"
-          ? "Passing the quiz completes this lesson."
+          ? t("Passing the quiz completes this lesson.")
           : kind === "Assignment"
-            ? "A passing grade completes this lesson."
+            ? t("A passing grade completes this lesson.")
             : kind === "LTI"
-              ? "The tool completes this lesson when it says you are done."
-              : "The package completes this lesson when it says you completed or passed it.")
-      : "Tip: the arrow keys move between lessons.";
+              ? t("The tool completes this lesson when it says you are done.")
+              : t("The package completes this lesson when it says you completed or passed it."))
+      : t("Tip: the arrow keys move between lessons.");
     return (
       <LessonPage view={view} chapterTitle={here?.chapter.title} learning={learning} enrollment={enrollment} onProgress={refresh} onSitting={setSitting} headingRef={heading}>
         {!sitting && (

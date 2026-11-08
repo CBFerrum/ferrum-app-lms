@@ -5,7 +5,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { api, ApiError, docPath, errorMessage, formatDate, formatDateTime, todayIso, uploadFile, t, isolate } from "@ferrum/client";
-import { Alert, Badge, Button, Field, Spinner, toast } from "@ferrum/kit";
+import { Alert, Badge, Button, Field, Spinner, toast, placed } from "@ferrum/kit";
 import { keys } from "./api";
 import { dueLabel } from "./format";
 import { Md } from "./Md";
@@ -150,7 +150,7 @@ function Standing({ s, state }: { s: SubmissionRow; state: AssignmentState }) {
     </div>
   ) : null;
   if (s.status === "Submitted")
-    return <Alert tone="info">{t("Handed in {when}", { when })}{s.late ? t(" (late)") : ""}{t(". Your instructor will grade it; you can change it until then.")}</Alert>;
+    return <Alert tone="info">{placed(t("Handed in {when}{p1}. Your instructor will grade it; you can change it until then."), { when: when, p1: s.late ? t(" (late)") : "" })}</Alert>;
   if (s.status === "Needs Revision")
     return (
       <Alert tone="warning">

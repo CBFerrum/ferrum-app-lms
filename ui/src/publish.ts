@@ -21,7 +21,7 @@ export interface Issue {
 }
 
 export function publishIssues(lessons: Publishable[], quizzes: Map<string, number>): Issue[] {
-  if (!lessons.length) return [{ text: "Add at least one lesson." }];
+  if (!lessons.length) return [{ text: t("Add at least one lesson.") }];
   const out: Issue[] = [];
   for (const l of lessons) {
     if (l.lesson_type === "Quiz") {

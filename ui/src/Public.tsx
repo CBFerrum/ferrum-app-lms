@@ -219,7 +219,7 @@ export function PublicCourse() {
                         <strong>{isolate(g.title)}</strong>
                         <br />
                         <span className="faint">
-                          {tr("{value} to {value2} ·", { value: formatDate(g.start_date), value2: formatDate(g.end_date) })} {g.places.free === null ? tr("No limit on places") : g.places.free === 0 ? tr("Full") : tr("{value} left", { value: (g.places.free === 1 ? tr("1 place") : tr("{n} places", { n: g.places.free })) })}
+                          {g.places.free === null ? tr("{start} to {end} · No limit on places", { start: formatDate(g.start_date), end: formatDate(g.end_date) }) : g.places.free === 0 ? tr("{start} to {end} · Full", { start: formatDate(g.start_date), end: formatDate(g.end_date) }) : g.places.free === 1 ? tr("{start} to {end} · 1 place left", { start: formatDate(g.start_date), end: formatDate(g.end_date) }) : tr("{start} to {end} · {n} places left", { start: formatDate(g.start_date), end: formatDate(g.end_date), n: g.places.free })}
                         </span>
                       </li>
                     ))}
