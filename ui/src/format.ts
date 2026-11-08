@@ -34,8 +34,8 @@ export function daysBetween(from: string, to: string): number {
 export function dueLabel(due: string | null | undefined, today: string): string {
   if (!due) return "";
   const n = daysBetween(today, due);
-  if (n === 0) return "Due today";
-  if (n === 1) return "Due tomorrow";
+  if (n === 0) return t("Due today");
+  if (n === 1) return t("Due tomorrow");
   if (n > 1 && n <= 14) return t("Due in {n} days", { n });
   if (n < 0) return n === -1 ? "1 day late" : t("{value} days late", { value: -n });
   return t("Due {date}", { date: new Date(`${due}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" }) });
@@ -60,7 +60,7 @@ export function courseFacts(lessons: number | null | undefined, minutes: number 
 
 /** A name to show for a person, from what the server knows. */
 export function personName(name?: string | null, email?: string | null): string {
-  return (name ?? "").trim() || email || "Someone";
+  return (name ?? "").trim() || email || t("Someone");
 }
 
 /** Two letters for a picture of a course that has none. */

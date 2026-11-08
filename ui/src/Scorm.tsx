@@ -46,9 +46,9 @@ function loadRuntime(version: ScormPlayer["version"]): Promise<RuntimeClass> {
     script.onload = () => {
       const loaded = version === "1.2" ? window.Scorm12API : window.Scorm2004API;
       if (loaded) resolve(loaded);
-      else reject(new Error("the SCORM runtime did not load"));
+      else reject(new Error(t("the SCORM runtime did not load")));
     };
-    script.onerror = () => reject(new Error("the SCORM runtime could not be loaded"));
+    script.onerror = () => reject(new Error(t("the SCORM runtime could not be loaded")));
     document.head.appendChild(script);
   });
 }

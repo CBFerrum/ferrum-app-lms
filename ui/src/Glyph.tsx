@@ -1,5 +1,6 @@
 // The few icons Learn needs that the kit does not draw, in the kit's own stroke.
 
+import { t } from "@ferrum/client";
 import { Icon } from "@ferrum/kit";
 import type { LessonType } from "./types";
 
@@ -40,4 +41,4 @@ const BY_TYPE: Record<LessonType, string> = { Article: "article", Video: "play",
 export const lessonGlyph = (type: LessonType) => BY_TYPE[type] ?? "article";
 
 /** What to call a kind of lesson. */
-export const LESSON_LABEL: Record<LessonType, string> = { Article: "Reading", Video: "Video", Document: "Document", Quiz: "Quiz", Assignment: "Assignment", SCORM: "SCORM package", xAPI: "xAPI package", LTI: "External tool" };
+export const LESSON_LABEL: Record<LessonType, string> = { get Article() { return t("Reading"); }, get Video() { return t("Video"); }, get Document() { return t("Document"); }, get Quiz() { return t("Quiz"); }, get Assignment() { return t("Assignment"); }, get SCORM() { return t("SCORM package"); }, get xAPI() { return t("xAPI package"); }, get LTI() { return t("External tool"); } };

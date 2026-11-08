@@ -106,7 +106,7 @@ function GradePanel({ s, position, count, onGraded, onSkip }: { s: Submission; p
             <span>{t("Ask for changes")}</span>
           </label>
         </div>
-        <Field label={t("Score{value}", { value: max ? ` out of ${max}` : "" })} htmlFor="lms-score" required={outcome === "Graded"} hint={verdict ? t("This {verdict}{value}.", { verdict, value: pass ? ` (pass mark ${pass})` : "" }) : undefined}>
+        <Field label={(max ? t("Score out of {max}", { max }) : t("Score"))} htmlFor="lms-score" required={outcome === "Graded"} hint={verdict ? (pass ? t("This {verdict} (pass mark {pass}).", { verdict, pass }) : t("This {verdict}.", { verdict })) : undefined}>
           <input id="lms-score" className="input num lms-score-input" inputMode="decimal" value={score} onChange={(e) => setScore(e.target.value)} aria-invalid={outcome === "Graded" && score !== "" && bad ? true : undefined} />
         </Field>
         <Field label={t("Feedback")} htmlFor="lms-feedback" hint={t("The learner sees this. Markdown works.")}>

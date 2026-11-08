@@ -265,8 +265,7 @@ function AddLearners({ course, open, onClose, onDone }: { course: string; open: 
       {result ? (
         <div className="stack">
           <Alert tone={result.enrolled.length ? "success" : "info"}>
-            {tr("{length} added", { length: result.enrolled.length })}{result.already_enrolled.length ? tr(", {length} already in the course", { length: result.already_enrolled.length }) : ""}
-            {result.skipped.length ? tr(", {length} could not be added", { length: result.skipped.length }) : ""}.
+            {result.already_enrolled.length ? (result.skipped.length ? tr("{added} added, {already} already in the course, {skipped} could not be added", { added: result.enrolled.length, already: result.already_enrolled.length, skipped: result.skipped.length }) : tr("{added} added, {already} already in the course", { added: result.enrolled.length, already: result.already_enrolled.length })) : result.skipped.length ? tr("{added} added, {skipped} could not be added", { added: result.enrolled.length, skipped: result.skipped.length }) : tr("{length} added", { length: result.enrolled.length })}.
           </Alert>
           {result.skipped.length > 0 && (
             <ul className="lms-plain">

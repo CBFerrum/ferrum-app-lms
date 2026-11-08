@@ -2,7 +2,7 @@
 // document to open, text), and the quiz or assignment it holds. The player puts the foot below it.
 
 import { type ReactNode, type Ref } from "react";
-import { Alert, Badge } from "@ferrum/kit";
+import { Alert, Badge, placed } from "@ferrum/kit";
 import { AssignmentPanel } from "./Assignment";
 import { duration } from "./format";
 import { Glyph, LESSON_LABEL } from "./Glyph";
@@ -123,7 +123,7 @@ export function LessonPage({
         (view.lti ? (
           <div className="lms-stack-sm">
             <p>
-              {t("This lesson is in")} <strong>{view.lti.tool_name ?? t("an external tool")}</strong>{t(", which opens in a new window signed in as you.")}
+              {placed(t("This lesson is in {p1}, which opens in a new window signed in as you."), { p1: <strong>{view.lti.tool_name ?? t("an external tool")}</strong> })}
             </p>
             <div className="row">
               <a className="btn btn-primary btn-md" href={view.lti.launch_url} target="_blank" rel="noopener">

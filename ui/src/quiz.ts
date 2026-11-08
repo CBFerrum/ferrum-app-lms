@@ -110,7 +110,7 @@ export function canStart(state: Pick<QuizState, "max_attempts" | "attempts_left"
 }
 
 export function attemptsText(state: Pick<QuizState, "max_attempts" | "attempts_used" | "attempts_left">): string {
-  if (state.max_attempts === 0) return state.attempts_used ? t("{attempts_used} so far · no limit", { attempts_used: state.attempts_used }) : "No limit on attempts";
+  if (state.max_attempts === 0) return state.attempts_used ? t("{attempts_used} so far · no limit", { attempts_used: state.attempts_used }) : t("No limit on attempts");
   const left = state.attempts_left ?? 0;
   if (left === 0) return t("All {max_attempts} attempts used", { max_attempts: state.max_attempts });
   return (state.max_attempts === 1 ? t("{left} of 1 attempt left", { left }) : t("{left} of {max} attempts left", { left, max: state.max_attempts }));
