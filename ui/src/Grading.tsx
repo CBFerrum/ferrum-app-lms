@@ -7,7 +7,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { api, docPath, errorMessage, formatDateTime, relativeTime, t, isolate } from "@ferrum/client";
-import { Alert, Badge, Button, EmptyState, ErrorState, Field, PageLoading, toast, useLiveEntity } from "@ferrum/kit";
+import { Alert, Badge, Button, Field, PageLoading, StatePanel, toast, useLiveEntity } from "@ferrum/kit";
+import { Failed } from "./states";
 import { rowsOf } from "./api";
 import { Glyph } from "./Glyph";
 import { Md } from "./Md";
@@ -159,13 +160,13 @@ export function Grading({ course }: { course: string }) {
     setSp(next, { replace: true });
   };
 
-  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} title={t("Could not load the work to grade")} />;
+  if (q.error) return <Failed error={q.error} onRetry={() => void q.refetch()} title={t("Could not load the work to grade")} />;
   if (!q.data) return <PageLoading label={t("Loading the work to grade")} />;
   if (!list.length)
     return (
-      <EmptyState title={t("Nothing waits for a grade")} icon="check">
-        <p className="muted">{t("New work appears here as learners hand it in.")}</p>
-      </EmptyState>
+      <StatePanel kind="empty" title={t("Nothing waits for a grade")}>
+        {t("New work appears here as learners hand it in.")}
+      </StatePanel>
     );
 
   const after = (list[at + 1] ?? list[at - 1])?.id;

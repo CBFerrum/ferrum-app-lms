@@ -7,7 +7,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { api, ApiError, docPath, errorMessage, uploadFile, t as tr, isolate } from "@ferrum/client";
-import { Alert, Button, confirmDialog, ErrorState, Field, PageLoading, Spinner, toast } from "@ferrum/kit";
+import { Alert, Button, confirmDialog, Field, PageLoading, Spinner, toast } from "@ferrum/kit";
+import { Failed } from "./states";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@ferrum/kit/primitives";
 import { LinkInput } from "@ferrum/records";
 import { Glyph, LESSON_LABEL } from "./Glyph";
@@ -123,7 +124,7 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} title={tr("Could not open the lesson")} />;
+  if (q.error) return <Failed error={q.error} onRetry={() => void q.refetch()} title={tr("Could not open the lesson")} />;
   if (!doc) return <PageLoading label={tr("Opening the lesson")} />;
 
   const value = <K extends keyof LessonDoc>(k: K): LessonDoc[K] => (k in draft ? (draft[k] as LessonDoc[K]) : doc[k]);

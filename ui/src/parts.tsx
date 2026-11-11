@@ -3,7 +3,7 @@
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, NavLink } from "react-router";
-import { Badge, Icon, type Tone } from "@ferrum/kit";
+import { Badge, Icon, Progress, type Tone } from "@ferrum/kit";
 import { useMe } from "@ferrum/records";
 import { courseFacts, hue, monogram, priceText } from "./format";
 import { Glyph } from "./Glyph";
@@ -44,20 +44,11 @@ export function useFocusMode() {
   }, []);
 }
 
-export function Progress({ value, label }: { value: number | string | null | undefined; label: string }) {
-  const v = percent(value);
-  return (
-    <div className="lms-progress" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(v)} data-done={v >= 100 || undefined}>
-      <span style={{ width: `${v}%` }} />
-    </div>
-  );
-}
-
 /** "42%" beside its bar, as the cards and rows show progress. */
 export function ProgressLine({ value, label }: { value: number | string | null | undefined; label: string }) {
   return (
     <div className="lms-progress-line">
-      <Progress value={value} label={label} />
+      <Progress value={percent(value)} label={label} tone={percent(value) >= 100 ? "good" : "default"} />
       <span className="lms-progress-text">{isolate(percentLabel(value))}</span>
     </div>
   );
@@ -74,6 +65,9 @@ export function Cover({ title, slug, image }: { title: string; slug: string; ima
     </div>
   );
 }
+
+/** The stored course states, by id. */
+export const COURSE_TONE: Record<"Draft" | "Published" | "Archived", Tone> = { Draft: "neutral", Published: "green", Archived: "neutral" };
 
 const LEVEL_TONE: Record<Level, Tone> = { Beginner: "green", Intermediate: "blue", Advanced: "purple" };
 
