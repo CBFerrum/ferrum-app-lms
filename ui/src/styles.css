@@ -116,31 +116,15 @@
 
 /* ── progress ── */
 
-.lms-progress {
-  flex: 1;
-  height: 0.4rem;
-  min-width: 3rem;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--surface-3);
-}
-
-.lms-progress > span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--primary);
-  transition: width 300ms ease;
-}
-
-.lms-progress[data-done] > span {
-  background: var(--success);
-}
-
 .lms-progress-line {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.lms-progress-line .meter {
+  flex: 1;
+  min-width: 3rem;
 }
 
 .lms-progress-text {
@@ -1683,42 +1667,6 @@ a.lms-row:hover {
   background: var(--surface);
 }
 
-.lms-figures {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-
-.lms-figure {
-  display: flex;
-  flex: 1 1 8rem;
-  flex-direction: column;
-  max-width: 12rem;
-  padding: 0.65rem 0.9rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-
-.lms-figure strong {
-  font-size: var(--text-xl);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.2;
-}
-
-.lms-figure .faint {
-  font-size: var(--text-xs);
-}
-
-.lms-figure[data-tone="warn"] {
-  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
-  background: var(--warning-soft);
-}
-
-.lms-figure[data-tone="warn"] strong {
-  color: var(--warning);
-}
-
 .lms-wrap {
   overflow-wrap: anywhere;
   white-space: normal !important;
@@ -1775,21 +1723,6 @@ a.lms-row:hover {
   align-items: center;
   gap: 0.6rem;
   font-size: var(--text-sm);
-}
-
-.lms-band-bar {
-  display: block;
-  height: 0.55rem;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--surface-3);
-}
-
-.lms-band-bar > span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--primary);
 }
 
 .lms-expander {

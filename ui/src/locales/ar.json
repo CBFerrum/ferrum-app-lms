@@ -439,13 +439,9 @@
   "anyone can open it before enrolling": "يمكن لأي شخص فتحه قبل التسجيل",
   "asha@school.test\nbo@school.test": "asha@school.test\nbo@school.test",
   "attempt {attempt_no}": "المحاولة {attempt_no}",
-  "average progress": "متوسط التقدّم",
   "chapter": "فصل",
   "chapters": "فصول",
   "counts towards finishing the course": "يُحتسب لإكمال الدورة",
-  "finished ({value}%)": "مكتمل ({value}%)",
-  "gone quiet": "صاروا خاملين",
-  "learning now": "يتعلمون الآن",
   "lesson": "درس",
   "lessons": "دروس",
   "lessons completed": "دروس مكتملة",
@@ -459,7 +455,6 @@
   "the SCORM runtime did not load": "لم تُحمَّل بيئة تشغيل SCORM",
   "the tool": "الأداة",
   "this chapter": "هذا الفصل",
-  "to grade": "للتقييم",
   "xAPI package": "حزمة xAPI",
   "{added} added, {already} already in the course": "أُضيف {added}، و{already} في الدورة بالفعل",
   "{added} added, {already} already in the course, {skipped} could not be added": "أُضيف {added}، و{already} في الدورة بالفعل، وتعذّرت إضافة {skipped}",
@@ -502,5 +497,8 @@
   "{value} of {value2} points": "{value} من {value2} نقاط",
   "{value} to {value2} · {c}": "من {value} إلى {value2} · {c}",
   "{value} · {length} completed": "{value} · أُكمل {length}",
-  "· best": "· الأفضل"
+  "· best": "· الأفضل",
+  "Enrolled": "المسجّلون",
+  "Gone quiet": "خاملون",
+  "Finished ({value}%)": "مكتمل ({value}%)"
 }

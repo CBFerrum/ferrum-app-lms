@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, Fragment, useCallback, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { ApiError, errorMessage, formatDateTime, relativeTime, t as tr, isolate } from "@ferrum/client";
-import { Alert, Badge, Button, Dialog, Field, PageLoading, StatePanel, useLiveEntity, useShellTitle } from "@ferrum/kit";
+import { Alert, Badge, Button, ButtonLink, Dialog, Field, PageHead, PageLoading, PageStack, Progress, Stat, StatGrid, StatePanel, useLiveEntity, useShellTitle } from "@ferrum/kit";
 import { Failed } from "./states";
 import { enrolLearners, type EnrolResult, getCourse, getRoster, keys, rowsOf } from "./api";
 import { Glyph } from "./Glyph";
@@ -316,15 +316,6 @@ function AddLearners({ course, open, onClose, onDone }: { course: string; open: 
 
 // ───────────────────────────── the page ─────────────────────────────
 
-function Figure({ value, label, tone }: { value: number | string; label: string; tone?: "warn" }) {
-  return (
-    <div className="lms-figure" data-tone={tone}>
-      <strong>{value}</strong>
-      <span className="faint">{isolate(label)}</span>
-    </div>
-  );
-}
-
 export function CourseDashboardRoute() {
   const { course = "" } = useParams();
   return <CourseDashboard key={course} course={course} />;
@@ -351,35 +342,28 @@ function CourseDashboard({ course }: { course: string }) {
   const go = (t: "learners" | "grading") => setSp(t === "grading" ? { tab: "grading" } : {}, { replace: true });
 
   return (
-    <div className="lms-page">
-      <nav className="crumbs" aria-label={tr("Breadcrumb")}>
-        <Link to={paths.teaching()}>{tr("Teaching")}</Link>
-        <Glyph name="chevronRight" size={12} />
-      </nav>
-      <header className="lms-head">
-        <div>
-          <h1 className="page-title">{isolate(roster.course.title)}</h1>
-          <p className="page-sub">{tr("Your learners")}</p>
-        </div>
-        <div className="lms-tools">
-          <Button icon="plus" onClick={() => setAdding(true)}>
-            {tr("Add learners")}
-          </Button>
-          <Link className="btn btn-default btn-md" to={paths.build(roster.course.id)}>
-            {tr("Build")}
-          </Link>
-          <Link className="btn btn-default btn-md" to={paths.course(roster.course.slug)}>
-            {tr("Course page")}
-          </Link>
-        </div>
-      </header>
-      <div className="lms-figures">
-        <Figure value={sum.enrolled} label="enrolled" />
-        <Figure value={sum.completed} label={tr("finished ({value}%)", { value: Number(roster.completion_rate) })} />
-        <Figure value={`${sum.average}%`} label={tr("average progress")} />
-        <Figure value={sum.quiet} label={tr("gone quiet")} tone={sum.quiet ? "warn" : undefined} />
-        <Figure value={sum.toGrade} label={tr("to grade")} tone={sum.toGrade ? "warn" : undefined} />
-      </div>
+    <PageStack className="lms-page">
+      <PageHead
+        back={{ to: paths.teaching(), label: tr("Teaching") }}
+        title={<>{isolate(roster.course.title)}</>}
+        description={tr("Your learners")}
+        actions={
+          <>
+            <Button icon="plus" onClick={() => setAdding(true)}>
+              {tr("Add learners")}
+            </Button>
+            <ButtonLink to={paths.build(roster.course.id)}>{tr("Build")}</ButtonLink>
+            <ButtonLink to={paths.course(roster.course.slug)}>{tr("Course page")}</ButtonLink>
+          </>
+        }
+      />
+      <StatGrid>
+        <Stat value={sum.enrolled} label={tr("Enrolled")} />
+        <Stat value={sum.completed} label={tr("Finished ({value}%)", { value: Number(roster.completion_rate) })} />
+        <Stat value={`${sum.average}%`} label={tr("Average progress")} />
+        <Stat value={sum.quiet} label={tr("Gone quiet")} tone={sum.quiet ? "attention" : undefined} />
+        <Stat value={sum.toGrade} label={tr("To grade")} tone={sum.toGrade ? "attention" : undefined} />
+      </StatGrid>
       {sum.enrolled > 0 && (
         <section aria-label={tr("Where the class is")}>
           <h2 className="lms-group">{tr("Where the class is")}</h2>
@@ -387,9 +371,7 @@ function CourseDashboard({ course }: { course: string }) {
             {bands.map((b) => (
               <li key={b.label}>
                 <span>{isolate(b.label)}</span>
-                <span className="lms-band-bar" aria-hidden="true">
-                  <span style={{ width: `${(b.count / widest) * 100}%` }} />
-                </span>
+                <Progress value={b.count} max={widest} label={b.label} />
                 <span className="num">{b.count}</span>
               </li>
             ))}
@@ -406,6 +388,6 @@ function CourseDashboard({ course }: { course: string }) {
       </div>
       {tab === "learners" ? <Learners roster={roster} now={now} /> : <Grading course={course} />}
       <AddLearners course={course} open={adding} onClose={() => setAdding(false)} onDone={refresh} />
-    </div>
+    </PageStack>
   );
 }

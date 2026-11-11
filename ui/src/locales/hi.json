@@ -439,13 +439,9 @@
   "anyone can open it before enrolling": "नामांकन से पहले कोई भी इसे खोल सकता है",
   "asha@school.test\nbo@school.test": "asha@school.test\nbo@school.test",
   "attempt {attempt_no}": "प्रयास {attempt_no}",
-  "average progress": "औसत प्रगति",
   "chapter": "अध्याय",
   "chapters": "अध्याय",
   "counts towards finishing the course": "पाठ्यक्रम पूरा करने में गिना जाता है",
-  "finished ({value}%)": "पूरा ({value}%)",
-  "gone quiet": "निष्क्रिय हो गए",
-  "learning now": "अभी सीख रहे हैं",
   "lesson": "पाठ",
   "lessons": "पाठ",
   "lessons completed": "पाठ पूरे हुए",
@@ -459,7 +455,6 @@
   "the SCORM runtime did not load": "SCORM रनटाइम लोड नहीं हुआ",
   "the tool": "टूल",
   "this chapter": "यह अध्याय",
-  "to grade": "ग्रेड करने के लिए",
   "xAPI package": "xAPI पैकेज",
   "{added} added, {already} already in the course": "{added} जोड़े गए, {already} पहले से पाठ्यक्रम में",
   "{added} added, {already} already in the course, {skipped} could not be added": "{added} जोड़े गए, {already} पहले से पाठ्यक्रम में, {skipped} नहीं जोड़े जा सके",
@@ -502,5 +497,8 @@
   "{value} of {value2} points": "{value2} में से {value} अंक",
   "{value} to {value2} · {c}": "{value} से {value2} · {c}",
   "{value} · {length} completed": "{value} · {length} पूरे",
-  "· best": "· सर्वश्रेष्ठ"
+  "· best": "· सर्वश्रेष्ठ",
+  "Enrolled": "नामांकित",
+  "Gone quiet": "निष्क्रिय",
+  "Finished ({value}%)": "पूरा ({value}%)"
 }
