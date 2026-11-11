@@ -7,7 +7,8 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, bootstrap, formatDate, routeBase, t as tr, isolate } from "@ferrum/client";
-import { Badge, Button, EmptyState, ErrorState, Icon, PageLoading, useDebounced, useShellTitle } from "@ferrum/kit";
+import { Badge, Button, EmptyState, Icon, PageLoading, StatePanel, useDebounced, useShellTitle } from "@ferrum/kit";
+import { Failed } from "./states";
 import { certificatePage, checkCertificate, publicCatalog, publicCategories, publicCourse, publicLesson } from "./api";
 import { CourseLayout, Prerequisites } from "./CourseLayout";
 import { type Filters, filtersFrom, hasFilters, LEVELS, paramsFor, queryFor } from "./filters";
@@ -135,11 +136,11 @@ export function PublicCatalog() {
         )}
       </div>
       {catalog.error ? (
-        <ErrorState error={catalog.error} onRetry={() => void catalog.refetch()} title={tr("Could not load the courses")} />
+        <Failed error={catalog.error} onRetry={() => void catalog.refetch()} title={tr("Could not load the courses")} />
       ) : !catalog.data ? (
         <PageLoading label={tr("Loading courses")} />
       ) : !courses.length ? (
-        <EmptyState title={hasFilters(f) ? tr("No course matches") : tr("No courses are open yet")} icon="search" />
+        hasFilters(f) ? <StatePanel kind="no-matches" title={tr("No course matches")} onClear={clear} /> : <StatePanel kind="empty" title={tr("No courses are open yet")} />
       ) : (
         <>
           <h2 className="sr-only">{tr("Courses")}</h2>
@@ -179,7 +180,7 @@ export function PublicCourse() {
             </Link>
           </EmptyState>
         ) : (
-          <ErrorState error={q.error} onRetry={() => void q.refetch()} title={tr("Could not open the course")} />
+          <Failed error={q.error} onRetry={() => void q.refetch()} title={tr("Could not open the course")} />
         )}
       </div>
     );
@@ -315,7 +316,7 @@ export function PublicCertificate() {
           <CheckCertificate workspace={workspace} />
         </section>
       ) : q.error || !q.data ? (
-        <ErrorState error={q.error} onRetry={() => void q.refetch()} title={tr("Could not check the certificate")} />
+        <Failed error={q.error} onRetry={() => void q.refetch()} title={tr("Could not check the certificate")} />
       ) : (
         <section className="lms-cert-card" data-state={q.data.valid ? "valid" : "revoked"} aria-live="polite">
           <span className="lms-done-mark">
