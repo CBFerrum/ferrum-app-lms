@@ -6,7 +6,8 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { errorMessage, t, isolate } from "@ferrum/client";
-import { Alert, Badge, Button, confirmDialog, EmptyState, ErrorState, Icon, PageLoading, toast, useDebounced, useLiveEntity, useShellTitle } from "@ferrum/kit";
+import { Alert, Badge, Button, confirmDialog, Icon, StatePanel, PageLoading, toast, useDebounced, useLiveEntity, useShellTitle } from "@ferrum/kit";
+import { Failed } from "./states";
 import { getCatalog, getCategories, joinPath, keys } from "./api";
 import { type Filters, filtersFrom, hasFilters, LEVELS, paramsFor, queryFor } from "./filters";
 import { paths } from "./lesson";
@@ -144,19 +145,17 @@ export function Catalog() {
         </section>
       )}
       {catalog.error ? (
-        <ErrorState error={catalog.error} onRetry={() => void catalog.refetch()} title={t("Could not load the catalog")} />
+        <Failed error={catalog.error} onRetry={() => void catalog.refetch()} title={t("Could not load the catalog")} />
       ) : !catalog.data ? (
         <PageLoading label={t("Loading courses")} />
       ) : !courses.length ? (
-        <EmptyState title={hasFilters(f) ? t("No course matches") : t("No courses are published yet")} icon="search">
-          {hasFilters(f) ? (
-            <button type="button" className="btn btn-default btn-md" onClick={clear}>
-              {t("Clear filters")}
-            </button>
-          ) : (
-            <p className="muted">{t("When an instructor publishes a course it will be here.")}</p>
-          )}
-        </EmptyState>
+        hasFilters(f) ? (
+          <StatePanel kind="no-matches" title={t("No course matches")} onClear={clear} />
+        ) : (
+          <StatePanel kind="empty" title={t("No courses are published yet")}>
+            {t("When an instructor publishes a course it will be here.")}
+          </StatePanel>
+        )
       ) : (
         <>
           <h2 className="sr-only">{t("Courses")}</h2>

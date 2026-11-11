@@ -6,7 +6,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import { Link } from "react-router";
 import { formatDate, relativeTime, todayIso, t, isolate } from "@ferrum/client";
-import { Badge, EmptyState, ErrorState, PageLoading, useLiveEntity, useShellTitle } from "@ferrum/kit";
+import { Badge, PageLoading, StatePanel, useLiveEntity, useShellTitle } from "@ferrum/kit";
+import { Failed } from "./states";
 import { getDashboard, keys } from "./api";
 import { CertificateActions } from "./Certificate";
 import { dueLabel, duration, sessionStart } from "./format";
@@ -127,16 +128,21 @@ export function Home() {
         </Link>
       </header>
       {q.error ? (
-        <ErrorState error={q.error} onRetry={() => void q.refetch()} title={t("Could not load your learning")} />
+        <Failed error={q.error} onRetry={() => void q.refetch()} title={t("Could not load your learning")} />
       ) : !data ? (
         <PageLoading label={t("Loading your learning")} />
       ) : !data.courses.length && !data.learning_paths.length ? (
-        <EmptyState title={t("You have not started a course yet")} icon="board">
-          <p className="muted">{t("Find something to learn in the catalog. Your progress, deadlines and certificates will gather here.")}</p>
-          <Link className="btn btn-primary btn-md" to={paths.catalog}>
-            {t("Browse the catalog")}
-          </Link>
-        </EmptyState>
+        <StatePanel
+          kind="empty"
+          title={t("You have not started a course yet")}
+          action={
+            <Link className="btn btn-primary btn-md" to={paths.catalog}>
+              {t("Browse the catalog")}
+            </Link>
+          }
+        >
+          {t("Find something to learn in the catalog. Your progress, deadlines and certificates will gather here.")}
+        </StatePanel>
       ) : (
         <>
           {hero && <Hero c={hero} />}

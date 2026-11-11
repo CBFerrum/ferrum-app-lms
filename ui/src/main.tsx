@@ -10,7 +10,8 @@ import { type ComponentType, StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, Link, Outlet, RouterProvider, useRouteError } from "react-router";
 import { addCatalogs, isPublicPage, routeBase, shell, t, wordsReady } from "@ferrum/client";
-import { ConfirmHost, EmptyState, ErrorState, Toaster } from "@ferrum/kit";
+import { ConfirmHost, EmptyState, Toaster } from "@ferrum/kit";
+import { Failed } from "./states";
 import { RequireAuth, setFrameMode } from "@ferrum/records/frame";
 import "./styles.css";
 
@@ -32,7 +33,7 @@ const queryClient = new QueryClient({
 });
 
 function RouteError() {
-  return <ErrorState error={useRouteError()} onRetry={() => window.location.reload()} />;
+  return <Failed error={useRouteError()} onRetry={() => window.location.reload()} />;
 }
 
 function NotFound() {

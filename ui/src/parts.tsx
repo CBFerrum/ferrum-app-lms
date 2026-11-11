@@ -75,6 +75,9 @@ export function Cover({ title, slug, image }: { title: string; slug: string; ima
   );
 }
 
+/** The stored course states, by id. */
+export const COURSE_TONE: Record<"Draft" | "Published" | "Archived", Tone> = { Draft: "neutral", Published: "green", Archived: "neutral" };
+
 const LEVEL_TONE: Record<Level, Tone> = { Beginner: "green", Intermediate: "blue", Advanced: "purple" };
 
 export function LevelBadge({ level }: { level: Level | null | undefined }) {

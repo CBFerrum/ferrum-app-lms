@@ -7,7 +7,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, Fragment, useCallback, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { ApiError, errorMessage, formatDateTime, relativeTime, t as tr, isolate } from "@ferrum/client";
-import { Alert, Badge, Button, Dialog, EmptyState, ErrorState, Field, PageLoading, useLiveEntity, useShellTitle } from "@ferrum/kit";
+import { Alert, Badge, Button, Dialog, Field, PageLoading, StatePanel, useLiveEntity, useShellTitle } from "@ferrum/kit";
+import { Failed } from "./states";
 import { enrolLearners, type EnrolResult, getCourse, getRoster, keys, rowsOf } from "./api";
 import { Glyph } from "./Glyph";
 import { Grading } from "./Grading";
@@ -53,7 +54,7 @@ function LearnerDetail({ l, slug }: { l: RosterLearner; slug: string }) {
     void done.refetch();
     void course.refetch();
   };
-  if (done.error || course.error) return <ErrorState error={done.error ?? course.error} onRetry={again} title={tr("Could not load this learner")} />;
+  if (done.error || course.error) return <Failed error={done.error ?? course.error} onRetry={again} title={tr("Could not load this learner")} />;
   if (!done.data || !course.data) return <PageLoading label={tr("Loading this learner")} />;
   return (
     <div className="lms-detail">
@@ -120,6 +121,7 @@ function Learners({ roster, now }: { roster: Roster; now: number }) {
     for (const keep of ["tab"]) if (sp.get(keep)) next.set(keep, sp.get(keep)!);
     setSp(next, { replace: true });
   };
+  const clearFilters = () => set({ q: "", status: "", cohort: "" });
   const [open, setOpen] = useState<string | null>(null);
   const shown = useMemo(() => sortRoster(filterRoster(roster.learners, f), f.sort), [roster.learners, f.q, f.status, f.cohort, f.sort]);
   const cohorts = cohortsOf(roster.learners);
@@ -153,7 +155,7 @@ function Learners({ roster, now }: { roster: Roster; now: number }) {
         </select>
       </div>
       {!shown.length ? (
-        <EmptyState title={roster.learners.length ? tr("No learner matches") : tr("Nobody is enrolled yet")} icon="user" />
+        roster.learners.length ? <StatePanel kind="no-matches" title={tr("No learner matches")} clearLabel={tr("Clear the search")} onClear={clearFilters} /> : <StatePanel kind="empty" title={tr("Nobody is enrolled yet")} />
       ) : (
         <div className="lms-panel">
           <div className="table-wrap">
@@ -340,7 +342,7 @@ function CourseDashboard({ course }: { course: string }) {
   const now = useMemo(() => Date.now(), [q.data]);
   useShellTitle(q.data ? tr("{title} · Learners", { title: q.data.course.title }) : null);
 
-  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} title={tr("Could not load this course's learners")} />;
+  if (q.error) return <Failed error={q.error} onRetry={() => void q.refetch()} title={tr("Could not load this course's learners")} />;
   const roster = q.data;
   if (!roster) return <PageLoading label={tr("Loading the learners")} />;
   const sum = summarize(roster, now);

@@ -7,7 +7,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 import { api, docPath, errorMessage, formatDate, t as tr, isolate } from "@ferrum/client";
-import { Alert, Badge, Button, confirmDialog, ErrorState, PageLoading, toast, useShellTitle } from "@ferrum/kit";
+import { Alert, Badge, Button, confirmDialog, PageLoading, toast, useShellTitle } from "@ferrum/kit";
+import { Failed } from "./states";
 import { buy, enrol, getCourse, keys, reactivate, withdraw } from "./api";
 import { CertificateActions } from "./Certificate";
 import { CourseLayout, Prerequisites } from "./CourseLayout";
@@ -24,7 +25,7 @@ const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Record links (a notification, the bar's search) name a course by id; its page is named by slug. */
 function ById({ id }: { id: string }) {
   const q = useQuery({ queryKey: ["lms", "slug", id], queryFn: () => api.get<{ slug: string }>(docPath("LmsCourse", id)) });
-  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} title={tr("Could not find the course")} />;
+  if (q.error) return <Failed error={q.error} onRetry={() => void q.refetch()} title={tr("Could not find the course")} />;
   if (!q.data) return <PageLoading label={tr("Opening the course")} />;
   return <Navigate to={paths.course(q.data.slug)} replace />;
 }
@@ -286,7 +287,7 @@ function CourseView({ slug }: { slug: string }) {
     refetchInterval: (query) => (query.state.data?.sale?.purchase?.status === "Awaiting Payment" ? 4000 : false),
   });
   useShellTitle(q.data?.title);
-  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} title={tr("Could not open the course")} />;
+  if (q.error) return <Failed error={q.error} onRetry={() => void q.refetch()} title={tr("Could not open the course")} />;
   const c = q.data;
   if (!c) return <PageLoading label={tr("Opening the course")} />;
   const learning = !!c.my_enrollment && c.my_enrollment.status !== "Withdrawn";

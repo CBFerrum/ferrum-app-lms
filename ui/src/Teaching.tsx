@@ -5,10 +5,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { Link } from "react-router";
-import { Badge, EmptyState, ErrorState, PageLoading, statusTone, useLiveEntity, useShellTitle } from "@ferrum/kit";
+import { Badge, PageLoading, StatePanel, useLiveEntity, useShellTitle } from "@ferrum/kit";
+import { Failed } from "./states";
 import { getTeaching, keys } from "./api";
 import { paths } from "./lesson";
-import { LearnTabs, ProgressLine } from "./parts";
+import { COURSE_TONE, LearnTabs, ProgressLine } from "./parts";
 import type { TeachingCourse } from "./types";
 import { t, isolate } from "@ferrum/client";
 
@@ -29,7 +30,7 @@ function Row({ c }: { c: TeachingCourse }) {
           {isolate(c.title)}
         </Link>
         <div>
-          <Badge tone={c.status === "Published" ? "green" : statusTone(c.status)}>{isolate(c.status)}</Badge>
+          <Badge tone={COURSE_TONE[c.status]}>{isolate(c.status)}</Badge>
         </div>
       </td>
       <td className="num">{c.enrolled}</td>
@@ -83,16 +84,21 @@ export function Teaching() {
         </Link>
       </header>
       {q.error ? (
-        <ErrorState error={q.error} onRetry={() => void q.refetch()} title={t("Could not load your courses")} />
+        <Failed error={q.error} onRetry={() => void q.refetch()} title={t("Could not load your courses")} />
       ) : !q.data ? (
         <PageLoading label={t("Loading your courses")} />
       ) : !courses.length ? (
-        <EmptyState title={t("You do not teach a course yet")} icon="board">
-          <p className="muted">{t("Create a course, add lessons, and publish it when it is ready for learners.")}</p>
-          <Link className="btn btn-primary btn-md" to={paths.record("LmsCourse", "new")}>
-            {t("New course")}
-          </Link>
-        </EmptyState>
+        <StatePanel
+          kind="empty"
+          title={t("You do not teach a course yet")}
+          action={
+            <Link className="btn btn-primary btn-md" to={paths.record("LmsCourse", "new")}>
+              {t("New course")}
+            </Link>
+          }
+        >
+          {t("Create a course, add lessons, and publish it when it is ready for learners.")}
+        </StatePanel>
       ) : (
         <>
           <div className="lms-figures">
