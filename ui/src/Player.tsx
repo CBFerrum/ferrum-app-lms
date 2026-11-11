@@ -9,7 +9,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router";
 import { ApiError, errorMessage, t, isolate } from "@ferrum/client";
-import { Alert, Button, EmptyState, ErrorState, PageLoading, toast, useLiveEntity, useShellTitle } from "@ferrum/kit";
+import { Alert, Button, EmptyState, PageLoading, toast, useLiveEntity, useShellTitle } from "@ferrum/kit";
+import { Failed } from "./states";
 import { completeLesson, getCourse, getLesson, keys, reactivate } from "./api";
 import { Done } from "./Done";
 import { Glyph } from "./Glyph";
@@ -157,7 +158,7 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
   useShellTitle(data ? (view ? `${view.lesson.title} · ${data.title}` : data.title) : null);
 
   if (course.isLoading) return <PageLoading label={t("Opening the course")} />;
-  if (course.error || !data) return <ErrorState error={course.error} onRetry={() => void course.refetch()} title={t("Could not open the course")} />;
+  if (course.error || !data) return <Failed error={course.error} onRetry={() => void course.refetch()} title={t("Could not open the course")} />;
 
   if (!lessonId) {
     const target = learning ? (data.next_lesson ?? resume(data.chapters)) : author ? resume(data.chapters) : null;
@@ -200,7 +201,7 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
           </Link>
         </EmptyState>
       ) : (
-        <ErrorState error={lessonQ.error} onRetry={() => void lessonQ.refetch()} title={t("Could not open the lesson")} />
+        <Failed error={lessonQ.error} onRetry={() => void lessonQ.refetch()} title={t("Could not open the lesson")} />
       );
     }
     if (!view || !action || !nav) return <PageLoading label={t("Opening the lesson")} />;

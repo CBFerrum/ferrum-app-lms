@@ -8,14 +8,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type DragEvent, type KeyboardEvent, useCallback, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { api, ApiError, docPath, errorMessage, t as tr, isolate } from "@ferrum/client";
-import { Alert, Badge, Button, confirmDialog, Dialog, EmptyState, ErrorState, Icon, PageLoading, statusTone, toast, useShellTitle } from "@ferrum/kit";
+import { Alert, Badge, Button, confirmDialog, Dialog, EmptyState, Icon, PageLoading, toast, useShellTitle } from "@ferrum/kit";
+import { Failed } from "./states";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@ferrum/kit/primitives";
 import { rowsOf } from "./api";
 import { duration } from "./format";
 import { Glyph, lessonGlyph, LESSON_LABEL } from "./Glyph";
 import { docKey, type LessonDoc, LessonEditor } from "./LessonEditor";
 import { paths } from "./lesson";
-import { Sheet, useFocusMode } from "./parts";
+import { COURSE_TONE, Sheet, useFocusMode } from "./parts";
 import { publishIssues } from "./publish";
 import { applyPatches, type ChapterRow, dropChapter, dropLesson, dropLessonOnChapter, type Edge, type Layout, layoutOf, type LessonRow, moveLesson, patchesFor, shiftChapter, shiftLesson } from "./reorder";
 import type { LessonType } from "./types";
@@ -294,7 +295,7 @@ function Builder({ course }: { course: string }) {
     "data-drop": over?.kind === kind && over.id === id && drag?.id !== id ? over.edge : undefined,
   });
 
-  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} title={tr("Could not open the course")} />;
+  if (q.error) return <Failed error={q.error} onRetry={() => void q.refetch()} title={tr("Could not open the course")} />;
   if (!data) return <PageLoading label={tr("Opening the course")} />;
 
   const total = data.lessons.length;
@@ -435,7 +436,7 @@ function Builder({ course }: { course: string }) {
             <Link to={paths.teaching(course)}>{isolate(data.course.title)}</Link>
           </nav>
           <h1 className="page-title">
-            {isolate(data.course.title)} <Badge tone={status === "Published" ? "green" : statusTone(status)}>{isolate(status)}</Badge>
+            {isolate(data.course.title)} <Badge tone={COURSE_TONE[status]}>{isolate(status)}</Badge>
           </h1>
         </div>
         <div className="lms-tools">
