@@ -1202,18 +1202,6 @@ a.lms-row:hover {
   }
 }
 
-/* Motion is decoration here: it stops for people who asked for less of it (a spinner keeps
-   turning: it says something is happening). */
-@media (prefers-reduced-motion: reduce) {
-  [class*="lms-"],
-  [class*="lms-"] *:not(.spinner),
-  [class*="lms-"]::before,
-  [class*="lms-"]::after {
-    transition: none !important;
-    animation: none !important;
-  }
-}
-
 /* ── my learning ── */
 
 .lms-hero {
