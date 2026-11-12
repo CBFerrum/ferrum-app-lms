@@ -14,6 +14,9 @@
     - {name: learner_name, type: data, read_only: true, in_list: true}
     - {name: cohort, type: link, to: LmsCohort, in_list: true, in_filter: true}
     - {name: status, type: select, options: [Active, Completed, Withdrawn], default: Active, read_only: true, in_list: true, in_filter: true}
+    - {name: due_date, type: date, in_list: true, in_filter: true, no_copy: true, description: "Set by an instructor or LMS manager, or worked out from the course's due days when the enrolment is made"}
+    - {name: due_reminder_at, type: datetime, read_only: true, no_copy: true, description: "When the reminder before the due date was sent"}
+    - {name: overdue_reminder_at, type: datetime, read_only: true, no_copy: true, description: "When the reminder after the due date was sent"}
     - {name: enrolled_at, type: datetime, read_only: true, no_copy: true}
     - {name: enrolled_on, type: date, read_only: true, no_copy: true, in_filter: true}
     - {name: enrolled_by, type: email, read_only: true, no_copy: true}
@@ -25,9 +28,9 @@
     - {name: completed_at, type: datetime, read_only: true, no_copy: true, in_filter: true}
     - {name: certificate, type: link, to: LmsCertificate, read_only: true, no_copy: true, on_delete: set_null}
   form:
-    - {label: Enrolment, fields: [course, learner, learner_name, cohort, status]}
+    - {label: Enrolment, fields: [course, learner, learner_name, cohort, status, due_date]}
     - {label: Progress, fields: [progress_percent, completed_lessons, total_lessons, last_lesson, last_activity_at, completed_at, certificate]}
-    - {label: History, collapsible: true, fields: [enrolled_at, enrolled_on, enrolled_by]}
+    - {label: History, collapsible: true, fields: [enrolled_at, enrolled_on, enrolled_by, due_reminder_at, overdue_reminder_at]}
   actions:
     - {name: complete_lesson, label: Mark Lesson Complete, permission: read, condition: "doc.status != 'Withdrawn'", hidden: true}
     - {name: open_lesson, label: Open Lesson, permission: read, condition: "doc.status != 'Withdrawn'", hidden: true}
@@ -36,7 +39,7 @@
     - {name: outline, label: Course Outline, permission: read, hidden: true}
     - {name: withdraw, label: Withdraw, permission: read, condition: "doc.status == 'Active'", confirm: "Leave this course? Your progress is kept if you enrol again."}
     - {name: reactivate, label: Enrol Again, permission: read, condition: "doc.status == 'Withdrawn'"}
-  list: {columns: [number, learner_name, course, status, progress_percent], sort: created_at desc}
+  list: {columns: [number, learner_name, course, status, due_date, progress_percent], sort: created_at desc}
 
 - name: LmsLessonProgress
   label: Lesson Progress

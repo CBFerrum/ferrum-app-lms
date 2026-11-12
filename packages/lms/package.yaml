@@ -11,7 +11,7 @@ modules:
     order: 55
     items: [LmsCourse, LmsChapter, LmsLesson, LmsQuiz, LmsQuestion, LmsAssignment, LmsLearningPath, LmsCohort, LmsEnrollment, LmsLessonProgress, LmsPackageProgress,
             LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsLtiTool, LmsSettings,
-            report:lms_course_completion, report:lms_quiz_scores, report:lms_learner_progress, report:lms_overdue_assignments]
+            report:lms_course_completion, report:lms_quiz_scores, report:lms_learner_progress, report:lms_overdue_assignments, report:lms_training_status]
 
 roles:
   - name: LMS Manager

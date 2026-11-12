@@ -23,6 +23,14 @@ pub fn ts(t: DateTime<Utc>) -> String {
     t.to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
+/// The date at `at` where the workspace is (its time zone; UTC when unset or unknown).
+pub fn today_at(ctx: &Ctx, at: DateTime<Utc>) -> chrono::NaiveDate {
+    match ctx.schema.timezone.parse::<chrono_tz::Tz>() {
+        Ok(tz) => at.with_timezone(&tz).date_naive(),
+        Err(_) => at.date_naive(),
+    }
+}
+
 pub fn time(doc: &Doc, k: &str) -> Option<DateTime<Utc>> {
     s(doc, k).and_then(|v| parse_datetime(v).ok())
 }
@@ -96,19 +104,22 @@ pub struct Settings {
     pub signatory: Option<String>,
     pub signatory_title: Option<String>,
     pub video_hosts: Vec<String>,
+    /// Days before an enrolment's due date, and after it, a learner is reminded (0 = never).
+    pub due_reminder_days: i64,
+    pub overdue_reminder_days: i64,
 }
 
-type SettingsRow = (Option<String>, Option<bool>, Option<i64>, Option<String>, Option<String>, Option<String>, Option<String>);
+type SettingsRow = (Option<String>, Option<bool>, Option<i64>, Option<String>, Option<String>, Option<String>, Option<String>, Option<i64>, Option<i64>);
 
 pub async fn settings(tx: &mut Tx, tenant: Uuid) -> Result<Settings> {
     let row: Option<SettingsRow> = sqlx::query_as(
         "select public_url, email_notifications, session_reminder_minutes, certificate_issuer, certificate_signatory, \
-         certificate_signatory_title, video_hosts from e_lms_settings where tenant_id = $1 limit 1",
+         certificate_signatory_title, video_hosts, due_reminder_days, overdue_reminder_days from e_lms_settings where tenant_id = $1 limit 1",
     )
     .bind(tenant)
     .fetch_optional(&mut **tx)
     .await?;
-    let (url, email, minutes, issuer, signatory, title, hosts) = row.unwrap_or_default();
+    let (url, email, minutes, issuer, signatory, title, hosts, before_due, after_due) = row.unwrap_or_default();
     let text = |v: Option<String>| v.map(|x| x.trim().to_string()).filter(|x| !x.is_empty());
     Ok(Settings {
         public_url: text(url).map(|u| u.trim_end_matches('/').to_string()),
@@ -118,6 +129,8 @@ pub async fn settings(tx: &mut Tx, tenant: Uuid) -> Result<Settings> {
         signatory: text(signatory),
         signatory_title: text(title),
         video_hosts: crate::video::parse_hosts(hosts.as_deref().unwrap_or_default()).unwrap_or_default(),
+        due_reminder_days: before_due.unwrap_or(3).clamp(0, 365),
+        overdue_reminder_days: after_due.unwrap_or(1).clamp(0, 365),
     })
 }
 

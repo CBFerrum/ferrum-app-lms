@@ -61,6 +61,17 @@ impl DocHook for EnrollmentHook {
         if let Some(course) = id(doc, "course") {
             let (total, _) = counts(hc.tx, hc.ctx.tenant, course, None).await?;
             doc.insert("total_lessons".into(), json!(total));
+            // The due date: whoever authors the course (or the engine, for rules and recertification) may state
+            // it; otherwise it comes from the course's due days.
+            if let Ok(c) = load(hc.kernel, hc.ctx, hc.tx, "LmsCourse", course).await {
+                if !authors(hc.ctx, &c) {
+                    doc.remove("due_date");
+                }
+                let days = int(&c, "due_days");
+                if s(doc, "due_date").is_none() && days > 0 {
+                    doc.insert("due_date".into(), json!((hc.ctx.today() + chrono::Duration::days(days)).to_string()));
+                }
+            }
         }
         Ok(())
     }
@@ -73,6 +84,11 @@ impl DocHook for EnrollmentHook {
     }
 
     async fn after_save(&self, hc: &mut HookCtx<'_>, doc: &Doc, old: Option<&Doc>) -> Result<()> {
+        if old.is_some_and(|o| o.get("due_date") != doc.get("due_date")) {
+            // A new due date earns its reminders again.
+            let fresh = obj(&[("due_reminder_at", Value::Null), ("overdue_reminder_at", Value::Null)]);
+            hc.kernel.set_values_tx(&sys(hc.ctx), hc.tx, "LmsEnrollment", doc_id(doc)?, fresh).await?;
+        }
         match old {
             None => announce(hc.kernel, hc.ctx, hc.tx, doc).await,
             Some(old) if !hc.ctx.is_system => {
@@ -505,6 +521,63 @@ pub async fn refresh(k: &Kernel, ctx: &Ctx, tx: &mut Tx, e: &Doc, touched: Optio
     };
     notice::send(k, ctx, tx, &[s(e, "learner").unwrap_or_default().to_string()], &n).await?;
     Ok(updated)
+}
+
+/// Maintenance: each Active enrolment with a due date is reminded once before it (within the course's
+/// or Learn Settings' days of it) and once after it fell due; the reminder is claimed in the same
+/// transaction that tells the learner, so two replicas never both send it. Completed and withdrawn
+/// enrolments are never reminded.
+pub async fn send_due_reminders(k: &Kernel, ctx: &Ctx, at: chrono::DateTime<chrono::Utc>) -> Result<usize> {
+    let today = util::today_at(ctx, at);
+    let mut tx = k.db.tenant_tx(ctx.tenant).await?;
+    let st = util::settings(&mut tx, ctx.tenant).await?;
+    let due: Vec<(Uuid, String, NaiveDate, bool)> = sqlx::query_as(
+        "select id, title, due_date, before from (select e.id, co.title, e.due_date, \
+           (e.due_reminder_at is null and coalesce(co.due_reminder_days, $2) > 0 and $4 <= e.due_date \
+            and $4 >= e.due_date - coalesce(co.due_reminder_days, $2)::int) as before, \
+           (e.overdue_reminder_at is null and coalesce(co.overdue_reminder_days, $3) > 0 and $4 > e.due_date \
+            and $4 >= e.due_date + coalesce(co.overdue_reminder_days, $3)::int) as after \
+          from e_lms_enrollment e join e_lms_course co on co.tenant_id = e.tenant_id and co.id = e.course \
+          where e.tenant_id = $1 and e.status = 'Active' and e.due_date is not null) x where before or after order by due_date limit 500",
+    )
+    .bind(ctx.tenant)
+    .bind(st.due_reminder_days)
+    .bind(st.overdue_reminder_days)
+    .bind(today)
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    let mut sent = 0;
+    for (e, title, due_on, before) in due {
+        let column = if before { "due_reminder_at" } else { "overdue_reminder_at" };
+        let told = ferrum_kernel::with_retry(|| async {
+            let mut tx = k.db.tenant_tx(ctx.tenant).await?;
+            let claim = format!(
+                "update e_lms_enrollment set {column} = $3 where tenant_id = $1 and id = $2 and status = 'Active' and {column} is null returning learner"
+            );
+            let learner: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(claim)).bind(ctx.tenant).bind(e).bind(at).fetch_optional(&mut *tx).await?;
+            let Some(learner) = learner else {
+                tx.rollback().await?;
+                return Ok(false);
+            };
+            let n = if before {
+                Notice { title: format!("Due soon: {title}"), body: format!("{title} is due on {due_on}."), entity: "LmsEnrollment", record: e }
+            } else {
+                Notice {
+                    title: format!("Overdue: {title}"),
+                    body: format!("{title} was due on {due_on} and is not completed yet."),
+                    entity: "LmsEnrollment",
+                    record: e,
+                }
+            };
+            notice::send(k, ctx, &mut tx, &[learner], &n).await?;
+            tx.commit().await?;
+            Ok(true)
+        })
+        .await?;
+        sent += usize::from(told);
+    }
+    Ok(sent)
 }
 
 /// Maintenance: enrolments that reached every required lesson through course changes are

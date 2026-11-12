@@ -290,6 +290,84 @@ async fn overdue(ctx: &Ctx, p: &Params<'_>, tx: &mut Tx) -> Result<Value> {
     }))
 }
 
+/// What an enrolment `a` stands at on `as_of`: Not Started, In Progress, Completed, Overdue (not
+/// completed and past its due date) or Withdrawn.
+pub fn state_sql(as_of: NaiveDate) -> String {
+    format!(
+        "(case when a.status = 'Withdrawn' then 'Withdrawn' when a.status = 'Completed' then 'Completed' \
+          when a.due_date is not null and a.due_date < '{as_of}'::date then 'Overdue' \
+          when coalesce(a.completed_lessons, 0) > 0 or a.last_activity_at is not null then 'In Progress' else 'Not Started' end)"
+    )
+}
+
+pub const STATES: [&str; 5] = ["Not Started", "In Progress", "Completed", "Overdue", "Withdrawn"];
+
+/// Counts of each state in `rows` (each carrying a `state`), and the share completed of those not withdrawn.
+fn state_totals(rows: &[Value]) -> Value {
+    let count = |st: &str| rows.iter().filter(|r| r["state"] == json!(st)).count() as i64;
+    let live = rows.len() as i64 - count("Withdrawn");
+    json!({"enrolments": live, "not_started": count("Not Started"), "in_progress": count("In Progress"), "completed": count("Completed"),
+           "overdue": count("Overdue"), "completion_rate": pct(count("Completed"), live)})
+}
+
+/// `select` over the caller's enrolments (alias `a`, joined to its course `co`) with the training state,
+/// the columns the training reports share.
+fn training_query(ctx: &Ctx, as_of: NaiveDate, extra_columns: &str, joins: &str) -> Result<QueryBuilder<Postgres>> {
+    visible(
+        ctx,
+        "LmsEnrollment",
+        &format!(
+            "a.learner, a.learner_name, co.title as course_title, a.due_date, {} as state, a.enrolled_on, a.completed_at, a.progress_percent{extra_columns}",
+            state_sql(as_of)
+        ),
+        &format!("join e_lms_course co on co.tenant_id = a.tenant_id and co.id = a.course {joins}"),
+    )
+}
+
+fn training_row(r: &sqlx::postgres::PgRow, as_of: NaiveDate) -> Result<Value> {
+    use sqlx::Row;
+    let due: Option<NaiveDate> = r.try_get("due_date")?;
+    let state: String = r.try_get("state")?;
+    let completed: Option<chrono::DateTime<chrono::Utc>> = r.try_get("completed_at")?;
+    Ok(json!({
+        "learner": r.try_get::<String, _>("learner")?, "learner_name": r.try_get::<Option<String>, _>("learner_name")?,
+        "course_title": r.try_get::<String, _>("course_title")?, "due_date": due, "state": state,
+        "days_overdue": if state == "Overdue" { due.map(|d| (as_of - d).num_days()) } else { None },
+        "enrolled_on": r.try_get::<Option<NaiveDate>, _>("enrolled_on")?, "completed_at": completed.map(crate::util::ts),
+        "progress_percent": dec(r.try_get("progress_percent")?),
+    }))
+}
+
+fn training_columns() -> Vec<Value> {
+    vec![
+        col("learner_name", "Learner", "data"),
+        col("learner", "Email", "data"),
+        col("course_title", "Course", "data"),
+        col("state", "State", "data"),
+        col("due_date", "Due", "date"),
+        col("days_overdue", "Days Overdue", "int"),
+        col("enrolled_on", "Enrolled On", "date"),
+        col("completed_at", "Completed At", "datetime"),
+        col("progress_percent", "Progress %", "percent"),
+    ]
+}
+
+async fn training_status(ctx: &Ctx, p: &Params<'_>, tx: &mut Tx) -> Result<Value> {
+    let as_of = p.date("as_of")?.unwrap_or_else(today);
+    let mut qb = training_query(ctx, as_of, "", "")?;
+    uuid_filter(&mut qb, p, "course", "a.course")?;
+    if let Some(state) = p.str("state") {
+        if !STATES.contains(&state) {
+            return Err(Error::field("state", "use Not Started, In Progress, Completed, Overdue or Withdrawn"));
+        }
+        qb.push(format!(" and {} = ", state_sql(as_of))).push_bind(state.to_string());
+    }
+    qb.push(" order by co.title, a.due_date nulls last, lower(coalesce(a.learner_name, a.learner)) limit 10000");
+    let rows = qb.build().fetch_all(&mut **tx).await?.iter().map(|r| training_row(r, as_of)).collect::<Result<Vec<_>>>()?;
+    Ok(json!({"columns": training_columns(), "totals": state_totals(&rows), "rows": rows,
+              "meta": {"as_of": as_of, "note": "Overdue: not completed and past its due date. Withdrawn enrolments are left out of the totals."}}))
+}
+
 #[async_trait]
 impl ReportSource for LearnReports {
     fn catalog(&self) -> Vec<Value> {
@@ -319,6 +397,16 @@ impl ReportSource for LearnReports {
                 ],
             ),
             entry(
+                "lms_training_status",
+                "Training Status",
+                "LmsEnrollment",
+                vec![
+                    course(),
+                    json!({"name": "state", "label": "State", "type": "select", "options": STATES}),
+                    json!({"name": "as_of", "label": "As Of", "type": "date", "default": "today"}),
+                ],
+            ),
+            entry(
                 "lms_overdue_assignments",
                 "Overdue Assignments",
                 "LmsEnrollment",
@@ -334,6 +422,7 @@ impl ReportSource for LearnReports {
             "lms_course_completion" => completion(ctx, &p, &mut tx).await,
             "lms_quiz_scores" => quiz_scores(ctx, &p, &mut tx).await,
             "lms_learner_progress" => learner_progress(ctx, &p, &mut tx).await,
+            "lms_training_status" => training_status(ctx, &p, &mut tx).await,
             "lms_overdue_assignments" => overdue(ctx, &p, &mut tx).await,
             _ => Err(Error::NotFound(format!("report {name}"))),
         };
