@@ -313,15 +313,18 @@ fn state_totals(rows: &[Value]) -> Value {
 /// `select` over the caller's enrolments (alias `a`, joined to its course `co`) with the training state,
 /// the columns the training reports share.
 fn training_query(ctx: &Ctx, as_of: NaiveDate, extra_columns: &str, joins: &str) -> Result<QueryBuilder<Postgres>> {
-    visible(
-        ctx,
-        "LmsEnrollment",
-        &format!(
-            "a.learner, a.learner_name, co.title as course_title, a.due_date, {} as state, a.enrolled_on, a.completed_at, a.progress_percent{extra_columns}",
-            state_sql(as_of)
-        ),
-        &format!("join e_lms_course co on co.tenant_id = a.tenant_id and co.id = a.course {joins}"),
+    visible(ctx, "LmsEnrollment", &training_columns_sql(as_of, extra_columns), &training_joins(joins))
+}
+
+fn training_columns_sql(as_of: NaiveDate, extra: &str) -> String {
+    format!(
+        "a.learner, a.learner_name, co.title as course_title, a.due_date, {} as state, a.enrolled_on, a.completed_at, a.progress_percent{extra}",
+        state_sql(as_of)
     )
+}
+
+fn training_joins(joins: &str) -> String {
+    format!("join e_lms_course co on co.tenant_id = a.tenant_id and co.id = a.course {joins}")
 }
 
 fn training_row(r: &sqlx::postgres::PgRow, as_of: NaiveDate) -> Result<Value> {
@@ -366,6 +369,66 @@ async fn training_status(ctx: &Ctx, p: &Params<'_>, tx: &mut Tx) -> Result<Value
     let rows = qb.build().fetch_all(&mut **tx).await?.iter().map(|r| training_row(r, as_of)).collect::<Result<Vec<_>>>()?;
     Ok(json!({"columns": training_columns(), "totals": state_totals(&rows), "rows": rows,
               "meta": {"as_of": as_of, "note": "Overdue: not completed and past its due date. Withdrawn enrolments are left out of the totals."}}))
+}
+
+/// The people who report to the HR employee signed in as `email` (one level), as sign-in emails.
+async fn direct_reports(ctx: &Ctx, tx: &mut Tx, email: &str) -> Result<Vec<String>> {
+    let ent = ctx.schema.entity("Employee").ok_or_else(|| Error::NotFound("Employee".into()))?;
+    let t = ferrum_kernel::ddl::q(&ent.table);
+    let sql = format!(
+        "select lower(r.\"user\"::text) from {t} r where r.tenant_id = $1 and r.status <> 'Left' and coalesce(r.\"user\"::text, '') <> '' \
+         and r.reports_to = (select m.id from {t} m where m.tenant_id = $1 and lower(m.\"user\"::text) = lower($2) limit 1) order by 1"
+    );
+    Ok(sqlx::query_scalar(sqlx::AssertSqlSafe(sql)).bind(ctx.tenant).bind(email).fetch_all(&mut **tx).await?)
+}
+
+/// My team's training: where the HR app is installed, the enrolments of the people who report to the
+/// viewer (their own, never anyone else's: the viewer is whoever is signed in, whatever the parameters
+/// say); LMS managers see everyone, or one manager's team by `manager`. Without HR only LMS managers run
+/// it. The query itself is cut to the team, so what is not theirs is never read.
+async fn team_training(ctx: &Ctx, p: &Params<'_>, tx: &mut Tx) -> Result<Value> {
+    let as_of = p.date("as_of")?.unwrap_or_else(today);
+    let hr = ctx.schema.entity("Employee").is_some() && ctx.schema.packages.iter().any(|x| x == "hr");
+    let manager = crate::util::is_manager(ctx);
+    let team: Option<Vec<String>> = match (hr, manager) {
+        (false, false) => return Err(Error::Forbidden("a team needs the HR app: only LMS managers see everyone's training".into())),
+        (false, true) => None,
+        (true, false) => Some(direct_reports(ctx, tx, &ctx.email).await?),
+        (true, true) => match p.str("manager") {
+            Some(who) => Some(direct_reports(ctx, tx, who).await?),
+            None => None,
+        },
+    };
+    let mut qb = match &team {
+        None => training_query(ctx, as_of, "", "")?,
+        Some(emails) => {
+            let ent = ctx.schema.entity("LmsEnrollment").ok_or_else(|| Error::NotFound("LmsEnrollment".into()))?;
+            let mut qb = QueryBuilder::new(format!(
+                "select {} from {} a {} where a.tenant_id = ",
+                training_columns_sql(as_of, ""),
+                ferrum_kernel::ddl::q(&ent.table),
+                training_joins("")
+            ));
+            qb.push_bind(ctx.tenant).push(" and lower(a.learner) = any(").push_bind(emails.clone()).push(")");
+            qb
+        }
+    };
+    qb.push(
+        " and coalesce(a.cycle, 1) = (select max(coalesce(x.cycle, 1)) from e_lms_enrollment x \
+          where x.tenant_id = a.tenant_id and x.course = a.course and x.learner = a.learner)",
+    );
+    if let Some(state) = p.str("state") {
+        if !STATES.contains(&state) {
+            return Err(Error::field("state", "use Not Started, In Progress, Completed, Overdue or Withdrawn"));
+        }
+        qb.push(format!(" and {} = ", state_sql(as_of))).push_bind(state.to_string());
+    }
+    qb.push(" order by lower(coalesce(a.learner_name, a.learner)), a.due_date nulls last, co.title limit 10000");
+    let rows = qb.build().fetch_all(&mut **tx).await?.iter().map(|r| training_row(r, as_of)).collect::<Result<Vec<_>>>()?;
+    let mut totals = state_totals(&rows);
+    totals["people"] = json!(team.as_ref().map(Vec::len));
+    Ok(json!({"columns": training_columns(), "totals": totals, "rows": rows,
+              "meta": {"as_of": as_of, "note": "The latest enrolment of each person who reports to you in each course. People are the HR employees whose reports-to is you."}}))
 }
 
 /// A programme's audience against its courses: each person and course with the state and dates of the
@@ -448,6 +511,11 @@ impl ReportSource for LearnReports {
                     json!({"name": "as_of", "label": "As Of", "type": "date", "default": "today"}),
                 ],
             ),
+            // Narrowed by its own query, to the viewer's reports; any signed-in learner may run it.
+            json!({"name": "lms_team_training", "label": "My Team's Training", "module": "learn", "entity": "LmsEnrollment", "scoped": "owner", "params": [
+                json!({"name": "state", "label": "State", "type": "select", "options": STATES}),
+                json!({"name": "manager", "label": "Manager's Sign-in (LMS managers)", "type": "data"}),
+                json!({"name": "as_of", "label": "As Of", "type": "date", "default": "today"})]}),
             entry(
                 "lms_programme_status",
                 "Programme Status",
@@ -474,6 +542,7 @@ impl ReportSource for LearnReports {
             "lms_quiz_scores" => quiz_scores(ctx, &p, &mut tx).await,
             "lms_learner_progress" => learner_progress(ctx, &p, &mut tx).await,
             "lms_training_status" => training_status(ctx, &p, &mut tx).await,
+            "lms_team_training" => team_training(ctx, &p, &mut tx).await,
             "lms_programme_status" => programme_status(k, ctx, &p, &mut tx).await,
             "lms_overdue_assignments" => overdue(ctx, &p, &mut tx).await,
             _ => Err(Error::NotFound(format!("report {name}"))),
