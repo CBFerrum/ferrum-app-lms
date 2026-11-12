@@ -10,7 +10,7 @@ modules:
     icon: graduation-cap
     order: 55
     items: [LmsCourse, LmsChapter, LmsLesson, LmsQuiz, LmsQuestion, LmsQuestionCategory, LmsRubric, LmsAssignment, LmsLearningPath, LmsCohort, LmsEnrollment, LmsLessonProgress, LmsPackageProgress,
-            LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsLtiTool, LmsSettings, LmsEnrollmentRule, LmsProgramme,
+            LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsLtiTool, LmsSettings, LmsEnrollmentRule, LmsProgramme, LmsGradeItem, LmsGradeEntry, LmsGradingScale,
             report:lms_course_completion, report:lms_quiz_scores, report:lms_learner_progress, report:lms_overdue_assignments, report:lms_training_status, report:lms_programme_status, report:lms_team_training]
 
 roles:
@@ -38,6 +38,9 @@ roles:
       - {entity: LmsQuizAttempt, read: true, write: true, delete: true, export: true}
       - {entity: LmsAssignmentSubmission, read: true, write: true, delete: true, export: true}
       - {entity: LmsCertificate, read: true, write: true, export: true}
+      - {entity: LmsGradingScale, read: true, write: true, create: true, delete: true}
+      - {entity: LmsGradeItem, read: true, write: true, create: true, delete: true, export: true}
+      - {entity: LmsGradeEntry, read: true, write: true, create: true, delete: true, export: true}
   - name: Instructor
     description: Builds the courses they teach (chapters, lessons, question banks, quizzes, assignments, cohorts), enrols learners in them, grades submissions and follows progress. Give the user LmsCourse scopes to limit what they see to some courses.
     permissions:
@@ -62,6 +65,9 @@ roles:
       - {entity: LmsQuizAttempt, read: true, write: true, export: true}
       - {entity: LmsAssignmentSubmission, read: true, write: true, export: true}
       - {entity: LmsCertificate, read: true}
+      - {entity: LmsGradingScale, read: true}
+      - {entity: LmsGradeItem, read: true, write: true, create: true, delete: true, export: true}
+      - {entity: LmsGradeEntry, read: true, write: true, create: true, delete: true, export: true}
   - name: Learner
     description: Takes courses — enrols in published courses, works through lessons, attempts quizzes, submits assignments and earns certificates — and sees only their own enrolments, progress, attempts, submissions and certificates.
     permissions:
@@ -104,6 +110,7 @@ personal_data:
   - {entity: LmsQuizAttempt, match: learner, erase: [learner, learner_name]}
   - {entity: LmsAssignmentSubmission, match: learner, erase: [learner, learner_name, answer, feedback]}
   - {entity: LmsCertificate, match: learner, erase: [learner, learner_name]}
+  - {entity: LmsGradeEntry, match: learner, erase: [learner, learner_name, comment]}
 handover:
   - {entity: LmsCourse, field: instructors.instructor, where: {status: [Draft, Published]}}
   - {entity: LmsCohort, field: instructors.instructor}

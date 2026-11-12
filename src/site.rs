@@ -557,6 +557,27 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
         ["dashboard"] => json_response(&dashboard(k, user, &mut tx).await?, "no-store"),
         ["teaching"] => json_response(&teaching(user, &mut tx).await?, "no-store"),
         ["teaching", "grading"] => json_response(&grading_queue(user, &mut tx).await?, "no-store"),
+        ["teaching", "courses", course, "gradebook"] => {
+            let course = match util::authored_course(k, user, &mut tx, uuid(course)?).await {
+                Err(Error::NotFound(_)) => return Err(not_found("course")),
+                other => other?,
+            };
+            let book = crate::gradebook::book(k, user, &mut tx, &course, None, false).await?;
+            tx.commit().await?;
+            if param(req, "format") == Some("csv") {
+                let mut r = SiteResponse::text(200, "text/csv; charset=utf-8", crate::gradebook::csv(&book));
+                r.headers.push(("content-disposition".into(), format!("attachment; filename=\"gradebook-{}.csv\"", s(&course, "slug").unwrap_or("course"))));
+                r.headers.push(("cache-control".into(), "no-store".into()));
+                return Ok(r);
+            }
+            return Ok(json_response(&book, "no-store"));
+        }
+        ["courses", slug, "grades"] => {
+            // A learner's own marks: the released items and the total of those.
+            let course = course_by_slug(k, user, &mut tx, slug).await?.ok_or_else(|| not_found("course"))?;
+            let mine = my_enrollment(k, user, &mut tx, util::doc_id(&course)?).await?.ok_or_else(|| not_found("grades"))?;
+            json_response(&crate::gradebook::book(k, user, &mut tx, &course, Some(util::doc_id(&mine)?), true).await?, "no-store")
+        }
         ["teaching", "courses", course, "roster"] => {
             let course = match util::authored_course(k, user, &mut tx, uuid(course)?).await {
                 Err(Error::NotFound(_)) => return Err(not_found("course")),

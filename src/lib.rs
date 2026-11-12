@@ -68,6 +68,8 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("LmsQuizAttempt", Arc::new(quiz::AttemptHook))
         .register("LmsAssignment", Arc::new(assignment::AssignmentHook))
         .register("LmsRubric", Arc::new(assignment::RubricHook))
+        .register("LmsGradeItem", Arc::new(gradebook::ItemHook))
+        .register("LmsGradeEntry", Arc::new(gradebook::EntryHook))
         .register("LmsAssignmentSubmission", Arc::new(assignment::SubmissionHook))
         .register("LmsEnrollment", Arc::new(enrollment::EnrollmentHook))
         .register("LmsLessonProgress", Arc::new(enrollment::ProgressHook))
