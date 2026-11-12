@@ -11,6 +11,7 @@ import { Alert, Badge, Button, confirmDialog, PageLoading, toast, useShellTitle 
 import { Failed } from "./states";
 import { buy, enrol, getCourse, keys, reactivate, withdraw } from "./api";
 import { CertificateActions } from "./Certificate";
+import { DueMarks, useDues } from "./Due";
 import { CourseLayout, Prerequisites } from "./CourseLayout";
 import { priceText, sessionStart } from "./format";
 import { Glyph } from "./Glyph";
@@ -141,6 +142,7 @@ function Box({ c, slug }: { c: CoursePage; slug: string }) {
   const [cohort, setCohort] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const p = c.my_enrollment;
+  const dues = useDues();
   const everything = () => qc.invalidateQueries({ queryKey: ["lms"] });
   const join = useMutation({
     mutationFn: () => enrol(c.id, cohort),
@@ -196,6 +198,7 @@ function Box({ c, slug }: { c: CoursePage; slug: string }) {
             <h3 className="lms-box-head">{tr("Your progress")}</h3>
             <ProgressLine value={p.progress_percent} label={tr("Your progress in this course")} />
             <p className="faint lms-box-line">{isolate(progressText(p.completed_lessons, p.total_lessons, sum.lessons))}</p>
+            <DueMarks enrollment={p.enrollment} dues={dues} />
             <div className="lms-box-actions">
               <Link className="btn btn-primary btn-md" to={paths.learn(slug)}>
                 {p.completed_lessons ? tr("Continue") : tr("Start the course")} <Glyph name="arrowRight" size={14} />

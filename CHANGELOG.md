@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1
+
+The interface gains the screens for Live sessions and compliance training, rebuilt with Ferrum-Frontend 1381367. A Live lesson shows its session's time on the person's own clock, the way in from ten minutes before it starts (the learner's own meeting link, else the typed one), whether it is not open yet, live now or ended, and after it ended whether the learner was credited or why not. On a cohort's page an instructor sees each session's learners with joined or not and minutes and marks them present or absent (Mark Attendance); Live is a kind of lesson in the builder. My learning, the catalog and the course page show an enrolment's due date, Overdue, and Recertification where it renews an expiring certificate (read from the learner's own enrolment records). The public check says Expired, with its last day, or replaced by a newer one, instead of revoked. An enrolment rule's page has a Preview that says how many people it would enrol. Teaching links the Training status, Programme status and My team's training reports, and My learning links the last (they open in the records frame, with its filters and CSV download). Words and names in Arabic and Hindi (53 words and 58 names more; translated by the model, to be reviewed by native speakers).
+
+Not in this release: the public check does not link to the newer certificate (its data does not say which it is), My learning's certificate list does not say Expired or Superseded, the cohort session form is the records frame's own (it already offers Host, Lesson Credited and Attendance Needed), and the new screens were not run against a server.
+
 ## 0.8.0
 
 Compliance training can be run and proved (LM-50 to LM-53, LM-90, LM-110).

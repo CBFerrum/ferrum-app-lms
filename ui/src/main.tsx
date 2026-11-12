@@ -19,7 +19,7 @@ import "./styles.css";
 void addCatalogs({ ar: () => import("./locales/ar.json"), hi: () => import("./locales/hi.json") });
 
 /** A page of the records frame, loaded when first opened. */
-const page = (name: "FormView" | "ListView" | "ReportView" | "AppSettingsPage" | "ScreenPage") => () =>
+const page = (name: "ListView" | "ReportView" | "AppSettingsPage" | "ScreenPage") => () =>
   import("./records").then((m) => ({ Component: m[name] }));
 
 /** A screen of Learn's own, loaded when first opened. */
@@ -96,7 +96,7 @@ const appRoutes = [
       { path: "teaching/:course", lazy: screen(() => import("./CourseDashboard"), "CourseDashboardRoute") },
       { path: "build/:course", lazy: screen(() => import("./Builder"), "BuilderRoute") },
       { path: "e/:entity", lazy: page("ListView") },
-      { path: "e/:entity/:id", lazy: page("FormView") },
+      { path: "e/:entity/:id", lazy: screen(() => import("./Record"), "RecordRoute") },
       { path: "r/:name", lazy: page("ReportView") },
       { path: "apps/:app/settings", lazy: page("AppSettingsPage") },
       { path: "x/:app/:page", lazy: page("ScreenPage") },

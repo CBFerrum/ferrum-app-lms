@@ -76,7 +76,7 @@ export function LevelBadge({ level }: { level: Level | null | undefined }) {
 }
 
 /** A card of a catalog, one link for the whole of it. */
-export function CourseCard({ card, to, status }: { card: Card; to: string; status?: ReactNode }) {
+export function CourseCard({ card, to, status, extra }: { card: Card; to: string; status?: ReactNode; extra?: ReactNode }) {
   const enrolment = card.my_enrollment;
   return (
     <article className="lms-card">
@@ -108,6 +108,7 @@ export function CourseCard({ card, to, status }: { card: Card; to: string; statu
               <ProgressLine value={enrolment.progress_percent} label={t("Your progress in {title}", { title: card.title })} />
             )
           ) : null)}
+        {extra}
       </div>
     </article>
   );

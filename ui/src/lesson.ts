@@ -37,6 +37,8 @@ export const paths = {
   learn: (slug: string, lesson?: string) => (lesson ? `/learn/${seg(slug)}/${seg(lesson)}` : `/learn/${seg(slug)}`),
   teaching: (course?: string) => (course ? `/teaching/${seg(course)}` : "/teaching"),
   build: (course: string, lesson?: string) => `/build/${seg(course)}${lesson ? `?lesson=${seg(lesson)}` : ""}`,
+  /** A report of the records frame, with its filters and CSV download. */
+  report: (name: string) => `/r/${seg(name)}`,
   record: (entity: string, id: string) => `/e/${seg(entity)}/${seg(id)}`,
 };
 
