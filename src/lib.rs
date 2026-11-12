@@ -19,6 +19,7 @@ mod assignment;
 mod catalog;
 mod certificate;
 mod cohort;
+mod discussion;
 mod enrollment;
 mod gradebook;
 mod grading;
@@ -70,6 +71,8 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("LmsRubric", Arc::new(assignment::RubricHook))
         .register("LmsGradeItem", Arc::new(gradebook::ItemHook))
         .register("LmsGradeEntry", Arc::new(gradebook::EntryHook))
+        .register("LmsCourse", Arc::new(discussion::CourseHook))
+        .register("LmsPost", Arc::new(discussion::PostHook))
         .register("LmsAssignmentSubmission", Arc::new(assignment::SubmissionHook))
         .register("LmsEnrollment", Arc::new(enrollment::EnrollmentHook))
         .register("LmsLessonProgress", Arc::new(enrollment::ProgressHook))

@@ -1,0 +1,45 @@
+- name: LmsPostFollower
+  label: Follower
+  kind: child
+  fields:
+    - {name: follower, type: email, required: true, in_list: true}
+
+- name: LmsPost
+  label: Discussion Post
+  kind: master
+  module: learn
+  title_field: title
+  owner_fields: [author]
+  description: "A thread or a reply in a course's discussion, or a lesson's. Enrolled learners and the course's instructors write them on the course page (its discuss action); instructors mark answers, pin, close and remove them. A removed post stays, with who removed it and why, and learners no longer read it."
+  fields:
+    - {name: course, type: link, to: LmsCourse, required: true, read_only: true, in_list: true, in_filter: true}
+    - {name: lesson, type: link, to: LmsLesson, read_only: true, in_filter: true, on_delete: set_null, description: "A lesson's discussion; the course's when empty"}
+    - {name: thread, type: link, to: LmsPost, read_only: true, in_filter: true, on_delete: cascade, description: "The thread it replies in; empty: it starts a thread"}
+    - {name: title, type: data, max_length: 200, read_only: true, in_list: true}
+    - {name: body, type: markdown, max_length: 20000, read_only: true}
+    - {name: author, type: email, read_only: true, in_list: true, in_filter: true}
+    - {name: author_name, type: data, read_only: true, in_list: true}
+    - {name: by_instructor, type: check, read_only: true, in_filter: true}
+    - {name: answer, type: check, label: Instructor's Answer, read_only: true, in_list: true}
+    - {name: pinned, type: check, read_only: true, in_list: true}
+    - {name: closed, type: check, read_only: true, in_list: true, description: "Takes no more replies"}
+    - {name: reported, type: check, read_only: true, in_list: true, in_filter: true}
+    - {name: report_reason, type: text, read_only: true}
+    - {name: reported_by, type: email, read_only: true}
+    - {name: removed, type: check, read_only: true, in_list: true, in_filter: true}
+    - {name: removed_reason, type: text, read_only: true}
+    - {name: removed_by, type: email, read_only: true}
+    - {name: replies, type: int, read_only: true, in_list: true}
+    - {name: last_post_at, type: datetime, read_only: true, in_list: true}
+    - {name: followers, type: table, of: LmsPostFollower, read_only: true, description: "Told of each reply in the thread"}
+  actions:
+    - {name: pin, label: Pin or Unpin, permission: write, condition: "doc.thread == null"}
+    - {name: close, label: Close or Reopen, permission: write, condition: "doc.thread == null"}
+    - {name: mark_answer, label: Mark as Answer, permission: write, condition: "doc.thread != null"}
+    - name: remove
+      label: Remove
+      permission: write
+      condition: "!doc.removed"
+      params:
+        - {name: reason, type: text, label: Reason, required: true}
+  list: {columns: [title, author_name, course, replies, reported, removed], sort: last_post_at desc}

@@ -3483,3 +3483,75 @@ async fn gradebook() {
     assert!(text.starts_with("Learner,Email,Cells quiz,Lab 1,Lab 2,Essay,Total (%),Grade\n"), "{text}");
     assert!(text.contains("Asha Rao,asha@grades.test,10,4,8,72,79.2,B"), "{text}");
 }
+
+// ───────────────────────────── discussions ─────────────────────────────
+
+#[test]
+fn course_and_lesson_discussions() {
+    run(discussions());
+}
+
+/// Threads and replies by the course's learners and instructors only; followers told of replies by
+/// the package's template; answers marked, threads pinned and closed, a post reported to the
+/// instructors and removed, kept with why, out of learners' sight.
+async fn discussions() {
+    let t = boot("talk", vec![], &[], |_| {}).await;
+    let teacher = t.user("teacher@talk.test", "Tara Teacher", "Instructor").await;
+    let asha = t.user("asha@talk.test", "Asha Rao", "Learner").await;
+    let ben = t.user("ben@talk.test", "Ben Okafor", "Learner").await;
+    let cy = t.user("cy@talk.test", "Cy Away", "Learner").await;
+    let (course, lessons) = course_of(&t, &teacher, "Chemistry", 2, json!({})).await;
+    enrol(&t, &teacher, course, &["asha@talk.test", "ben@talk.test"]).await;
+    let say = |who: &Ctx, v: Value| {
+        let t = &t;
+        let who = who.clone();
+        async move { t.try_act(&who, "LmsCourse", course, "discuss", v).await }
+    };
+    assert!(matches!(say(&cy, json!({"title": "Hi", "body": "Anyone?"})).await, Err(Error::Forbidden(_))), "not in the course");
+    assert!(t.try_insert(&asha, "LmsPost", json!({"course": course.to_string(), "body": "direct"})).await.is_err(), "only through the course");
+    let thread = vid(&say(&asha, json!({"title": "Moles?", "body": "What is a mole?"})).await.unwrap()["post"]["id"]);
+    let lesson_thread = vid(&say(&ben, json!({"title": "Lesson 2", "body": "Typo here", "lesson": lessons[1].to_string()})).await.unwrap()["post"]["id"]);
+    let reply = vid(&say(&ben, json!({"thread": thread.to_string(), "body": "6.022e23 things."})).await.unwrap()["post"]["id"]);
+    assert!(
+        t.count("select count(*) from message_send where tenant_id = $1 and record_id = $2 and template = $3", reply, "lms.discussion_reply").await > 0,
+        "Asha follows her thread"
+    );
+    assert_eq!(
+        t.count("select count(*) from message_send where tenant_id = $1 and user_id = $2 and template = $3", ben.user, "lms.discussion_reply").await,
+        0,
+        "not to its writer"
+    );
+    let answer = vid(&say(&teacher, json!({"thread": thread.to_string(), "body": "An amount of substance."})).await.unwrap()["post"]["id"]);
+    assert!(
+        t.count("select count(*) from message_send where tenant_id = $1 and user_id = $2 and template = $3", ben.user, "lms.discussion_reply").await > 0,
+        "Ben follows once he replied"
+    );
+
+    // Moderation is the instructors'.
+    assert!(t.try_act(&asha, "LmsPost", answer, "mark_answer", json!({})).await.is_err());
+    t.act(&teacher, "LmsPost", answer, "mark_answer", json!({})).await;
+    t.act(&teacher, "LmsPost", thread, "pin", json!({})).await;
+    let page = t.page(Some(&asha), "courses/chemistry/discussion").await;
+    assert_eq!(page["threads"].as_array().unwrap().len(), 1, "the course's, not the lesson's");
+    assert_eq!((page["threads"][0]["pinned"].clone(), page["threads"][0]["replies"].clone()), (json!(true), json!(2)));
+    assert_eq!(t.page(Some(&asha), &format!("courses/chemistry/discussion?lesson={}", lessons[1])).await["threads"][0]["id"], json!(lesson_thread.to_string()));
+    let one = t.page(Some(&asha), &format!("courses/chemistry/discussion?thread={thread}")).await;
+    assert_eq!((one["replies"][1]["answer"].clone(), one["following"].clone()), (json!(true), json!(true)));
+    assert!(t.call(Some(&cy), "GET", "courses/chemistry/discussion").await.is_err(), "not hers to read");
+
+    // Reported, then removed: kept with why, its text out of learners' sight.
+    t.act(&asha, "LmsCourse", course, "report_post", json!({"post": reply.to_string(), "reason": "Off topic"})).await;
+    assert!(t.count("select count(*) from message_send where tenant_id = $1 and user_id = $2 and template = $3", teacher.user, "lms.post_reported").await > 0);
+    t.act(&teacher, "LmsPost", reply, "remove", json!({"reason": "Off topic"})).await;
+    let one = t.page(Some(&asha), &format!("courses/chemistry/discussion?thread={thread}")).await;
+    assert_eq!((one["replies"][0]["removed"].clone(), one["replies"][0]["body"].clone()), (json!(true), Value::Null));
+    let kept = t.get("LmsPost", reply).await;
+    assert_eq!((kept["body"].clone(), kept["removed_by"].clone()), (json!("6.022e23 things."), json!("teacher@talk.test")));
+    assert_eq!(t.page(Some(&teacher), &format!("courses/chemistry/discussion?thread={thread}")).await["replies"][0]["body"], json!("6.022e23 things."));
+
+    // Closed: no more replies; following can stop.
+    t.act(&teacher, "LmsPost", thread, "close", json!({})).await;
+    assert!(say(&ben, json!({"thread": thread.to_string(), "body": "late"})).await.is_err());
+    t.act(&asha, "LmsCourse", course, "follow", json!({"thread": thread.to_string(), "follow": false})).await;
+    assert_eq!(t.page(Some(&asha), &format!("courses/chemistry/discussion?thread={thread}")).await["following"], json!(false));
+}
