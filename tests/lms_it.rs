@@ -2199,3 +2199,172 @@ async fn live_sessions() {
     );
     meeting_server(false);
 }
+
+// ───────────────────────────── compliance: due dates, expiry, rules, programmes, teams ─────────────────────────────
+
+/// A fresh workspace of Europe/Berlin with Learn and `extra` packages installed (`installs` names the
+/// ones the workspace gets), the hooks of `register` beside Learn's.
+async fn boot(slug: &str, extra: Vec<ferrum_meta::Package>, installs: &[&str], register: fn(&mut HookRegistry)) -> T {
+    static REPORTS: std::sync::Once = std::sync::Once::new();
+    let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
+    let db = Db::connect(DbConfig { url, max_connections: 16, ..Default::default() }).await.expect("connect");
+    reset(&db).await;
+    let mut packages = ferrum_domain::packages().expect("platform packages");
+    packages.extend(ferrum_app_lms::packages().expect("app packages").into_iter().filter(|p| p.name() != "lms_payments"));
+    packages.extend(extra);
+    let catalog = Catalog::from_packages(packages).expect("catalog");
+    let mut hooks = HookRegistry::default();
+    ferrum_domain::register(&mut hooks);
+    ferrum_app_lms::register(&mut hooks);
+    register(&mut hooks);
+    REPORTS.call_once(|| {
+        for source in ferrum_app_lms::reports() {
+            ferrum_domain::reports::add_source(source);
+        }
+    });
+    let k = Kernel::boot(db, catalog, hooks, KernelSettings::default(), None).await.expect("boot");
+    ferrum_domain::maintenance(&k).await.expect("domain maintenance");
+    let mut packages = vec!["lms".to_string()];
+    packages.extend(installs.iter().map(|p| p.to_string()));
+    let tenant = k
+        .create_tenant(NewTenant {
+            slug: slug.into(),
+            name: "Acme Works".into(),
+            admin_email: format!("admin@{slug}.test"),
+            admin_password: PW.into(),
+            admin_name: None,
+            packages,
+            settings: Some(json!({"fiscal_year_start_month": 4, "timezone": "Europe/Berlin"})),
+        })
+        .await
+        .expect("tenant");
+    let session = k.login(slug, &format!("admin@{slug}.test"), PW).await.expect("login");
+    let admin = k.load_ctx(tenant, session.user, Some(session.token_version), "it".into()).await.expect("ctx");
+    let site = k.hooks.site("lms").cloned().expect("site registered");
+    T { k: k.clone(), tenant, admin, site }
+}
+
+/// Noon of `date` in the workspace's zone: an instant on which Learn's upkeep reads that date.
+fn noon(date: chrono::NaiveDate) -> chrono::DateTime<chrono::Utc> {
+    use chrono::TimeZone;
+    chrono_tz::Europe::Berlin.from_local_datetime(&date.and_hms_opt(12, 0, 0).unwrap()).unwrap().with_timezone(&chrono::Utc)
+}
+
+fn run<F: std::future::Future<Output = ()> + Send + 'static>(f: F) {
+    let _db = DB.lock().unwrap_or_else(|e| e.into_inner());
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(16 << 20).build().unwrap();
+    rt.block_on(async { tokio::spawn(f).await.unwrap() });
+}
+
+/// A published course of `lessons` article lessons with the given extra course fields.
+async fn course_of(t: &T, who: &Ctx, title: &str, lessons: usize, extra: Value) -> (Uuid, Vec<Uuid>) {
+    let mut c = json!({"title": title, "instructors": [{"instructor": who.email}]});
+    c.as_object_mut().unwrap().extend(extra.as_object().cloned().unwrap_or_default());
+    let course = uid(&t.insert(who, "LmsCourse", c).await);
+    let list: Vec<Value> = (0..lessons).map(|i| json!({"title": format!("Lesson {}", i + 1)})).collect();
+    let (_, ids) = t.chapter(who, course, "Main", &list).await;
+    t.update(who, "LmsCourse", course, json!({"status": "Published"})).await;
+    (course, ids)
+}
+
+/// Enrols `emails` by an instructor's bulk action; their enrolments by email.
+async fn enrol(t: &T, who: &Ctx, course: Uuid, emails: &[&str]) -> HashMap<String, Uuid> {
+    t.act(who, "LmsCourse", course, "enroll_learners", json!({"learners": emails.join(",")})).await;
+    let rows = t.list(&t.admin, "LmsEnrollment", json!({"course": course.to_string()})).await.unwrap();
+    rows.iter().map(|r| (r["learner"].as_str().unwrap().to_string(), uid(r))).collect()
+}
+
+/// Every lesson of the course done by the learner's enrolment.
+async fn finish(t: &T, who: &Ctx, enrolment: Uuid, lessons: &[Uuid]) {
+    for l in lessons {
+        t.act(who, "LmsEnrollment", enrolment, "complete_lesson", json!({"lesson": l.to_string()})).await;
+    }
+}
+
+fn states(report: &Value) -> BTreeMap<String, String> {
+    report["rows"].as_array().unwrap().iter().map(|r| (r["learner"].as_str().unwrap().to_string(), r["state"].as_str().unwrap().to_string())).collect()
+}
+
+#[test]
+fn due_dates_and_reminders() {
+    run(due_dates());
+}
+
+/// An enrolment is due N days after it is made (a learner cannot choose their own date; an instructor
+/// can), the report names its state on a day, and the upkeep reminds before the due date and after it
+/// exactly once each, never after completion, again when the date moves, as the course or the settings say.
+async fn due_dates() {
+    use chrono::Duration;
+    let t = boot("due", vec![], &[], |_| {}).await;
+    let manager = t.user("manager@due.test", "Mona Manager", "LMS Manager").await;
+    let [asha, ben, chen, dee] =
+        [("asha", "Asha Rao"), ("ben", "Ben Okafor"), ("chen", "Chen Wei"), ("dee", "Dee Dunn")].map(|(a, n)| (format!("{a}@due.test"), n));
+    let (mut people, mut who) = (vec![], HashMap::new());
+    for (email, name) in [&asha, &ben, &chen, &dee] {
+        let ctx = t.user(email, name, "Learner").await;
+        who.insert(email.clone(), ctx.clone());
+        people.push(ctx);
+    }
+    let today = manager.today();
+    let day = |n: i64| (today + Duration::days(n)).to_string();
+    let (course, lessons) = course_of(&t, &manager, "Fire Safety", 2, json!({"due_days": 10})).await;
+
+    // Asha tries to give herself a far date: the course's days decide. The manager sets Chen's by hand.
+    let mine = t.insert(&who[&asha.0], "LmsEnrollment", json!({"course": course.to_string(), "due_date": "2099-01-01"})).await;
+    assert_eq!(mine["due_date"], json!(day(10)));
+    let by_hand = t.insert(&manager, "LmsEnrollment", json!({"course": course.to_string(), "learner": chen.0, "due_date": day(5)})).await;
+    assert_eq!(by_hand["due_date"], json!(day(5)));
+    let all = enrol(&t, &manager, course, &[&ben.0, &dee.0]).await;
+    assert_eq!(t.get("LmsEnrollment", all[&ben.0]).await["due_date"], json!(day(10)), "worked out from the course when made by an instructor");
+    let (asha_e, chen_e) = (uid(&mine), uid(&by_hand));
+    let _ = err(t.try_update(&who[&asha.0], "LmsEnrollment", asha_e, json!({"due_date": "2099-01-01"})).await);
+
+    // States on the day: nobody has started.
+    assert!(states(&t.report(&manager, "lms_training_status", &[("as_of", day(0))]).await).values().all(|s| s == "Not Started"));
+    t.act(&who[&ben.0], "LmsEnrollment", all[&ben.0], "complete_lesson", json!({"lesson": lessons[0].to_string()})).await;
+    finish(&t, &who[&dee.0], all[&dee.0], &lessons).await;
+    let r = t.report(&manager, "lms_training_status", &[("as_of", day(6))]).await;
+    let s = states(&r);
+    assert_eq!(s[&ben.0], "In Progress");
+    assert_eq!(s[&dee.0], "Completed");
+    assert_eq!(s[&chen.0], "Overdue", "past its date on the 6th day");
+    assert_eq!(s[&asha.0], "Not Started");
+    assert_eq!(r["totals"]["overdue"], json!(1));
+    assert_eq!(r["totals"]["completion_rate"].as_str().map(|v| v.parse::<f64>().unwrap()), Some(25.0));
+    let only = t.report(&manager, "lms_training_status", &[("as_of", day(6)), ("state", "Overdue".into())]).await;
+    assert_eq!(only["rows"].as_array().unwrap().len(), 1);
+    assert_eq!(only["rows"][0]["days_overdue"], json!(1));
+
+    // Nothing yet today; the 7th day opens the three-day window of the two enrolments due on the 10th, and
+    // Chen's, due on the 5th, is a day overdue and past it.
+    ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(2))).await.unwrap();
+    assert_eq!(
+        t.notes(&who[&chen.0], "Due soon").await + t.notes(&who[&asha.0], "Due soon").await,
+        1,
+        "Chen's window (the 2nd to the 5th) is open, Asha's is not"
+    );
+    let at = noon(today + Duration::days(7));
+    finish(&t, &who[&asha.0], asha_e, &lessons).await;
+    for _ in 0..2 {
+        ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    }
+    assert_eq!(t.notes(&who[&ben.0], "Due soon").await, 1, "once, however often the upkeep runs");
+    assert_eq!(t.notes(&who[&asha.0], "Due soon").await, 0, "a completed enrolment is left alone");
+    assert_eq!(t.notes(&who[&chen.0], "Overdue").await, 1);
+    assert_eq!(t.notes(&who[&dee.0], "Due soon").await + t.notes(&who[&dee.0], "Overdue").await, 0);
+    // A new date earns the reminders again.
+    t.update(&manager, "LmsEnrollment", chen_e, json!({"due_date": day(9)})).await;
+    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    assert_eq!(t.notes(&who[&chen.0], "Due soon").await, 2, "the 9th is two days off: its window is open");
+    // The 11th: the two enrolments due on the 10th are overdue.
+    ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(11))).await.unwrap();
+    assert_eq!(t.notes(&who[&ben.0], "Overdue").await, 1);
+    assert_eq!(t.notes(&who[&chen.0], "Overdue").await, 2);
+    assert_eq!(t.notes(&who[&asha.0], "Overdue").await, 0);
+
+    // The course's own offsets win over Learn Settings, and 0 is off.
+    let (quiet, _) = course_of(&t, &manager, "Quiet", 1, json!({"due_days": 4, "due_reminder_days": 0, "overdue_reminder_days": 0})).await;
+    enrol(&t, &manager, quiet, &[&ben.0]).await;
+    ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(40))).await.unwrap();
+    assert_eq!(t.notes(&who[&ben.0], "Due soon: Quiet").await + t.notes(&who[&ben.0], "Overdue: Quiet").await, 0);
+}
