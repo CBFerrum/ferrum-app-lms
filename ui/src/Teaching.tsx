@@ -48,6 +48,24 @@ function Row({ c }: { c: TeachingCourse }) {
   );
 }
 
+/** The compliance reports the records frame draws, with their filters and CSV download. */
+export function TrainingReports() {
+  return (
+    <nav className="lms-report-links" aria-label={t("Training reports")}>
+      <span className="faint">{t("Training reports")}</span>
+      <Link className="btn btn-default btn-sm" to={paths.report("lms_training_status")}>
+        {t("Training status")}
+      </Link>
+      <Link className="btn btn-default btn-sm" to={paths.report("lms_programme_status")}>
+        {t("Programme status")}
+      </Link>
+      <Link className="btn btn-default btn-sm" to={paths.report("lms_team_training")}>
+        {t("My team's training")}
+      </Link>
+    </nav>
+  );
+}
+
 export function Teaching() {
   useShellTitle(t("Teaching"));
   const qc = useQueryClient();
@@ -74,6 +92,7 @@ export function Teaching() {
           {t("New course")}
         </Link>
       </header>
+      <TrainingReports />
       {q.error ? (
         <Failed error={q.error} onRetry={() => void q.refetch()} title={t("Could not load your courses")} />
       ) : !q.data ? (

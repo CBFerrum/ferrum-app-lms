@@ -7,6 +7,7 @@ import { AssignmentPanel } from "./Assignment";
 import { duration } from "./format";
 import { Glyph, LESSON_LABEL } from "./Glyph";
 import { embedSrc, isExternal } from "./lesson";
+import { LivePanel } from "./Live";
 import { Md } from "./Md";
 import { QuizPanel } from "./QuizPlayer";
 import { ScormLesson, XapiLesson } from "./Scorm";
@@ -136,6 +137,7 @@ export function LessonPage({
         ))}
       {l.lesson_type === "xAPI" &&
         (view.xapi ? <XapiLesson player={view.xapi} title={l.title} done={view.completed} onProgress={onProgress} /> : <Alert tone="info">{t("The package of this lesson is not in yet.")}</Alert>)}
+      {l.lesson_type === "Live" && <LivePanel sessions={view.live ?? []} learning={learning} />}
       {l.lesson_type === "Assignment" &&
         (view.assignment ? (
           <AssignmentPanel state={view.assignment} lessonId={l.id} onProgress={onProgress} />

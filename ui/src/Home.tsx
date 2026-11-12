@@ -10,11 +10,12 @@ import { Badge, PageLoading, StatePanel, useLiveEntity, useShellTitle } from "@f
 import { Failed } from "./states";
 import { getDashboard, keys } from "./api";
 import { CertificateActions } from "./Certificate";
+import { DueMarks, useDues } from "./Due";
 import { dueLabel, duration, sessionStart } from "./format";
 import { Glyph, LESSON_LABEL } from "./Glyph";
 import { paths } from "./lesson";
 import { Cover, LearnTabs, ProgressLine } from "./parts";
-import type { DueAssignment, MyCourse } from "./types";
+import type { DueAssignment, EnrolmentDue, MyCourse } from "./types";
 
 const DUE_TONE: Record<DueAssignment["status"], "neutral" | "blue" | "amber" | "red"> = {
   "Not Submitted": "neutral",
@@ -63,7 +64,7 @@ function Hero({ c }: { c: MyCourse }) {
   );
 }
 
-function CourseTile({ c }: { c: MyCourse }) {
+function CourseTile({ c, dues }: { c: MyCourse; dues: Map<string, EnrolmentDue> }) {
   const done = c.status === "Completed";
   return (
     <article className="lms-card">
@@ -85,6 +86,7 @@ function CourseTile({ c }: { c: MyCourse }) {
           <>
             {c.next_lesson && <p className="lms-card-summary">{t("Next: {title}", { title: c.next_lesson.title })}</p>}
             <ProgressLine value={c.progress_percent} label={t("Your progress in {title}", { title: c.course.title })} />
+            <DueMarks enrollment={c.enrollment} dues={dues} />
           </>
         )}
         <p className="lms-card-by faint">
@@ -102,6 +104,7 @@ export function Home() {
   const q = useQuery({ queryKey: keys.dashboard, queryFn: getDashboard });
   useLiveEntity("LmsEnrollment", useCallback(() => void qc.invalidateQueries({ queryKey: keys.dashboard }), [qc]));
   const data = q.data;
+  const dues = useDues();
   const slugOf = useMemo(() => new Map((data?.courses ?? []).map((c) => [c.course.id, c.course.slug])), [data]);
   const active = (data?.courses ?? []).filter((c) => c.status === "Active");
   const hero = active.find((c) => c.next_lesson) ?? active[0];
@@ -151,7 +154,7 @@ export function Home() {
               <h2 className="lms-group">{t("Your courses")}</h2>
               <div className="lms-grid">
                 {data.courses.map((c) => (
-                  <CourseTile key={c.enrollment} c={c} />
+                  <CourseTile key={c.enrollment} c={c} dues={dues} />
                 ))}
               </div>
             </section>
@@ -243,6 +246,9 @@ export function Home() {
               </ul>
             </section>
           )}
+          <p className="faint">
+            {t("Managing people?")} <Link to={paths.report("lms_team_training")}>{t("See your team's training")}</Link>
+          </p>
         </>
       )}
     </div>
