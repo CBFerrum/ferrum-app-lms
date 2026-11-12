@@ -663,6 +663,14 @@ async fn grade_answers(k: &Kernel, ctx: &Ctx, tx: &mut Tx, attempt: &Doc, params
     if let Some(e) = id(&done, "enrollment") {
         crate::gradebook::changed(k, ctx, tx, e).await?;
     }
+    // The last answer a person grades was graded: the learner is told the result is final.
+    if s(&done, "status") != Some(AWAITING) {
+        let course = load(k, ctx, tx, "LmsCourse", id(&done, "course").unwrap_or_default()).await?;
+        let mut values = Map::new();
+        values.insert("title".into(), quiz.get("title").cloned().unwrap_or(Value::Null));
+        values.insert("course_title".into(), course.get("title").cloned().unwrap_or(Value::Null));
+        util::tell(k, ctx, tx, "lms.grading_done", "LmsQuizAttempt", doc_id(&done)?, &[s(&done, "learner").unwrap_or_default().to_string()], values).await?;
+    }
     Ok(json!({"attempt": done}))
 }
 

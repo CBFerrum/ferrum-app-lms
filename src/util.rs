@@ -258,6 +258,35 @@ pub fn file_id(path: &str) -> Option<Uuid> {
     rest.strip_prefix("public/").unwrap_or(rest).parse().ok()
 }
 
+/// Tells `to` (addresses; people with an account by their account) through the package's message template `template`
+/// about the record `entity`/`record`, in the caller's transaction.
+pub async fn tell(
+    k: &Kernel,
+    ctx: &Ctx,
+    tx: &mut Tx,
+    template: &str,
+    entity: &str,
+    record: Uuid,
+    to: &[String],
+    values: serde_json::Map<String, Value>,
+) -> Result<()> {
+    use ferrum_kernel::messages::{Message, Recipient};
+    if to.is_empty() {
+        return Ok(());
+    }
+    let found = users(tx, ctx.tenant, to).await?;
+    let people: Vec<Recipient> = to
+        .iter()
+        .map(|e| match found.iter().find(|u| same_email(&u.email, e)) {
+            Some(u) => Recipient { user: Some(u.id), email: Some(u.email.clone()), ..Default::default() },
+            None => Recipient::address(e),
+        })
+        .collect();
+    let m = Message { template: template.into(), entity: Some(entity.into()), record: Some(record), to: people, values, ..Default::default() };
+    ferrum_kernel::messages::send(k, tx, &sys(ctx), &m).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
