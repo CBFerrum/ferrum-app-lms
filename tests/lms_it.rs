@@ -1410,6 +1410,126 @@ async fn paid() {
     let enrolled = t.list(&dev, "LmsEnrollment", json!({})).await.unwrap();
     assert_eq!((enrolled.len(), enrolled[0]["status"].clone()), (1, json!("Active")), "enrolled on payment");
     assert_eq!(t.page(Some(&dev), &format!("lessons/{}", lessons[0])).await["lesson"]["title"], json!("Moves"));
+
+    // ───────────── a code on the order: ERP's promotion for the Learn channel; a bad code refuses ─────────────
+    let promo = |v: Value| {
+        let mut p = json!({"company": company.to_string(), "priority": 1});
+        p.as_object_mut().unwrap().extend(v.as_object().cloned().unwrap());
+        p
+    };
+    let twenty = uid(&t
+        .insert(
+            &a,
+            "Promotion",
+            promo(json!({"title": "Learn 20", "gives": "Percent Off the Document", "percent": "20", "requires_code": true, "channels": "Learn"})),
+        )
+        .await);
+    t.insert(&a, "PromotionCode", json!({"code": "LEARN20", "promotion": twenty.to_string()})).await;
+    let shop = uid(&t
+        .insert(
+            &a,
+            "Promotion",
+            promo(json!({"title": "Shop 50", "gives": "Percent Off the Document", "percent": "50", "requires_code": true, "channels": "Web Shop"})),
+        )
+        .await);
+    t.insert(&a, "PromotionCode", json!({"code": "SHOP50", "promotion": shop.to_string()})).await;
+    assert!(field_error(t.try_act(&chen, "LmsCourse", cid, "buy", json!({"codes": "NOPE1"})).await, "promotion_codes").contains("cannot be used"));
+    assert_eq!(
+        t.count(
+            "select count(*) from e_lms_course_purchase where tenant_id = $1 and course = $2 and learner = $3 and status <> 'Cancelled'",
+            cid,
+            "chen@academy.test"
+        )
+        .await,
+        0,
+        "a refused code leaves nothing"
+    );
+    let bought = t.act(&chen, "LmsCourse", cid, "buy", json!({"codes": "learn20, shop50"})).await;
+    assert_eq!(dec(&bought["purchase"]["amount"]), n("1200"), "20% off on Learn; the shop's code gives nothing here");
+    let chens = vid(&bought["purchase"]["id"]);
+    let p = t.get("LmsCoursePurchase", chens).await;
+    let chen_invoice = vid(&p["sales_invoice"]);
+    assert_eq!(t.get("SalesInvoice", chen_invoice).await["channel"], json!("Learn"));
+    t.act(&fakepay, "PaymentRequest", vid(&p["payment_request"]), "mark_paid", json!({"amount": "1200", "currency": "INR", "gateway_reference": "pi_c"})).await;
+    let chen_enrolment = vid(&t.get("LmsCoursePurchase", chens).await["enrollment"]);
+    assert_eq!(t.get("LmsEnrollment", chen_enrolment).await["status"], json!("Active"));
+    assert_eq!(dec(&t.get("Promotion", twenty).await["used_count"]), n("1"), "counted once");
+
+    // ───────────── the store refunds it (a credit note against its invoice): access ends, progress kept ─────────────
+    t.act(&chen, "LmsEnrollment", chen_enrolment, "complete_lesson", json!({"lesson": lessons[0].to_string()})).await;
+    let note = vid(&t.act(&a, "SalesInvoice", chen_invoice, "make_credit_note", json!({})).await["id"]);
+    t.k.submit(&a, "SalesInvoice", note, None).await.expect("credit note");
+    let credited = t.get("SalesInvoice", note).await;
+    assert_eq!(dec(&credited["grand_total"]), n("-1200"), "what was paid, the promotion's share kept: {:?}", credited["items"]);
+    let e = t.get("LmsEnrollment", chen_enrolment).await;
+    assert_eq!((e["status"].clone(), dec(&e["progress_percent"])), (json!("Withdrawn"), n("50")));
+    assert_eq!(t.get("LmsCoursePurchase", chens).await["status"], json!("Refund Requested"));
+
+    // ───────────── a bundle: two courses at one price, on one invoice, enrolled on one payment ─────────────
+    let paid_course = |title: &'static str, code: &'static str| {
+        let t = &t;
+        let teacher = &teacher;
+        let item = item(code);
+        async move {
+            let it = uid(&t.insert(&t.admin, "Item", item).await);
+            let c =
+                uid(&t.insert(teacher, "LmsCourse", json!({"title": title, "visibility": "Public", "lpay_price": "1000", "lpay_item": it.to_string()})).await);
+            t.chapter(teacher, c, "One", &[json!({"title": "Only"})]).await;
+            t.update(teacher, "LmsCourse", c, json!({"status": "Published"})).await;
+            (c, it)
+        }
+    };
+    let (async_rust, async_item) = paid_course("Async Rust", "ASYNC").await;
+    let (unsafe_rust, unsafe_item) = paid_course("Unsafe Rust", "UNSAFE").await;
+    let pair = uid(&t
+        .insert(
+            &a,
+            "Promotion",
+            promo(json!({"title": "Two for 1500", "gives": "Bundle Price", "amount": "1500", "channels": "Learn",
+        "bundle_items": [{"item": async_item.to_string(), "qty": "1"}, {"item": unsafe_item.to_string(), "qty": "1"}]})),
+        )
+        .await);
+    assert!(
+        field_error(
+            t.try_insert(
+                &manager,
+                "LmsCourseBundle",
+                json!({"title": "Wrong", "promotion": twenty.to_string(),
+        "courses": [{"course": async_rust.to_string()}]})
+            )
+            .await,
+            "promotion"
+        )
+        .contains("Bundle Price")
+    );
+    let bundle = t
+        .insert(
+            &manager,
+            "LmsCourseBundle",
+            json!({"title": "Rust in Depth", "promotion": pair.to_string(),
+        "courses": [{"course": async_rust.to_string()}, {"course": unsafe_rust.to_string()}]}),
+        )
+        .await;
+    assert_eq!(dec(&bundle["price"]), n("1500"));
+    let bought = t.act(&ben, "LmsCourseBundle", uid(&bundle), "buy", json!({})).await;
+    let list = bought["purchases"].as_array().unwrap();
+    assert_eq!(list.iter().map(|p| dec(&p["amount"])).collect::<Vec<_>>(), vec![n("750"), n("750")], "the bundle's price shared out");
+    let again = t.act(&ben, "LmsCourseBundle", uid(&bundle), "buy", json!({})).await;
+    assert_eq!(again["purchases"][0]["id"], list[0]["id"], "asked again, not invoiced twice");
+    let first = t.get("LmsCoursePurchase", vid(&list[0]["id"])).await;
+    let second = t.get("LmsCoursePurchase", vid(&list[1]["id"])).await;
+    assert_eq!((first["sales_invoice"].clone(), first["payment_request"].clone()), (second["sales_invoice"].clone(), second["payment_request"].clone()));
+    assert_eq!(dec(&t.get("SalesInvoice", vid(&first["sales_invoice"])).await["grand_total"]), n("1500"));
+    t.act(&fakepay, "PaymentRequest", vid(&first["payment_request"]), "mark_paid", json!({"amount": "1500", "currency": "INR", "gateway_reference": "pi_b"}))
+        .await;
+    for c in [async_rust, unsafe_rust] {
+        assert_eq!(
+            t.count("select count(*) from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3 and status = 'Active'", c, "ben@academy.test")
+                .await,
+            1
+        );
+    }
+    assert!(t.try_act(&ben, "LmsCourseBundle", uid(&bundle), "buy", json!({})).await.is_err(), "bought: nothing more to buy");
 }
 
 #[test]

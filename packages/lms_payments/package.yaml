@@ -12,7 +12,8 @@ overlays:
           description: "Learners pay it on the course page before they are enrolled, in the company's currency. Empty or 0: free"}}
       - {op: add_field, column: true, after: lpay_price, field: {name: lpay_item, type: link, to: Item, label: Sold As, required_if: "doc.lpay_price > 0.0",
           description: "The item its invoices carry: its income account and taxes apply"}}
-      - {op: add_action, action: {name: buy, label: Buy, permission: read, condition: "doc.lpay_price > 0.0 && doc.status == 'Published'", hidden: true}}
+      - {op: add_action, action: {name: buy, label: Buy, permission: read, condition: "doc.lpay_price > 0.0 && doc.status == 'Published'", hidden: true,
+          params: [{name: codes, type: data, label: Promotion Codes, description: "Codes the buyer gives, if any"}]}}
   - entity: LmsSettings
     ops:
       - {op: add_field, column: true, field: {name: lpay_company, type: link, to: Company, label: Selling Company,
@@ -27,19 +28,24 @@ roles:
   - name: LMS Manager
     permissions:
       - {entity: LmsCoursePurchase, read: true, write: true, export: true}
+      - {entity: LmsCourseBundle, read: true, write: true, create: true, delete: true}
+      - {entity: Promotion, read: true}
       - {entity: Item, read: true}
       - {entity: Company, read: true}
   - name: Instructor
     permissions:
       - {entity: LmsCoursePurchase, read: true}
+      - {entity: LmsCourseBundle, read: true}
       - {entity: Item, read: true}
   - name: Learner
     permissions:
       - {entity: LmsCoursePurchase, read: true, if_owner: true}
+      - {entity: LmsCourseBundle, read: true, where: {on_sale: true}}
   - name: Online Learner
     portal: true
     permissions:
       - {entity: LmsCoursePurchase, read: true, if_owner: true}
+      - {entity: LmsCourseBundle, read: true, where: {on_sale: true}}
 
 personal_data:
   - {entity: LmsCoursePurchase, match: learner, erase: [learner, learner_name]}
