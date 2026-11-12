@@ -36,9 +36,9 @@ export function Glyph({ name, size = 16 }: { name: string; size?: number }) {
   );
 }
 
-const BY_TYPE: Record<LessonType, string> = { Article: "article", Video: "play", Document: "doc", Quiz: "quiz", Assignment: "assignment", SCORM: "package", xAPI: "package", LTI: "link" };
+const BY_TYPE: Record<LessonType, string> = { Article: "article", Video: "play", Document: "doc", Quiz: "quiz", Assignment: "assignment", SCORM: "package", xAPI: "package", LTI: "link", Live: "users" };
 
 export const lessonGlyph = (type: LessonType) => BY_TYPE[type] ?? "article";
 
 /** What to call a kind of lesson. */
-export const LESSON_LABEL: Record<LessonType, string> = { get Article() { return t("Reading"); }, get Video() { return t("Video"); }, get Document() { return t("Document"); }, get Quiz() { return t("Quiz"); }, get Assignment() { return t("Assignment"); }, get SCORM() { return t("SCORM package"); }, get xAPI() { return t("xAPI package"); }, get LTI() { return t("External tool"); } };
+export const LESSON_LABEL: Record<LessonType, string> = { get Article() { return t("Reading"); }, get Video() { return t("Video"); }, get Document() { return t("Document"); }, get Quiz() { return t("Quiz"); }, get Assignment() { return t("Assignment"); }, get SCORM() { return t("SCORM package"); }, get xAPI() { return t("xAPI package"); }, get LTI() { return t("External tool"); }, get Live() { return t("Live session"); } };

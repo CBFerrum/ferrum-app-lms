@@ -299,6 +299,11 @@ export function PublicLesson() {
 
 // ───────────────────────────── a certificate ─────────────────────────────
 
+/** What the check says of a certificate that is not valid, by its stored state. */
+function certificateHeading(status: string): string {
+  return status === "Expired" ? tr("This certificate has expired") : status === "Superseded" ? tr("This certificate was replaced by a newer one") : tr("This certificate was revoked");
+}
+
 export function PublicCertificate() {
   const { workspace = "", code = "" } = useParams();
   const q = useQuery({ queryKey: ["lms", "public", workspace, "certificate", code], queryFn: () => checkCertificate(workspace, code), staleTime: 0 });
@@ -322,7 +327,8 @@ export function PublicCertificate() {
           <span className="lms-done-mark">
             <Glyph name={q.data.valid ? "award" : "alert"} size={28} />
           </span>
-          <h1>{q.data.valid ? tr("This certificate is valid") : tr("This certificate was revoked")}</h1>
+          <h1>{q.data.valid ? tr("This certificate is valid") : certificateHeading(q.data.status)}</h1>
+          {q.data.status === "Superseded" && <p className="muted">{tr("A newer certificate for this course replaced it.")}</p>}
           <dl className="lms-facts lms-cert-facts">
             <div>
               <dt>{tr("Awarded to")}</dt>
@@ -340,6 +346,12 @@ export function PublicCertificate() {
               <div>
                 <dt>{tr("By")}</dt>
                 <dd>{isolate(q.data.issuer)}</dd>
+              </div>
+            )}
+            {q.data.expires_on && (
+              <div>
+                <dt>{q.data.status === "Expired" ? tr("Expired") : tr("Valid until")}</dt>
+                <dd>{formatDate(q.data.expires_on)}</dd>
               </div>
             )}
             <div>

@@ -8,6 +8,7 @@ import { useSearchParams } from "react-router";
 import { errorMessage, t, isolate } from "@ferrum/client";
 import { Alert, Badge, Button, confirmDialog, Icon, StatePanel, PageLoading, toast, useDebounced, useLiveEntity, useShellTitle } from "@ferrum/kit";
 import { Failed } from "./states";
+import { DueMarks, useDues } from "./Due";
 import { getCatalog, getCategories, joinPath, keys } from "./api";
 import { type Filters, filtersFrom, hasFilters, LEVELS, paramsFor, queryFor } from "./filters";
 import { paths } from "./lesson";
@@ -46,6 +47,7 @@ export function Catalog() {
     queryFn: ({ pageParam }) => getCatalog(queryFor(f, pageParam || undefined)),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
   });
+  const dues = useDues();
   const categories = useQuery({ queryKey: keys.categories, queryFn: getCategories, staleTime: 300_000 });
   useLiveEntity("LmsCourse", useCallback(() => void qc.invalidateQueries({ queryKey: ["lms", "catalog"] }), [qc]));
 
@@ -161,7 +163,7 @@ export function Catalog() {
           <h2 className="sr-only">{t("Courses")}</h2>
           <div className="lms-grid">
             {courses.map((c) => (
-              <CourseCard key={c.id} card={c} to={paths.course(c.slug)} />
+              <CourseCard key={c.id} card={c} to={paths.course(c.slug)} extra={c.my_enrollment?.status === "Active" ? <DueMarks enrollment={c.my_enrollment.id} dues={dues} /> : undefined} />
             ))}
           </div>
           {catalog.hasNextPage && (
