@@ -114,39 +114,60 @@ pub async fn matching(ctx: &Ctx, tx: &mut Tx, rule: &Doc) -> Result<Vec<String>>
     Ok(qb.build_query_scalar().fetch_all(&mut **tx).await?)
 }
 
-/// What a rule would do now: who matches, the course they would be enrolled in (when it takes enrolments)
-/// and the matching people with no enrolment in it yet.
+/// One course a rule enrols into, with the days after matching it is due (0: the course's own).
+struct Target {
+    course: Uuid,
+    days: i64,
+}
+
+/// What a rule would do now: who matches, the open courses they would be enrolled in (the rule's course, or
+/// each course of its programme) and the (target, person) pairs that have no enrolment yet.
 struct Plan {
     matching: Vec<String>,
-    course: Option<Uuid>,
-    missing: Vec<String>,
+    programme: Option<Uuid>,
+    targets: Vec<Target>,
+    missing: Vec<(usize, String)>,
 }
 
 async fn plan(k: &Kernel, ctx: &Ctx, tx: &mut Tx, rule: &Doc) -> Result<Plan> {
     let matching = matching(ctx, tx, rule).await?;
-    let course = match id(rule, "course") {
-        Some(c) => load(k, ctx, tx, "LmsCourse", c).await.ok().filter(|c| s(c, "status") == Some("Published")).and_then(|c| id(&c, "id")),
-        None => None,
-    };
-    let missing = match course {
-        Some(c) => {
-            let have: HashSet<String> = sqlx::query_scalar("select lower(learner) from e_lms_enrollment where tenant_id = $1 and course = $2")
-                .bind(ctx.tenant)
-                .bind(c)
-                .fetch_all(&mut **tx)
-                .await?
-                .into_iter()
-                .collect();
-            matching.iter().filter(|e| !have.contains(*e)).cloned().collect()
+    let programme = id(rule, "programme");
+    let mut wanted: Vec<(Uuid, i64)> = vec![];
+    if let Some(p) = programme {
+        for row in rows(&load(k, ctx, tx, "LmsProgramme", p).await?, "courses") {
+            if let Some(c) = id(&row, "course") {
+                wanted.push((c, if int(&row, "due_days") > 0 { int(&row, "due_days") } else { int(rule, "due_days") }));
+            }
         }
-        None => vec![],
-    };
-    Ok(Plan { matching, course, missing })
+    } else if let Some(c) = id(rule, "course") {
+        wanted.push((c, int(rule, "due_days")));
+    }
+    let mut targets = vec![];
+    for (c, days) in wanted {
+        if load(k, ctx, tx, "LmsCourse", c).await.is_ok_and(|c| s(&c, "status") == Some("Published")) {
+            targets.push(Target { course: c, days });
+        }
+    }
+    let mut missing = vec![];
+    for (i, t) in targets.iter().enumerate() {
+        let have: HashSet<String> = sqlx::query_scalar("select lower(learner) from e_lms_enrollment where tenant_id = $1 and course = $2")
+            .bind(ctx.tenant)
+            .bind(t.course)
+            .fetch_all(&mut **tx)
+            .await?
+            .into_iter()
+            .collect();
+        missing.extend(matching.iter().filter(|e| !have.contains(*e)).map(|e| (i, e.clone())));
+    }
+    Ok(Plan { matching, programme, targets, missing })
 }
 
 #[async_trait]
 impl DocHook for RuleHook {
     async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
+        if id(doc, "course").is_some() == id(doc, "programme").is_some() {
+            return Err(Error::field("course", "name a course or a programme, not both and not neither"));
+        }
         criteria(hc.ctx, hc.tx, doc).await.map(|_| ())
     }
 
@@ -155,10 +176,53 @@ impl DocHook for RuleHook {
             return Ok(None);
         }
         let p = plan(hc.kernel, hc.ctx, hc.tx, doc).await?;
+        let people: HashSet<&String> = p.missing.iter().map(|(_, e)| e).collect();
         Ok(Some(json!({
-            "matching": p.matching.len(), "would_enrol": p.missing.len(), "already_enrolled": if p.course.is_some() { p.matching.len() - p.missing.len() } else { 0 },
-            "course_open": p.course.is_some(), "switched_on": b(doc, "active"),
+            "matching": p.matching.len(), "would_enrol": people.len(), "enrolments": p.missing.len(), "open_courses": p.targets.len(),
+            "already_enrolled": p.matching.len() - people.len(), "switched_on": b(doc, "active"),
         })))
+    }
+}
+
+/// Everyone a programme is for: those enrolled through it and those its switched-on rules match now.
+pub async fn audience(k: &Kernel, ctx: &Ctx, tx: &mut Tx, programme: Uuid) -> Result<Vec<String>> {
+    let mut out: HashSet<String> = sqlx::query_scalar("select lower(learner) from e_lms_enrollment where tenant_id = $1 and programme = $2")
+        .bind(ctx.tenant)
+        .bind(programme)
+        .fetch_all(&mut **tx)
+        .await?
+        .into_iter()
+        .collect();
+    let rules: Vec<Uuid> = sqlx::query_scalar("select id from e_lms_enrollment_rule where tenant_id = $1 and programme = $2 and active")
+        .bind(ctx.tenant)
+        .bind(programme)
+        .fetch_all(&mut **tx)
+        .await?;
+    for r in rules {
+        let rule = load(k, ctx, tx, "LmsEnrollmentRule", r).await?;
+        match matching(ctx, tx, &rule).await {
+            Ok(people) => out.extend(people),
+            Err(Error::Validation(_)) => {}
+            Err(e) => return Err(e),
+        }
+    }
+    let mut out: Vec<String> = out.into_iter().collect();
+    out.sort();
+    Ok(out)
+}
+
+/// A programme lists each course once.
+pub struct ProgrammeHook;
+
+#[async_trait]
+impl DocHook for ProgrammeHook {
+    async fn validate(&self, _hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
+        let mut seen = HashSet::new();
+        let dup = rows(doc, "courses").iter().position(|r| id(r, "course").is_some_and(|c| !seen.insert(c)));
+        match dup {
+            Some(i) => Err(Error::Validation(vec![FieldError::new("course", "is listed twice").in_row("courses", i)])),
+            None => Ok(()),
+        }
     }
 }
 
@@ -188,19 +252,20 @@ pub async fn apply(k: &Kernel, ctx: &Ctx, at: chrono::DateTime<chrono::Utc>) -> 
                 Err(e) => return Err(e),
             };
             let mut n = 0;
-            if let Some(course) = p.course {
-                let days = int(&rule, "due_days");
-                for learner in &p.missing {
-                    let mut extra = Doc::new();
-                    extra.insert("rule".into(), json!(rule_id.to_string()));
-                    if days > 0 {
-                        extra.insert("due_date".into(), json!((util::today_at(ctx, at) + chrono::Duration::days(days)).to_string()));
-                    }
-                    match enrollment::try_enroll_with(k, ctx, &mut tx, course, learner, None, extra).await? {
-                        Outcome::Enrolled(_) => n += 1,
-                        Outcome::Already(_) => {}
-                        Outcome::Refused(why) => tracing::warn!(rule = %rule_id, %learner, "learn: enrolment rule could not enrol: {why}"),
-                    }
+            for (i, learner) in &p.missing {
+                let target = &p.targets[*i];
+                let mut extra = Doc::new();
+                extra.insert("rule".into(), json!(rule_id.to_string()));
+                if let Some(pr) = p.programme {
+                    extra.insert("programme".into(), json!(pr.to_string()));
+                }
+                if target.days > 0 {
+                    extra.insert("due_date".into(), json!((util::today_at(ctx, at) + chrono::Duration::days(target.days)).to_string()));
+                }
+                match enrollment::try_enroll_with(k, ctx, &mut tx, target.course, learner, None, extra).await? {
+                    Outcome::Enrolled(_) => n += 1,
+                    Outcome::Already(_) => {}
+                    Outcome::Refused(why) => tracing::warn!(rule = %rule_id, %learner, "learn: enrolment rule could not enrol: {why}"),
                 }
             }
             if s(&rule, "when_no_longer_matching") == Some("Withdraw If Not Started") {

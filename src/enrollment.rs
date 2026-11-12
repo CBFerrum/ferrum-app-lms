@@ -554,12 +554,14 @@ pub async fn recertify(k: &Kernel, ctx: &Ctx, at: chrono::DateTime<chrono::Utc>)
         .await?
         .flatten()
         .unwrap_or(30i64);
-    let due: Vec<(Uuid, Uuid, String, i64, NaiveDate)> = sqlx::query_as(
-        "select e.id, e.course, e.learner, coalesce(e.cycle, 1), c.expires_on from e_lms_enrollment e \
+    let due: Vec<(Uuid, Uuid, String, i64, NaiveDate, Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
+        "select e.id, e.course, e.learner, coalesce(e.cycle, 1), c.expires_on, e.rule, e.programme from e_lms_enrollment e \
          join e_lms_certificate c on c.tenant_id = e.tenant_id and c.id = e.certificate \
          join e_lms_course co on co.tenant_id = e.tenant_id and co.id = e.course \
          where e.tenant_id = $1 and e.status = 'Completed' and c.status in ('Valid', 'Expired') and c.expires_on is not null \
            and co.status = 'Published' and coalesce(co.recertify_before_days, $2) > 0 \
+           and (e.programme is null or coalesce((select pc.repeats from e_lms_programme__courses pc where pc.tenant_id = e.tenant_id \
+                and pc.parent_id = e.programme and pc.course = e.course limit 1), true)) \
            and $3 >= c.expires_on - coalesce(co.recertify_before_days, $2)::int \
            and not exists (select 1 from e_lms_enrollment n where n.tenant_id = e.tenant_id and n.previous = e.id) \
            and exists (select 1 from app_user u where u.tenant_id = e.tenant_id and u.is_active and lower(u.email::text) = lower(e.learner)) \
@@ -571,7 +573,7 @@ pub async fn recertify(k: &Kernel, ctx: &Ctx, at: chrono::DateTime<chrono::Utc>)
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
-    for (previous, course, learner, cycle, expires) in &due {
+    for (previous, course, learner, cycle, expires, rule, programme) in &due {
         ferrum_kernel::with_retry(|| async {
             let mut tx = k.db.tenant_tx(ctx.tenant).await?;
             let doc = obj(&[
@@ -581,6 +583,11 @@ pub async fn recertify(k: &Kernel, ctx: &Ctx, at: chrono::DateTime<chrono::Utc>)
                 ("cycle", json!(cycle + 1)),
                 ("due_date", json!(expires.to_string())),
             ]);
+            let doc: Doc = doc
+                .into_iter()
+                .chain(rule.map(|r| ("rule".to_string(), json!(r.to_string()))))
+                .chain(programme.map(|p| ("programme".to_string(), json!(p.to_string()))))
+                .collect();
             k.insert_tx(ctx, &mut tx, "LmsEnrollment", doc).await?;
             tx.commit().await?;
             Ok(())

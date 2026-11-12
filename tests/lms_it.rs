@@ -2579,7 +2579,7 @@ async fn rules_for_users() {
     assert_eq!(night_made.iter().map(|r| r["learner"].clone()).collect::<Vec<_>>(), vec![json!(email("dee"))]);
     assert_eq!(night_made[0]["due_date"], Value::Null, "no due days anywhere");
     assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"course": draft.to_string()})).await.unwrap().len(), 0);
-    assert_eq!(t.act(&manager, "LmsEnrollmentRule", wip, "preview", json!({})).await["course_open"], json!(false));
+    assert_eq!(t.act(&manager, "LmsEnrollmentRule", wip, "preview", json!({})).await["open_courses"], json!(0));
     t.sql("delete from scim_group_member where tenant_id = $1 and user_id = $2", dee.user).await;
     ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
     assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"course": other.to_string()})).await.unwrap()[0]["status"], json!("Active"), "Keep is the default");
@@ -2683,4 +2683,100 @@ async fn rules_for_employees() {
     ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
     assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"learner": email("ben")})).await.unwrap().len(), 1);
     let _ = lessons;
+}
+
+#[test]
+fn training_programme() {
+    run(programme());
+}
+
+/// A programme's rule enrols its audience in each open course with that course's own due days; the
+/// report shows every person and course (those not enrolled yet too) with state, dates and totals; and
+/// only the courses marked to repeat are enrolled again when their certificates near expiry.
+async fn programme() {
+    use chrono::Duration;
+    let t = boot("prog", vec![], &[], |_| {}).await;
+    let manager = t.user("manager@prog.test", "Mona Manager", "LMS Manager").await;
+    let mut who = HashMap::new();
+    for n in ["asha", "ben"] {
+        who.insert(n, t.user(&format!("{n}@prog.test"), n, "Learner").await);
+    }
+    let email = |n: &str| format!("{n}@prog.test");
+    let today = manager.today();
+    let day = |n: i64| (today + Duration::days(n)).to_string();
+    let valid = json!({"issue_certificate": true, "certificate_valid_days": 30, "recertify_before_days": 5});
+    let (fire, fire_l) = course_of(&t, &manager, "Fire Drill", 1, valid.clone()).await;
+    let (data, data_l) = course_of(&t, &manager, "Data Handling", 1, valid).await;
+    let (later, _) = course_of(&t, &manager, "Not Ready", 1, json!({})).await;
+    t.update(&manager, "LmsCourse", later, json!({"status": "Draft"})).await;
+    let prog = |courses: Value| json!({"programme_name": "Annual compliance", "courses": courses});
+    assert!(t.try_insert(&manager, "LmsProgramme", prog(json!([{"course": fire.to_string()}, {"course": fire.to_string()}]))).await.is_err(), "a course once");
+    let programme = uid(&t
+        .insert(
+            &manager,
+            "LmsProgramme",
+            prog(json!([
+                {"course": fire.to_string(), "due_days": 7, "repeats": true},
+                {"course": data.to_string(), "due_days": 20, "repeats": false},
+                {"course": later.to_string(), "due_days": 5},
+            ])),
+        )
+        .await);
+    assert!(
+        t.try_insert(&manager, "LmsEnrollmentRule", json!({"rule_name": "Both", "course": fire.to_string(), "programme": programme.to_string()}))
+            .await
+            .is_err()
+    );
+    assert!(t.try_insert(&manager, "LmsEnrollmentRule", json!({"rule_name": "Neither"})).await.is_err());
+    let rule = uid(&t
+        .insert(
+            &manager,
+            "LmsEnrollmentRule",
+            json!({"rule_name": "Everyone", "programme": programme.to_string(), "active": true, "criteria": [{"field": "role", "value": "Learner"}]}),
+        )
+        .await);
+    let p = t.act(&manager, "LmsEnrollmentRule", rule, "preview", json!({})).await;
+    assert_eq!(
+        (p["matching"].clone(), p["would_enrol"].clone(), p["enrolments"].clone(), p["open_courses"].clone()),
+        (json!(2), json!(2), json!(4), json!(2)),
+        "two people, two open courses"
+    );
+    ferrum_app_lms::maintenance_at(&t.k, noon(today)).await.unwrap();
+    let mine = |c: Uuid, n: &str| t.list(&t.admin, "LmsEnrollment", json!({"course": c.to_string(), "learner": email(n)}));
+    let (a_fire, a_data, b_fire) = (mine(fire, "asha").await.unwrap(), mine(data, "asha").await.unwrap(), mine(fire, "ben").await.unwrap());
+    assert_eq!((a_fire[0]["due_date"].clone(), a_data[0]["due_date"].clone()), (json!(day(7)), json!(day(20))), "each course's own offset");
+    assert_eq!((a_fire[0]["programme"].clone(), a_fire[0]["rule"].clone()), (json!(programme.to_string()), json!(rule.to_string())));
+
+    let report = |as_of: i64| {
+        let (t, params) = (&t, [("programme", programme.to_string()), ("as_of", day(as_of))]);
+        let manager = manager.clone();
+        async move { t.report(&manager, "lms_programme_status", &params).await }
+    };
+    let r = report(0).await;
+    assert_eq!(r["rows"].as_array().unwrap().len(), 6, "each person and each course, enrolled or not");
+    assert_eq!((r["totals"]["not_enrolled"].clone(), r["totals"]["not_started"].clone()), (json!(2), json!(4)));
+    finish(&t, &who["asha"], uid(&a_fire[0]), &fire_l).await;
+    finish(&t, &who["asha"], uid(&a_data[0]), &data_l).await;
+    finish(&t, &who["ben"], uid(&b_fire[0]), &fire_l).await;
+    let r = report(21).await;
+    let state = |r: &Value, n: &str, c: &str| {
+        r["rows"].as_array().unwrap().iter().find(|x| x["learner"] == json!(email(n)) && x["course_title"] == json!(c)).map(|x| x["state"].clone()).unwrap()
+    };
+    assert_eq!(state(&r, "asha", "Fire Drill"), json!("Completed"));
+    assert_eq!(state(&r, "ben", "Data Handling"), json!("Overdue"), "due on the 20th");
+    assert_eq!(state(&r, "ben", "Not Ready"), json!("Not Enrolled"));
+    let tot = &r["totals"];
+    assert_eq!((tot["completed"].clone(), tot["overdue"].clone(), tot["enrolments"].clone()), (json!(3), json!(1), json!(6)));
+    assert_eq!(tot["completion_rate"].as_str().map(|v| v.parse::<f64>().unwrap()), Some(50.0));
+    let overdue = r["rows"].as_array().unwrap().iter().find(|x| x["state"] == json!("Overdue")).unwrap();
+    assert_eq!(overdue["days_overdue"], json!(1));
+
+    // Near expiry: only the course that repeats is enrolled again, in the same programme.
+    ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(26))).await.unwrap();
+    assert_eq!(mine(data, "asha").await.unwrap().len(), 1, "Data Handling does not repeat");
+    let again = mine(fire, "asha").await.unwrap();
+    let c2 = again.iter().find(|r| r["cycle"] == json!(2)).expect("the repeat");
+    assert_eq!((c2["programme"].clone(), c2["rule"].clone(), c2["due_date"].clone()), (json!(programme.to_string()), json!(rule.to_string()), json!(day(30))));
+    let r = report(26).await;
+    assert_eq!(state(&r, "asha", "Fire Drill"), json!("Not Started"), "the latest cycle is the one shown");
 }
