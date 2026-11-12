@@ -534,6 +534,23 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
             let body = scorm::entry(&data, &path)?.ok_or_else(|| not_found("file"))?;
             return Ok(scorm::respond(&path, body));
         }
+        ["lessons", lesson, kind @ ("video" | "captions")] => {
+            // An uploaded video and its captions: for whoever may open the lesson, by a link signed for them.
+            let lesson = match load(k, user, &mut tx, "LmsLesson", uuid(lesson)?).await {
+                Ok(l) => l,
+                Err(Error::NotFound(_)) => return Err(not_found("video")),
+                Err(e) => return Err(e),
+            };
+            let course = load(k, user, &mut tx, "LmsCourse", id(&lesson, "course").unwrap_or_default()).await?;
+            let mine = my_enrollment(k, user, &mut tx, util::doc_id(&course)?).await?.filter(|e| s(e, "status") != Some(WITHDRAWN));
+            let preview = util::b(&lesson, "is_preview") && s(&course, "status") == Some("Published");
+            if mine.is_none() && !authors(user, &course) && !preview {
+                return Err(not_found("video"));
+            }
+            let r = crate::media::serve(k, user, &mut tx, &lesson, kind, &req.query).await?;
+            tx.commit().await?;
+            return Ok(r);
+        }
         ["lessons", lesson, rest @ ..] if rest.is_empty() || rest == ["file"] => {
             let lesson = match load(k, user, &mut tx, "LmsLesson", uuid(lesson)?).await {
                 Ok(l) => l,

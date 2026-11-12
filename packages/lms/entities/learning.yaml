@@ -40,6 +40,7 @@
     - {name: open_lesson, label: Open Lesson, permission: read, condition: "doc.status != 'Withdrawn'", hidden: true}
     - {name: start_quiz, label: Start Quiz, permission: read, condition: "doc.status != 'Withdrawn'", hidden: true}
     - {name: scorm_commit, label: Save SCORM Progress, permission: read, condition: "doc.status != 'Withdrawn'", hidden: true}
+    - {name: video_progress, label: Save Video Progress, permission: read, condition: "doc.status != 'Withdrawn'", hidden: true}
     - {name: outline, label: Course Outline, permission: read, hidden: true}
     - {name: withdraw, label: Withdraw, permission: read, condition: "doc.status == 'Active'", confirm: "Leave this course? Your progress is kept if you enrol again."}
     - {name: reactivate, label: Enrol Again, permission: read, condition: "doc.status == 'Withdrawn'"}
@@ -60,7 +61,7 @@
     - {name: course, type: link, to: LmsCourse, read_only: true, in_list: true, in_filter: true}
     - {name: learner, type: email, read_only: true, in_list: true, in_filter: true}
     - {name: completed_at, type: datetime, read_only: true, in_list: true}
-    - {name: completed_via, type: select, options: [Learner, Instructor, Quiz, Assignment, SCORM, xAPI, LTI, Live Session], read_only: true, in_list: true}
+    - {name: completed_via, type: select, options: [Learner, Instructor, Quiz, Assignment, SCORM, xAPI, LTI, Live Session, Video], read_only: true, in_list: true}
     - {name: completed_by, type: email, read_only: true}
   list: {columns: [lesson_title, learner, course, completed_at], sort: completed_at desc}
 
@@ -72,7 +73,7 @@
   title_field: lesson_title
   owner_fields: [learner]
   unique: [[enrollment, lesson]]
-  description: "A learner's run of a SCORM, xAPI or LTI lesson: its status, score and time, and for SCORM what the package recorded (resumed next time). Written by Learn's player, its xAPI endpoint and the grades LTI tools send; completed or passed, the lesson is completed."
+  description: "A learner's run of a SCORM, xAPI, LTI or uploaded-video lesson: its status, score (for a video, the share watched) and time (watched), and for SCORM what the package recorded (resumed next time). Written by Learn's player, its xAPI endpoint and the grades LTI tools send; completed or passed, the lesson is completed."
   fields:
     - {name: enrollment, type: link, to: LmsEnrollment, required: true, in_filter: true, on_delete: cascade}
     - {name: lesson, type: link, to: LmsLesson, required: true, in_filter: true, on_delete: cascade}

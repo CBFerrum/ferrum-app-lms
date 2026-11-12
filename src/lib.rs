@@ -25,6 +25,7 @@ mod gradebook;
 mod grading;
 mod live;
 mod lti;
+mod media;
 mod notice;
 mod payments;
 mod quiz;

@@ -109,7 +109,7 @@ impl DocHook for EnrollmentHook {
     }
 
     async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, params: &Value) -> Result<Option<Value>> {
-        if !["complete_lesson", "open_lesson", "start_quiz", "scorm_commit", "outline", "withdraw", "reactivate"].contains(&name) {
+        if !["complete_lesson", "open_lesson", "start_quiz", "scorm_commit", "video_progress", "outline", "withdraw", "reactivate"].contains(&name) {
             return Ok(None);
         }
         let (k, ctx) = (hc.kernel, hc.ctx);
@@ -126,6 +126,9 @@ impl DocHook for EnrollmentHook {
                 let l = lesson_of(k, ctx, hc.tx, lesson, &course).await?;
                 let by_learner = self_paced(s(&l, "lesson_type").unwrap_or_default())
                     || (s(&l, "lesson_type") == Some("LTI") && crate::lti::learner_marks_done(hc.tx, ctx.tenant, &l).await?);
+                if !author && s(&l, "video_file").is_some() && int(&l, "watch_percent") > 0 {
+                    return Err(Error::invalid("this video lesson is completed by watching it"));
+                }
                 if !author && !by_learner {
                     return Err(Error::invalid("quiz lessons are completed by passing the quiz, assignment lessons by a passing submission, live lessons by attending the live session".to_string()));
                 }
@@ -145,6 +148,13 @@ impl DocHook for EnrollmentHook {
                 }
                 let lesson = uuid_param(params, "lesson")?;
                 crate::scorm::commit(k, ctx, hc.tx, doc, &course, lesson, params.get("cmi").unwrap_or(&Value::Null)).await?
+            }
+            "video_progress" => {
+                if !own {
+                    return Err(Error::Forbidden("only the learner records their own watching".into()));
+                }
+                let l = lesson_of(k, ctx, hc.tx, uuid_param(params, "lesson")?, &course).await?;
+                crate::media::progress(k, ctx, hc.tx, doc, &l, params).await?
             }
             "outline" => outline(k, ctx, hc.tx, &course, Some(me)).await?,
             "withdraw" => {
@@ -864,6 +874,7 @@ pub async fn open_lesson(k: &Kernel, ctx: &Ctx, tx: &mut Tx, enrollment: Option<
         Some("xAPI") => out["xapi"] = crate::xapi::player(ctx, tx, &l, enrollment).await?,
         Some("LTI") => out["lti"] = crate::lti::player(k, ctx, tx, &l).await?,
         Some("Live") => out["live"] = crate::live::for_lesson(k, ctx, tx, lesson, enrollment).await?,
+        Some("Video") if s(&l, "video_file").is_some() => out["video"] = crate::media::player(k, ctx, tx, &l, enrollment).await?,
         _ => {}
     }
     let Some(e) = enrollment else { return Ok(out) };
