@@ -235,6 +235,7 @@ impl DocHook for LessonHook {
     async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
         let Some(course) = id(doc, "course") else { return Ok(()) };
         authored_course(hc.kernel, hc.ctx, hc.tx, course).await?;
+        crate::media::check(hc.tx, hc.ctx.tenant, doc).await?;
         if let Some(path) = s(doc, "attachment") {
             match file_id(path) {
                 Some(file) => {

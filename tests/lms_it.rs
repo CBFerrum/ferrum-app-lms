@@ -3555,3 +3555,70 @@ async fn discussions() {
     t.act(&asha, "LmsCourse", course, "follow", json!({"thread": thread.to_string(), "follow": false})).await;
     assert_eq!(t.page(Some(&asha), &format!("courses/chemistry/discussion?thread={thread}")).await["following"], json!(false));
 }
+
+// ───────────────────────────── uploaded videos ─────────────────────────────
+
+#[test]
+fn uploaded_videos_play_to_enrolled_people_only() {
+    run(own_video());
+}
+
+/// An uploaded video with captions, within the size Learn Settings allow, played by a link signed
+/// for one enrolled person that expires; the seconds watched recorded, and the lesson completed at its
+/// share (not by marking it done).
+async fn own_video() {
+    let t = boot("video", vec![], &[], |_| {}).await;
+    t.k.set_file_store(Arc::new(MemFiles(Mutex::new(HashMap::new()))));
+    let teacher = t.user("teacher@video.test", "Tara Teacher", "Instructor").await;
+    let asha = t.user("asha@video.test", "Asha Rao", "Learner").await;
+    let ben = t.user("ben@video.test", "Ben Okafor", "Learner").await;
+    t.insert(&t.admin, "LmsSettings", json!({"video_max_mb": 1})).await;
+    let (course, _) = course_of(&t, &teacher, "Optics", 1, json!({})).await;
+    let chapter = uid(&t.list(&t.admin, "LmsChapter", json!({"course": course.to_string()})).await.unwrap()[0]);
+    let store = |name: &'static str, ctype: &'static str, bytes: Vec<u8>| {
+        let t = &t;
+        let teacher = &teacher;
+        async move { vid(&t.k.store_file(teacher, None, name, ctype, &bytes).await.expect("upload")["id"]) }
+    };
+    let big = store("big.mp4", "video/mp4", vec![0u8; 2 * 1024 * 1024]).await;
+    let clip = store("clip.mp4", "video/mp4", b"\x00\x00\x00\x18ftypmp42 a tiny video".to_vec()).await;
+    let vtt = store("en.vtt", "text/vtt", b"WEBVTT\n\n00:00.000 --> 00:01.000\nHello\n".to_vec()).await;
+    let lesson = json!({"title": "Lenses", "chapter": chapter.to_string(), "lesson_type": "Video", "video_seconds": 100, "watch_percent": 80});
+    let mut too_big = lesson.clone();
+    too_big["video_file"] = json!(format!("/files/{big}"));
+    assert!(field_error(t.try_insert(&teacher, "LmsLesson", too_big).await, "video_file").contains("at most 1 MB"));
+    let mut wrong = lesson.clone();
+    wrong["video_file"] = json!(format!("/files/{vtt}"));
+    assert!(t.try_insert(&teacher, "LmsLesson", wrong).await.is_err(), "a video");
+    let mut lesson = lesson;
+    lesson["video_file"] = json!(format!("/files/{clip}"));
+    lesson["captions_file"] = json!(format!("/files/{vtt}"));
+    let lid = uid(&t.insert(&teacher, "LmsLesson", lesson).await);
+    let enrolment = enrol(&t, &teacher, course, &["asha@video.test"]).await["asha@video.test"];
+
+    let page = t.page(Some(&asha), &format!("lessons/{lid}")).await;
+    let src = page["video"]["src"].as_str().unwrap().strip_prefix("/api/app/lms/").unwrap().to_string();
+    let captions = page["video"]["captions"].as_str().unwrap().strip_prefix("/api/app/lms/").unwrap().to_string();
+    let played = served(&t.k, t.tenant, t.call(Some(&asha), "GET", &src).await.expect("her link")).await;
+    assert_eq!((played.status, played.content_type.as_str(), played.body.as_slice()), (200, "video/mp4", &b"\x00\x00\x00\x18ftypmp42 a tiny video"[..]));
+    assert!(played.headers.iter().any(|(k, v)| k == "accept-ranges" && v == "bytes"));
+    assert!(String::from_utf8(served(&t.k, t.tenant, t.call(Some(&asha), "GET", &captions).await.unwrap()).await.body).unwrap().starts_with("WEBVTT"));
+    assert!(t.call(Some(&ben), "GET", &src).await.is_err(), "not enrolled");
+    let tampered = src.replace("sig=", "sig=0");
+    assert!(t.call(Some(&asha), "GET", &tampered).await.is_err(), "a link not signed as given");
+    assert!(t.call(Some(&asha), "GET", &format!("lessons/{lid}/video")).await.is_err(), "no unsigned link");
+    assert!(t.call(None, "GET", &format!("courses/optics/lessons/{lid}/file")).await.is_err(), "no public address");
+
+    // Watching: not marked done; the page's word bounded by time; done at 80%.
+    assert!(t.try_act(&asha, "LmsEnrollment", enrolment, "complete_lesson", json!({"lesson": lid.to_string()})).await.is_err());
+    let w = t.act(&asha, "LmsEnrollment", enrolment, "video_progress", json!({"lesson": lid.to_string(), "seconds": 100})).await;
+    assert_eq!((w["seconds_watched"].clone(), w["completed"].clone()), (json!(30), json!(false)), "a whole video at once is not believed");
+    t.sql("update e_lms_package_progress set last_commit_at = now() - interval '2 minutes' where tenant_id = $1 and enrollment = $2", enrolment).await;
+    let w = t.act(&asha, "LmsEnrollment", enrolment, "video_progress", json!({"lesson": lid.to_string(), "seconds": 85})).await;
+    assert_eq!((w["seconds_watched"].clone(), w["completed"].clone()), (json!(85), json!(true)));
+    assert_eq!(dec(&t.page(Some(&asha), &format!("lessons/{lid}")).await["video"]["percent_watched"]), n("85"));
+    assert_eq!(
+        t.count("select count(*) from e_lms_lesson_progress where tenant_id = $1 and enrollment = $2 and completed_via = $3", enrolment, "Video").await,
+        1
+    );
+}
