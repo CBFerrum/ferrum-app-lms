@@ -70,6 +70,23 @@ roles:
       - {entity: LmsQuizAttempt, read: true, if_owner: true}
       - {entity: LmsAssignmentSubmission, read: true, create: true, write: true, if_owner: true}
       - {entity: LmsCertificate, read: true, if_owner: true}
+  # People outside the workspace who signed themselves up on a course page (docs/builder/portal.md):
+  # their own enrolments, progress, attempts, submissions and certificates, the published catalog,
+  # nothing of other learners and nothing of course administration. Lessons, quizzes and assignments
+  # reach them only through Learn's own pages, which check their enrolment.
+  - name: Online Learner
+    portal: true
+    description: Someone outside the workspace who signed up on a course page to take courses - sees only their own enrolments, progress, attempts, submissions and certificates.
+    permissions:
+      - {entity: LmsCategory, read: true}
+      - {entity: LmsCourse, read: true, where: {status: [Published, Archived], visibility: Public}}
+      - {entity: LmsLearningPath, read: true, where: {status: Published}}
+      - {entity: LmsEnrollment, read: true, create: true, if_owner: true}
+      - {entity: LmsLessonProgress, read: true, if_owner: true}
+      - {entity: LmsPackageProgress, read: true, if_owner: true}
+      - {entity: LmsQuizAttempt, read: true, if_owner: true}
+      - {entity: LmsAssignmentSubmission, read: true, create: true, write: true, if_owner: true}
+      - {entity: LmsCertificate, read: true, if_owner: true}
 
 seed:
   - entity: LmsCategory

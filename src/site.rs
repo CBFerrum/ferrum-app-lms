@@ -360,7 +360,10 @@ async fn public(k: &Kernel, req: &SiteRequest, path: &[&str]) -> Result<SiteResp
         }
         ["courses", slug] => {
             let course = course_by_slug(k, &ctx, &mut tx, slug).await?.filter(public_course).ok_or_else(|| not_found("course"))?;
-            json_response(&json!({"course": course_page(k, &ctx, &mut tx, &course, Audience::Public).await?}), "public, max-age=60")
+            let mut page = course_page(k, &ctx, &mut tx, &course, Audience::Public).await?;
+            // How someone without an account signs up and enrols (or buys) here.
+            page["signup"] = crate::signup::offer(&mut tx, req.tenant, &course).await?;
+            json_response(&json!({"course": page}), "public, max-age=60")
         }
         ["courses", slug, "lessons", lesson, rest @ ..] if rest.is_empty() || rest == ["file"] => {
             let course = course_by_slug(k, &ctx, &mut tx, slug).await?.filter(public_course).ok_or_else(|| not_found("lesson"))?;
@@ -427,7 +430,9 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
     let mut tx = k.db.tenant_tx(user.tenant).await?;
     let out = match path {
         ["catalog"] => {
-            let (mut courses, ids, next) = catalog(&mut tx, user.tenant, req, Audience::Members).await?;
+            // People outside the workspace (the portal) see the public catalog.
+            let audience = if user.outside { Audience::Public } else { Audience::Members };
+            let (mut courses, ids, next) = catalog(&mut tx, user.tenant, req, audience).await?;
             price_cards(user, &mut tx, &mut courses, &ids).await?;
             let mine: Vec<(Uuid, Uuid, String, Option<Decimal>)> = if ids.is_empty() {
                 vec![]
@@ -464,10 +469,11 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
             let cid = util::doc_id(&course)?;
             let mine = my_enrollment(k, user, &mut tx, cid).await?;
             let author = authors(user, &course);
-            if s(&course, "status") != Some("Published") && !author && mine.is_none() {
+            if (s(&course, "status") != Some("Published") || (user.outside && !public_course(&course))) && !author && mine.is_none() {
                 return Err(not_found("course"));
             }
-            let mut page = course_page(k, user, &mut tx, &course, Audience::Members).await?;
+            let audience = if user.outside { Audience::Public } else { Audience::Members };
+            let mut page = course_page(k, user, &mut tx, &course, audience).await?;
             let mut blockers = Vec::new();
             if mine.is_none() {
                 if s(&course, "status") != Some("Published") {

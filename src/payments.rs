@@ -174,7 +174,7 @@ async fn buy(hc: &mut HookCtx<'_>, course: &Doc) -> Result<Value> {
     }
     let learner = ctx.email.to_lowercase();
     let cid = doc_id(course)?;
-    if !crate::catalog::is_published(course) || !b(course, "self_enrollment") {
+    if !crate::catalog::is_published(course) || !b(course, "self_enrollment") || (ctx.outside && s(course, "visibility") != Some("Public")) {
         return Err(Error::invalid("this course is not on sale: ask an instructor"));
     }
     let missing = enrollment::missing_prerequisites(ctx, hc.tx, course, &learner).await?;

@@ -36,6 +36,10 @@ roles:
   - name: Learner
     permissions:
       - {entity: LmsCoursePurchase, read: true, if_owner: true}
+  - name: Online Learner
+    portal: true
+    permissions:
+      - {entity: LmsCoursePurchase, read: true, if_owner: true}
 
 personal_data:
   - {entity: LmsCoursePurchase, match: learner, erase: [learner, learner_name]}
