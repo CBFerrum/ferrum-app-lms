@@ -6,7 +6,7 @@
   search_fields: [learner]
   owner_fields: [learner]
   numbering: {template: "ENR-{YYYY}-{seq:6}"}
-  unique: [[course, learner]]
+  unique: [[course, learner, cycle]]
   description: "A learner in a course. Learners enrol themselves in published courses (prerequisites and cohort capacity permitting); instructors enrol others. Progress is computed by the server."
   fields:
     - {name: course, type: link, to: LmsCourse, required: true, in_list: true, in_filter: true}
@@ -17,6 +17,8 @@
     - {name: due_date, type: date, in_list: true, in_filter: true, no_copy: true, description: "Set by an instructor or LMS manager, or worked out from the course's due days when the enrolment is made"}
     - {name: due_reminder_at, type: datetime, read_only: true, no_copy: true, description: "When the reminder before the due date was sent"}
     - {name: overdue_reminder_at, type: datetime, read_only: true, no_copy: true, description: "When the reminder after the due date was sent"}
+    - {name: cycle, type: int, default: 1, read_only: true, no_copy: true, description: "1 for the first enrolment of the learner in the course; each recertification is the next"}
+    - {name: previous, type: link, to: LmsEnrollment, read_only: true, no_copy: true, on_delete: set_null, description: "The enrolment this one recertifies"}
     - {name: enrolled_at, type: datetime, read_only: true, no_copy: true}
     - {name: enrolled_on, type: date, read_only: true, no_copy: true, in_filter: true}
     - {name: enrolled_by, type: email, read_only: true, no_copy: true}
@@ -28,7 +30,7 @@
     - {name: completed_at, type: datetime, read_only: true, no_copy: true, in_filter: true}
     - {name: certificate, type: link, to: LmsCertificate, read_only: true, no_copy: true, on_delete: set_null}
   form:
-    - {label: Enrolment, fields: [course, learner, learner_name, cohort, status, due_date]}
+    - {label: Enrolment, fields: [course, learner, learner_name, cohort, status, due_date, cycle, previous]}
     - {label: Progress, fields: [progress_percent, completed_lessons, total_lessons, last_lesson, last_activity_at, completed_at, certificate]}
     - {label: History, collapsible: true, fields: [enrolled_at, enrolled_on, enrolled_by, due_reminder_at, overdue_reminder_at]}
   actions:
@@ -105,7 +107,7 @@
   title_field: quiz_title
   owner_fields: [learner]
   numbering: {template: "QA-{YYYY}-{seq:6}"}
-  unique: [[quiz, learner, attempt_no]]
+  unique: [[quiz, enrollment, attempt_no]]
   description: "One sitting of a quiz: the questions as shown (never their answers before submission), the learner's answers, the server-side clock and the exact score. Started with the start_quiz action of an enrolment."
   fields:
     - {name: quiz, type: link, to: LmsQuiz, required: true, read_only: true, in_filter: true}
@@ -144,7 +146,7 @@
   title_field: assignment_title
   owner_fields: [learner]
   numbering: {template: "SUB-{YYYY}-{seq:6}"}
-  unique: [[assignment, learner, submission_no]]
+  unique: [[assignment, enrollment, submission_no]]
   description: "A learner's work for an assignment. The learner may edit it until it is graded; instructors grade it with the grade action."
   fields:
     - {name: assignment, type: link, to: LmsAssignment, required: true, in_list: true, in_filter: true}
@@ -202,8 +204,10 @@
     - {name: issuer, type: data, read_only: true}
     - {name: signatory, type: data, read_only: true}
     - {name: signatory_title, type: data, read_only: true}
-    - {name: status, type: select, options: [Valid, Revoked], default: Valid, read_only: true, in_list: true, in_filter: true}
+    - {name: status, type: select, options: [Valid, Expired, Revoked, Superseded], default: Valid, read_only: true, in_list: true, in_filter: true}
     - {name: revoked_reason, type: text, read_only: true}
+    - {name: expires_on, type: date, read_only: true, in_list: true, in_filter: true, description: "The last day it counts; empty: for ever"}
+    - {name: superseded_by, type: link, to: LmsCertificate, read_only: true, on_delete: set_null, description: "The certificate a recertification issued in its place"}
   actions:
     - name: revoke
       label: Revoke
@@ -212,4 +216,4 @@
       confirm: "Revoke this certificate? Verification will show it as revoked."
       params:
         - {name: reason, type: text, label: Reason, required: true, description: "Verification shows the certificate as revoked"}
-  list: {columns: [number, learner_name, course_title, issued_on, status], sort: issued_on desc}
+  list: {columns: [number, learner_name, course_title, issued_on, expires_on, status], sort: issued_on desc}

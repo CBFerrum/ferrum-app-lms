@@ -13,6 +13,7 @@
     - {name: lti_private_key, type: secret, label: LTI Signing Key, description: "The private key Learn signs LTI launches with; made on first use. Replacing it means every tool fetches Learn's keys again"}
     - {name: due_reminder_days, type: int, label: Remind Before Due (Days), default: 3, min: 0, max: 365, description: "A learner is reminded once, this many days before an enrolment is due; 0 = never. A course can say its own"}
     - {name: overdue_reminder_days, type: int, label: Remind After Due (Days), default: 1, min: 0, max: 365, description: "A learner is reminded once, this many days after an enrolment fell due and is still not completed; 0 = never. A course can say its own"}
+    - {name: recertify_before_days, type: int, label: Re-enrol Before Expiry (Days), default: 30, min: 0, max: 3650, description: "A learner whose certificate expires within this many days is enrolled again, due on the day it expires; 0 = never. A course can say its own"}
     - {name: allow_packages, type: check, label: Allow SCORM and xAPI Packages, description: "Instructors may make lessons of SCORM 1.2, SCORM 2004 and xAPI packages. A package's scripts run in Learn with the learner's session, as course content does in other LMSs: allow them only when you trust your instructors' packages"}
 
 - name: LmsCategory
@@ -64,6 +65,8 @@
     - {name: estimated_hours, type: decimal, precision: 2, min: "0", max: "10000"}
     - {name: self_enrollment, type: check, label: Learners May Enrol Themselves, default: true}
     - {name: issue_certificate, type: check, label: Certificate on Completion}
+    - {name: certificate_valid_days, type: int, label: Certificate Valid (Days), min: 1, max: 36500, description: "How long a certificate issued for this course counts; empty: for ever"}
+    - {name: recertify_before_days, type: int, label: Re-enrol Before Expiry (Days), min: 0, max: 3650, description: "Empty: as in Learn Settings; 0 = never re-enrol automatically"}
     - {name: due_days, type: int, label: Due (Days After Enrolment), min: 0, max: 3650, description: "An enrolment is due this many days after it is made; empty or 0 = no due date unless one is set"}
     - {name: due_reminder_days, type: int, label: Remind Before Due (Days), min: 0, max: 365, description: "Empty: as in Learn Settings; 0 = never"}
     - {name: overdue_reminder_days, type: int, label: Remind After Due (Days), min: 0, max: 365, description: "Empty: as in Learn Settings; 0 = never"}
@@ -74,7 +77,7 @@
     - {label: Course, fields: [title, slug, status, visibility, category, level, tags, summary, cover_image]}
     - {label: Description, fields: [description]}
     - {label: Teaching, fields: [instructors, prerequisites, estimated_hours, self_enrollment, issue_certificate]}
-    - {label: Deadlines, fields: [due_days, due_reminder_days, overdue_reminder_days]}
+    - {label: Deadlines, fields: [due_days, due_reminder_days, overdue_reminder_days, certificate_valid_days, recertify_before_days]}
     - {label: Statistics, collapsible: true, fields: [published_at, lesson_count, total_minutes]}
   actions:
     - name: enroll_learners

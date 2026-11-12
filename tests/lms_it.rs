@@ -2368,3 +2368,112 @@ async fn due_dates() {
     ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(40))).await.unwrap();
     assert_eq!(t.notes(&who[&ben.0], "Due soon: Quiet").await + t.notes(&who[&ben.0], "Overdue: Quiet").await, 0);
 }
+
+#[test]
+fn certificates_expire_and_are_recertified() {
+    run(expiry());
+}
+
+/// A certificate valid for 30 days: valid with its date on the public page; its holder is enrolled
+/// again five days before it expires, once, due on the day; completing that early replaces it (the old
+/// one stays verifiable, as superseded); one nobody renewed reads expired, also on the public page,
+/// before the upkeep has marked it; renewing it late replaces it just the same; a course that does not
+/// re-enrol only lets it expire.
+async fn expiry() {
+    use chrono::Duration;
+    let t = boot("expiry", vec![], &[], |_| {}).await;
+    let manager = t.user("manager@expiry.test", "Mona Manager", "LMS Manager").await;
+    let mut who = HashMap::new();
+    for name in ["asha", "ben", "chen", "dee"] {
+        who.insert(name, t.user(&format!("{name}@expiry.test"), name, "Learner").await);
+    }
+    let email = |n: &str| format!("{n}@expiry.test");
+    let today = manager.today();
+    let day = |n: i64| (today + Duration::days(n)).to_string();
+    let (course, lessons) =
+        course_of(&t, &manager, "Safety Refresher", 2, json!({"issue_certificate": true, "certificate_valid_days": 30, "recertify_before_days": 5})).await;
+    let first = enrol(&t, &manager, course, &[&email("asha"), &email("ben"), &email("chen")]).await;
+    for n in ["asha", "ben", "chen"] {
+        finish(&t, &who[n], first[&email(n)], &lessons).await;
+    }
+    let cert_of = |e: Uuid| {
+        let t = &t;
+        async move { t.get("LmsCertificate", vid(&t.get("LmsEnrollment", e).await["certificate"])).await }
+    };
+    let asha_cert = cert_of(first[&email("asha")]).await;
+    assert_eq!(asha_cert["expires_on"], json!(day(30)));
+    let code = asha_cert["verification_code"].as_str().unwrap().to_string();
+    let seen = |code: String| {
+        let t = &t;
+        async move { t.page(None, &format!("/certificates/{code}")).await["certificate"].clone() }
+    };
+    let v = seen(code.clone()).await;
+    assert_eq!((v["valid"].clone(), v["status"].clone(), v["expires_on"].clone()), (json!(true), json!("Valid"), json!(day(30))));
+
+    // Valid and not near its end: nothing happens on the 10th.
+    ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(10))).await.unwrap();
+    assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"course": course.to_string()})).await.unwrap().len(), 3);
+
+    // Expiring: five days before the 30th the three holders are enrolled again, once however often it runs.
+    for _ in 0..2 {
+        ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(26))).await.unwrap();
+    }
+    let all = t.list(&t.admin, "LmsEnrollment", json!({"course": course.to_string()})).await.unwrap();
+    assert_eq!(all.len(), 6, "one new enrolment each");
+    let again = |n: &str| {
+        all.iter().find(|r| r["learner"] == json!(email(n)) && r["cycle"] == json!(2)).cloned().unwrap_or_else(|| panic!("no recertification for {n}"))
+    };
+    let a2 = again("asha");
+    assert_eq!(
+        (a2["status"].clone(), a2["due_date"].clone(), a2["previous"].clone()),
+        (json!("Active"), json!(day(30)), json!(first[&email("asha")].to_string()))
+    );
+    assert_eq!(t.get("LmsEnrollment", first[&email("asha")]).await["status"], json!("Completed"), "the history of the old enrolment stays");
+    assert_eq!(t.notes(&who["asha"], "Recertification").await, 1);
+    assert_eq!(seen(code.clone()).await["valid"], json!(true), "still valid until its last day");
+
+    // Early: Asha completes it on time. Her new certificate replaces the old, which stays verifiable.
+    finish(&t, &who["asha"], uid(&a2), &lessons).await;
+    let new_cert = cert_of(uid(&a2)).await;
+    assert_ne!(new_cert["id"], asha_cert["id"]);
+    assert_eq!(new_cert["status"], json!("Valid"));
+    let old = t.get("LmsCertificate", uid(&asha_cert)).await;
+    assert_eq!((old["status"].clone(), old["superseded_by"].clone()), (json!("Superseded"), new_cert["id"].clone()));
+    let v = seen(code).await;
+    assert_eq!((v["valid"].clone(), v["status"].clone()), (json!(false), json!("Superseded")));
+    assert_eq!(t.page(None, &format!("/certificates/{}", new_cert["verification_code"].as_str().unwrap())).await["certificate"]["valid"], json!(true));
+    let page = t.call(None, "GET", &format!("/certificates/{}/view", asha_cert["verification_code"].as_str().unwrap())).await.unwrap();
+    assert!(String::from_utf8_lossy(&page.body).contains("SUPERSEDED"), "the printed one says so");
+
+    // Not near its end the day it was read, expired a day later: Ben's certificate, which nobody renewed,
+    // reads expired on the public page as soon as its last day has passed, even before the upkeep says so.
+    let ben_cert = cert_of(first[&email("ben")]).await;
+    t.sql("update e_lms_certificate set expires_on = current_date - 1 where tenant_id = $1 and id = $2", uid(&ben_cert)).await;
+    let v = seen(ben_cert["verification_code"].as_str().unwrap().to_string()).await;
+    assert_eq!((v["valid"].clone(), v["status"].clone()), (json!(false), json!("Expired")));
+    assert_eq!(t.get("LmsCertificate", uid(&ben_cert)).await["status"], json!("Valid"), "the upkeep has not run");
+    ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(40))).await.unwrap();
+    assert_eq!(t.get("LmsCertificate", uid(&ben_cert)).await["status"], json!("Expired"));
+    // Late: his recertification (made on the 26th, due on the 30th) is completed after the expiry.
+    let b2 = t.list(&t.admin, "LmsEnrollment", json!({"learner": email("ben"), "cycle": 2})).await.unwrap();
+    assert_eq!(b2.len(), 1);
+    finish(&t, &who["ben"], uid(&b2[0]), &lessons).await;
+    let renewed = cert_of(uid(&b2[0])).await;
+    assert_eq!(t.get("LmsCertificate", uid(&ben_cert)).await["status"], json!("Superseded"), "an expired one is replaced the same way");
+    assert_eq!(renewed["status"], json!("Valid"));
+
+    // Chen's recertification is withdrawn: no third enrolment appears for the same expiry.
+    let c2 = uid(&again("chen"));
+    t.act(&who["chen"], "LmsEnrollment", c2, "withdraw", json!({})).await;
+    ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(41))).await.unwrap();
+    assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"learner": email("chen")})).await.unwrap().len(), 2);
+
+    // A course that does not re-enrol (0 days) lets its certificates expire and no more.
+    let (plain, plain_lessons) =
+        course_of(&t, &manager, "Plain", 1, json!({"issue_certificate": true, "certificate_valid_days": 10, "recertify_before_days": 0})).await;
+    let p = enrol(&t, &manager, plain, &[&email("dee")]).await;
+    finish(&t, &who["dee"], p[&email("dee")], &plain_lessons).await;
+    ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(60))).await.unwrap();
+    assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"course": plain.to_string()})).await.unwrap().len(), 1);
+    assert_eq!(cert_of(p[&email("dee")]).await["status"], json!("Expired"));
+}
