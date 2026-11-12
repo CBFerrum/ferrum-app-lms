@@ -1,5 +1,5 @@
 package: lms
-version: 0.4.0
+version: 0.5.0
 label: Learn
 description: Learning management — courses with chapters and lessons, learning paths, cohorts with live sessions, question banks and timed quizzes, graded assignments, enrolments with server-computed progress, certificates that can expire and be recertified, due dates, enrolment rules, training programmes and a manager's team report, with public verification and a public course catalog.
 depends: [core]

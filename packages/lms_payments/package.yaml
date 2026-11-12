@@ -1,5 +1,5 @@
 package: lms_payments
-version: 0.1.0
+version: 0.2.0
 label: Paid Courses
 description: Courses with a price, bought through the store's payment methods - the learner pays on the course page, is invoiced and enrolled when the payment arrives, and is refunded when they withdraw within the refund period.
 depends: [lms, commerce]
