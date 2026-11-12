@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.0
+
+Compliance training can be run and proved (LM-50 to LM-53, LM-90, LM-110).
+
+**Due dates.** An enrolment has a **Due** date: set by an instructor or LMS manager, or worked out from the course's **Due (Days After Enrolment)** when it is made (a learner cannot choose their own). The **Training Status** report gives each enrolment's state on a day: Not Started, In Progress, Completed or Overdue (not completed and past due), with totals. The upkeep reminds a learner once before the due date and once after it, at **Remind Before Due** and **Remind After Due** days on the course or, when empty, in Learn Settings (3 and 1 by default; 0 is never), and never after completion; a new due date earns the reminders again.
+
+**Expiry and recertification.** A course states **Certificate Valid (Days)** (empty: for ever, as before) and **Re-enrol Before Expiry (Days)** (empty: Learn Settings, 30 by default; 0: never). A certificate now has an **Expires On** date and reads **Expired** once its last day has passed, in lists, on the printed copy and on the public verification page. Within the re-enrolment days of its expiry the learner is enrolled again: a new enrolment, the next **cycle** of the old one (which stays as it was), due on the expiry date, once for each expiry. Completing it issues a new certificate; the old one becomes **Superseded** and stays verifiable as such. Quiz attempts and assignment submissions are now counted per enrolment, not per learner, so a recertification starts fresh; migration `005` drops the earlier per-learner unique keys.
+
+**Enrolment rules.** An **Enrolment Rule** names a course or a programme and who matches: the workspace's active users by role or group, or, with the HR app, its active employees who sign in by Employee fields (department, designation, branch, employment type and the like, by name or id; fields in permission groups are refused), read in place. A switched-on rule enrols at the next upkeep the people who match and have no enrolment in the course (so never twice, never someone who enrolled themselves), due **N days after matching** or as the course says, and, if it says **Withdraw If Not Started**, withdraws its unstarted enrolments of people who stop matching (the default keeps them). **Preview** says how many it would enrol before it is switched on. Enrolments it makes are not paid for: rules assign training.
+
+**Training programmes.** A **Training Programme** lists courses, each with its own due days and whether it repeats (is enrolled again as its certificate nears expiry). A rule can name it. The **Programme Status** report shows each person and course with state and dates and the completion rate and overdue count; LMS managers also see people the rules match who are not enrolled yet.
+
+**Teams.** **My Team's Training** lists the latest enrolment of each person who reports to the viewer in HR (one level), cut in the query to the viewer's own reports whatever parameters are sent; LMS managers see everyone or, with HR, one manager's team; without HR only they run it. With HR installed, a completed course goes on the employee's HR training record (the course's name as the HR training program, valid until the certificate's last day).
+
+Not in this release: reminders to managers, escalation, the interface's own screens for any of it (the new records use the generic forms; the public verification page still says "revoked" for an expired or superseded certificate), and people outside the workspace signing up and buying.
+
 ## 0.7.0
 
 Live classes run in the product, with attendance (LM-20, LM-21). A cohort's live session without a link of its own gets a meeting in the Mail, Chat and Calendar app (Comms 0.15.0 and a meeting server) when it is saved, hosted by the session's new Host or the cohort's first instructor; moving or shortening the session moves the meeting, removing it ends it. Members get their own join link where they see the session: the lesson page's data (`live`), the dashboard and the reminder. A session with a typed link, or a workspace without Comms or a meeting server, is as before.
