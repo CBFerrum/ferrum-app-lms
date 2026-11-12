@@ -9,7 +9,7 @@ modules:
     label: Learn
     icon: graduation-cap
     order: 55
-    items: [LmsCourse, LmsChapter, LmsLesson, LmsQuiz, LmsQuestion, LmsAssignment, LmsLearningPath, LmsCohort, LmsEnrollment, LmsLessonProgress, LmsPackageProgress,
+    items: [LmsCourse, LmsChapter, LmsLesson, LmsQuiz, LmsQuestion, LmsQuestionCategory, LmsRubric, LmsAssignment, LmsLearningPath, LmsCohort, LmsEnrollment, LmsLessonProgress, LmsPackageProgress,
             LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsLtiTool, LmsSettings, LmsEnrollmentRule, LmsProgramme,
             report:lms_course_completion, report:lms_quiz_scores, report:lms_learner_progress, report:lms_overdue_assignments, report:lms_training_status, report:lms_programme_status, report:lms_team_training]
 
@@ -27,6 +27,8 @@ roles:
       - {entity: LmsLesson, read: true, write: true, create: true, delete: true, export: true, import: true}
       - {entity: LmsQuiz, read: true, write: true, create: true, delete: true, export: true}
       - {entity: LmsQuestion, read: true, write: true, create: true, delete: true, export: true, import: true}
+      - {entity: LmsQuestionCategory, read: true, write: true, create: true, delete: true, export: true, import: true}
+      - {entity: LmsRubric, read: true, write: true, create: true, delete: true, export: true}
       - {entity: LmsAssignment, read: true, write: true, create: true, delete: true, export: true}
       - {entity: LmsLearningPath, read: true, write: true, create: true, delete: true}
       - {entity: LmsCohort, read: true, write: true, create: true, delete: true, export: true}
@@ -48,6 +50,8 @@ roles:
       - {entity: LmsLesson, read: true, write: true, create: true, delete: true}
       - {entity: LmsQuiz, read: true, write: true, create: true, delete: true}
       - {entity: LmsQuestion, read: true, write: true, create: true, delete: true, import: true}
+      - {entity: LmsQuestionCategory, read: true, write: true, create: true}
+      - {entity: LmsRubric, read: true, write: true, create: true, delete: true}
       - {entity: LmsAssignment, read: true, write: true, create: true, delete: true}
       - {entity: LmsLearningPath, read: true, create: true}
       - {entity: LmsLearningPath, write: true, delete: true, if_owner: true}

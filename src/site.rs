@@ -556,6 +556,7 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
         }
         ["dashboard"] => json_response(&dashboard(k, user, &mut tx).await?, "no-store"),
         ["teaching"] => json_response(&teaching(user, &mut tx).await?, "no-store"),
+        ["teaching", "grading"] => json_response(&grading_queue(user, &mut tx).await?, "no-store"),
         ["teaching", "courses", course, "roster"] => {
             let course = match util::authored_course(k, user, &mut tx, uuid(course)?).await {
                 Err(Error::NotFound(_)) => return Err(not_found("course")),
@@ -786,4 +787,40 @@ async fn roster(user: &Ctx, tx: &mut Tx, course: &Doc, cohort: Option<Uuid>) -> 
         "enrolled": live, "completed": completed, "completion_rate": money(enrollment::percent(completed, live)),
         "learners": learners,
     }))
+}
+
+/// Quiz attempts waiting for a person to grade answers, in the courses the caller authors (every
+/// course for LMS managers), oldest first: each with the questions still to grade, and whether the
+/// caller graded one already (a second grader or a third is someone else).
+async fn grading_queue(user: &Ctx, tx: &mut Tx) -> Result<Value> {
+    let mut qb = QueryBuilder::<Postgres>::new(
+        "select a.id, a.number, a.quiz_title, a.course, c.title, a.learner_name, a.submitted_at, \
+                (select coalesce(jsonb_agg(r.question), '[]') from e_lms_quiz_attempt__answers r where r.tenant_id = a.tenant_id and r.parent_id = a.id \
+                 and r.by_person and r.points_awarded is null), \
+                (select coalesce(jsonb_agg(n.question), '[]') from lms_grading_note n where n.tenant_id = a.tenant_id and n.attempt = a.id and n.grader = ",
+    );
+    qb.push_bind(user.email.to_lowercase())
+        .push(
+            ") from e_lms_quiz_attempt a join e_lms_course c on c.tenant_id = a.tenant_id and c.id = a.course \
+             where a.status = 'Awaiting Grading' and a.tenant_id = ",
+        )
+        .push_bind(user.tenant);
+    if !is_manager(user) {
+        qb.push(" and (c.created_by = ")
+            .push_bind(user.user)
+            .push(" or exists (select 1 from e_lms_course__instructors i where i.tenant_id = c.tenant_id and i.parent_id = c.id and i.instructor = ")
+            .push_bind(user.email.to_lowercase())
+            .push("))");
+    }
+    qb.push(" order by a.submitted_at nulls last, a.id limit 500");
+    let found: Vec<(Uuid, Option<String>, Option<String>, Uuid, String, Option<String>, Option<DateTime<Utc>>, Value, Value)> =
+        qb.build_query_as().fetch_all(&mut **tx).await?;
+    let attempts: Vec<Value> = found
+        .into_iter()
+        .map(|(id, number, quiz, course, course_title, learner, at, waiting, mine)| {
+            json!({"attempt": id, "number": number, "quiz_title": quiz, "course": {"id": course, "title": course_title}, "learner_name": learner,
+                   "submitted_at": at.map(util::ts), "questions": waiting, "graded_by_me": mine})
+        })
+        .collect();
+    Ok(json!({"attempts": attempts}))
 }
