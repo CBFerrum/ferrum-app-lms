@@ -4,6 +4,7 @@
 //! so a weekly 18:00 session stays at 18:00 across a daylight-saving change. Maintenance reminds
 //! the members and instructors once per session start.
 
+use crate::live;
 use crate::notice::{self, Notice};
 use crate::util::{self, authored_course, doc_id, id, int, rows, s};
 use async_trait::async_trait;
@@ -71,6 +72,8 @@ impl DocHook for CohortHook {
             .filter(|(_, r)| s(r, "join_url").is_some_and(|u| !u.starts_with("https://")))
             .map(|(i, _)| FieldError::new("join_url", "use an https link").in_row("sessions", i))
             .collect();
+        let mut errors = errors;
+        errors.extend(live::check(hc, doc).await?);
         if errors.is_empty() { Ok(()) } else { Err(Error::Validation(errors)) }
     }
 
@@ -87,19 +90,20 @@ impl DocHook for CohortHook {
                 return Err(Error::field("course", "a cohort with learners cannot move to another course"));
             }
         }
-        Ok(())
+        live::sync(hc, doc, old).await
     }
 
     async fn before_delete(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
         if let Some(course) = id(doc, "course") {
             authored_course(hc.kernel, hc.ctx, hc.tx, course).await?;
         }
+        live::end_all(hc, doc).await;
         Ok(())
     }
 
     async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, params: &Value) -> Result<Option<Value>> {
         if name != "schedule_sessions" {
-            return Ok(None);
+            return live::action(hc, name, doc, params).await;
         }
         authored_course(hc.kernel, hc.ctx, hc.tx, id(doc, "course").unwrap_or_default()).await?;
         let text = |k: &str| params.get(k).and_then(Value::as_str).map(str::trim).filter(|v| !v.is_empty());
@@ -151,6 +155,7 @@ struct Due {
     starts_at: DateTime<Utc>,
     duration_minutes: Option<i64>,
     join_url: Option<String>,
+    meeting: Option<String>,
     cohort_title: String,
     time_zone: Option<String>,
     course: Uuid,
@@ -164,7 +169,7 @@ pub async fn send_reminders(k: &Kernel, ctx: &Ctx) -> Result<usize> {
     let mut tx = k.db.tenant_tx(ctx.tenant).await?;
     let minutes = util::settings(&mut tx, ctx.tenant).await?.reminder_minutes;
     let due: Vec<Due> = sqlx::query_as(
-        "select s.id as session, c.id as cohort, s.title, s.starts_at, s.duration_minutes, s.join_url, c.title as cohort_title, c.time_zone, \
+        "select s.id as session, c.id as cohort, s.title, s.starts_at, s.duration_minutes, s.join_url, s.meeting, c.title as cohort_title, c.time_zone, \
                 c.course, co.title as course_title \
          from e_lms_cohort__sessions s join e_lms_cohort c on c.tenant_id = s.tenant_id and c.id = s.parent_id \
          join e_lms_course co on co.tenant_id = c.tenant_id and co.id = c.course \
@@ -179,6 +184,7 @@ pub async fn send_reminders(k: &Kernel, ctx: &Ctx) -> Result<usize> {
     tx.commit().await?;
     let mut sent = 0;
     for d in due {
+        let join = live::join_link(k, ctx.tenant, d.meeting.as_deref(), d.join_url.as_deref()).await;
         let told = ferrum_kernel::with_retry(|| async {
             let mut tx = k.db.tenant_tx(ctx.tenant).await?;
             let claimed = sqlx::query("insert into lms_session_reminder (tenant_id, session_id, starts_at) values ($1, $2, $3) on conflict do nothing")
@@ -219,7 +225,7 @@ pub async fn send_reminders(k: &Kernel, ctx: &Ctx) -> Result<usize> {
                     d.title,
                     local_label(d.starts_at, tz),
                     d.duration_minutes.unwrap_or(60),
-                    d.join_url.as_deref().map(|u| format!("\nJoin: {u}")).unwrap_or_default()
+                    join.as_deref().map(|u| format!("\nJoin: {u}")).unwrap_or_default()
                 ),
                 entity: "LmsCohort",
                 record: d.cohort,
@@ -243,12 +249,12 @@ pub async fn send_reminders(k: &Kernel, ctx: &Ctx) -> Result<usize> {
 
 /// Upcoming sessions of these cohorts (for dashboards), soonest first, join links included: only
 /// call it for cohorts the reader belongs to or teaches.
-pub async fn upcoming(tx: &mut ferrum_kernel::Tx, ctx: &Ctx, cohorts: &[Uuid], limit: i64) -> Result<Vec<Value>> {
+pub async fn upcoming(k: &Kernel, tx: &mut ferrum_kernel::Tx, ctx: &Ctx, cohorts: &[Uuid], limit: i64) -> Result<Vec<Value>> {
     if cohorts.is_empty() {
         return Ok(vec![]);
     }
-    let found: Vec<(Uuid, String, DateTime<Utc>, Option<i64>, Option<String>, Uuid, String, Option<String>, String)> = sqlx::query_as(
-        "select s.id, s.title, s.starts_at, s.duration_minutes, s.join_url, c.id, c.title, c.time_zone, co.title \
+    let found: Vec<(Uuid, String, DateTime<Utc>, Option<i64>, Option<String>, Uuid, String, Option<String>, String, Option<String>)> = sqlx::query_as(
+        "select s.id, s.title, s.starts_at, s.duration_minutes, s.join_url, c.id, c.title, c.time_zone, co.title, s.meeting \
          from e_lms_cohort__sessions s join e_lms_cohort c on c.tenant_id = s.tenant_id and c.id = s.parent_id \
          join e_lms_course co on co.tenant_id = c.tenant_id and co.id = c.course \
          where s.tenant_id = $1 and s.parent_id = any($2) and s.starts_at + make_interval(mins => coalesce(s.duration_minutes, 60)::int) > now() \
@@ -259,16 +265,16 @@ pub async fn upcoming(tx: &mut ferrum_kernel::Tx, ctx: &Ctx, cohorts: &[Uuid], l
     .bind(limit)
     .fetch_all(&mut **tx)
     .await?;
-    Ok(found
-        .into_iter()
-        .map(|(sid, title, at, minutes, url, cid, ctitle, tz, course)| {
-            let tz = zone(tz.as_deref(), &ctx.schema.timezone);
-            json!({
-                "session": sid, "title": title, "starts_at": util::ts(at), "local_start": local_rfc3339(at, tz), "time_zone": tz.name(),
-                "duration_minutes": minutes.unwrap_or(60), "join_url": url, "cohort": cid, "cohort_title": ctitle, "course_title": course,
-            })
-        })
-        .collect())
+    let mut out = vec![];
+    for (sid, title, at, minutes, typed, cid, ctitle, tz, course, meeting) in found {
+        let url = live::join_link(k, ctx.tenant, meeting.as_deref(), typed.as_deref()).await;
+        let tz = zone(tz.as_deref(), &ctx.schema.timezone);
+        out.push(json!({
+            "session": sid, "title": title, "starts_at": util::ts(at), "local_start": local_rfc3339(at, tz), "time_zone": tz.name(),
+            "duration_minutes": minutes.unwrap_or(60), "join_url": url, "cohort": cid, "cohort_title": ctitle, "course_title": course,
+        }));
+    }
+    Ok(out)
 }
 
 /// A cohort's capacity and how many active (not withdrawn) learners it has.

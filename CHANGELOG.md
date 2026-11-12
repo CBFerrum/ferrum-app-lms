@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.0
+
+Live classes run in the product, with attendance (LM-20, LM-21). A cohort's live session without a link of its own gets a meeting in the Mail, Chat and Calendar app (Comms 0.15.0 and a meeting server) when it is saved, hosted by the session's new Host or the cohort's first instructor; moving or shortening the session moves the meeting, removing it ends it. Members get their own join link where they see the session: the lesson page's data (`live`), the dashboard and the reminder. A session with a typed link, or a workspace without Comms or a meeting server, is as before.
+
+A new lesson type, **Live**, is credited by a session that names it (**Lesson Credited**). Ten minutes after a session was due to end, Learn reads its meeting, records for every learner of the cohort whether they attended and for how many minutes, and marks the lesson done for those who were in the meeting for at least the session's **Attendance Needed (%)** (50 by default). Instructors mark attendance by hand with **Mark Attendance** (which also corrects the meeting's record and credits the lesson) and read it with **Session Attendance**; this is all a workspace without a meeting server has. Nothing is taken back once credited. The time in the meeting is accurate to about a minute (see Comms 0.15.0).
 ## 0.6.16
 
 Rebuilt with Ferrum-Frontend 45dad7f, the design system as tuned after the landed build was reviewed. The left menu's icons are chosen so that none repeats on more than three rows and each fits its row; their drawings load beside the first page instead of inside it, so the page starts lighter; a row that scrolls sideways fades at the edge where there is more, in every browser and with reduced motion; a printed record leaves out empty fields and keeps its totals with the table; menus and popovers sit inside the page's landmarks for assistive technology; a selection bar folds what does not fit into More on a narrow screen. Nothing else changes.
