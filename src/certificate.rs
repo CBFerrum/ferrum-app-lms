@@ -6,14 +6,17 @@
 //! chooses to share and unlocks nothing else.
 
 use crate::notice::{self, Notice};
-use crate::util::{self, doc_id, elevated, is_manager, load, s};
+use crate::util::{self, doc_id, elevated, id, int, is_manager, load, s, sys};
 use async_trait::async_trait;
+use chrono::NaiveDate;
 use ferrum_kernel::{Ctx, Doc, DocHook, Error, HookCtx, Kernel, Result, Tx};
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 pub const VALID: &str = "Valid";
 pub const REVOKED: &str = "Revoked";
+pub const EXPIRED: &str = "Expired";
+pub const SUPERSEDED: &str = "Superseded";
 const ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 /// 32 symbols in groups of four: `7K2M-...`.
@@ -134,7 +137,40 @@ pub async fn issue(k: &Kernel, ctx: &Ctx, tx: &mut Tx, enrollment: &Doc, course:
     ] {
         doc.insert(k_.into(), v);
     }
-    k.insert_tx(&elevated(ctx), tx, "LmsCertificate", doc).await
+    let days = int(course, "certificate_valid_days");
+    if days > 0 {
+        doc.insert("expires_on".into(), json!((ctx.today() + chrono::Duration::days(days)).to_string()));
+    }
+    let fresh = k.insert_tx(&elevated(ctx), tx, "LmsCertificate", doc).await?;
+    // A recertification takes the place of the certificate of the enrolment it follows (a revoked one stays revoked).
+    if let Some(previous) = id(enrollment, "previous") {
+        let old: Option<Uuid> = sqlx::query_scalar("select id from e_lms_certificate where tenant_id = $1 and enrollment = $2 and status <> $3")
+            .bind(ctx.tenant)
+            .bind(previous)
+            .bind(REVOKED)
+            .fetch_optional(&mut **tx)
+            .await?;
+        if let Some(old) = old {
+            let patch = [("status", json!(SUPERSEDED)), ("superseded_by", fresh.get("id").cloned().unwrap_or(Value::Null))];
+            k.set_values_tx(&sys(ctx), tx, "LmsCertificate", old, patch.into_iter().map(|(f, v)| (f.to_string(), v)).collect()).await?;
+        }
+    }
+    Ok(fresh)
+}
+
+/// Maintenance: certificates whose last day has passed read Expired (anywhere they are listed or printed).
+pub async fn expire_all(k: &Kernel, ctx: &Ctx, at: chrono::DateTime<chrono::Utc>) -> Result<usize> {
+    let (today, mut tx) = (util::today_at(ctx, at), k.db.tenant_tx(ctx.tenant).await?);
+    let n = sqlx::query("update e_lms_certificate set status = $3, updated_at = now() where tenant_id = $1 and status = $4 and expires_on < $2")
+        .bind(ctx.tenant)
+        .bind(today)
+        .bind(EXPIRED)
+        .bind(VALID)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    tx.commit().await?;
+    Ok(n as usize)
 }
 
 /// The certificate a (typed) code names, if any.
@@ -147,10 +183,13 @@ pub async fn by_code(tx: &mut Tx, tenant: Uuid, raw: &str) -> Result<Option<Uuid
         .await?)
 }
 
-/// What the public may know about a certificate: that it exists, whom it names, for what, when.
-pub fn public_view(c: &Doc) -> Value {
+/// What the public may know about a certificate: that it exists, whom it names, for what, when, until
+/// when, and whether it still counts (not revoked, expired or replaced by a recertification).
+pub fn public_view(c: &Doc, today: NaiveDate) -> Value {
+    let lapsed = s(c, "expires_on").and_then(|d| d.parse::<NaiveDate>().ok()).is_some_and(|d| d < today);
+    let status = if s(c, "status") == Some(VALID) && lapsed { Some(EXPIRED) } else { s(c, "status") };
     json!({
-        "valid": s(c, "status") == Some(VALID), "status": c.get("status"), "number": c.get("number"),
+        "valid": status == Some(VALID), "status": status, "number": c.get("number"), "expires_on": c.get("expires_on"),
         "learner_name": c.get("learner_name"), "course_title": c.get("course_title"), "issued_on": c.get("issued_on"),
         "issuer": c.get("issuer"), "verification_code": c.get("verification_code"),
     })

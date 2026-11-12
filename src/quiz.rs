@@ -363,11 +363,10 @@ async fn finalize(k: &Kernel, ctx: &Ctx, tx: &mut Tx, attempt: &Doc, status: &st
     }
     let max = d(attempt, "max_score");
     let passed = grading::passed(score, max, d(attempt, "passing_percentage"));
-    let learner = s(attempt, "learner").unwrap_or_default().to_string();
-    let used: i64 = sqlx::query_scalar("select count(*) from e_lms_quiz_attempt where tenant_id = $1 and quiz = $2 and learner = $3")
+    let used: i64 = sqlx::query_scalar("select count(*) from e_lms_quiz_attempt where tenant_id = $1 and quiz = $2 and enrollment = $3")
         .bind(ctx.tenant)
         .bind(quiz_id)
-        .bind(&learner)
+        .bind(id(attempt, "enrollment"))
         .fetch_one(&mut **tx)
         .await?;
     let max_attempts = int(&quiz, "max_attempts");
@@ -429,10 +428,10 @@ pub async fn start(k: &Kernel, ctx: &Ctx, tx: &mut Tx, enrollment: &Doc, quiz_id
     }
     let now = util::now();
     let past: Vec<(Uuid, String, i64)> =
-        sqlx::query_as("select id, status, attempt_no from e_lms_quiz_attempt where tenant_id = $1 and quiz = $2 and learner = $3 order by attempt_no")
+        sqlx::query_as("select id, status, attempt_no from e_lms_quiz_attempt where tenant_id = $1 and quiz = $2 and enrollment = $3 order by attempt_no")
             .bind(ctx.tenant)
             .bind(quiz_id)
-            .bind(&learner)
+            .bind(doc_id(enrollment)?)
             .fetch_all(&mut **tx)
             .await?;
     if let Some((open, ..)) = past.iter().find(|a| a.1 == IN_PROGRESS) {
@@ -538,14 +537,14 @@ async fn review(k: &Kernel, ctx: &Ctx, tx: &mut Tx, attempt: &Doc) -> Result<Val
 
 /// A learner's standing at a quiz, for the lesson page: rules, attempts used and left, best score,
 /// and the attempt in progress (if any).
-pub async fn state(k: &Kernel, ctx: &Ctx, tx: &mut Tx, quiz_id: Uuid, learner: &str) -> Result<Value> {
+pub async fn state(k: &Kernel, ctx: &Ctx, tx: &mut Tx, quiz_id: Uuid, enrollment: Uuid) -> Result<Value> {
     let quiz = load(k, ctx, tx, "LmsQuiz", quiz_id).await?;
     let attempts: Vec<(Uuid, String, Option<Decimal>, bool, Option<DateTime<Utc>>)> = sqlx::query_as(
-        "select id, status, percentage, passed, deadline from e_lms_quiz_attempt where tenant_id = $1 and quiz = $2 and learner = $3 order by attempt_no",
+        "select id, status, percentage, passed, deadline from e_lms_quiz_attempt where tenant_id = $1 and quiz = $2 and enrollment = $3 order by attempt_no",
     )
     .bind(ctx.tenant)
     .bind(quiz_id)
-    .bind(learner.to_lowercase())
+    .bind(enrollment)
     .fetch_all(&mut **tx)
     .await?;
     let max = int(&quiz, "max_attempts");

@@ -5,7 +5,7 @@
   <img alt="Ferrum Learn" src="docs/assets/banner-light.svg" width="100%">
 </picture>
 
-[![CI](https://github.com/CBFerrum/ferrum-app-lms/actions/workflows/ci.yml/badge.svg)](https://github.com/CBFerrum/ferrum-app-lms/actions/workflows/ci.yml) ![Version](https://img.shields.io/badge/version-0.6.2-3048a6?style=flat-square) ![Ferrum](https://img.shields.io/badge/Ferrum-%3E%3D0.3.2%2C%20%3C0.4-2f5bea?style=flat-square) ![License](https://img.shields.io/badge/license-AGPL--3.0-3b82f6?style=flat-square) ![Rust](https://img.shields.io/badge/Rust-native%20app-b7410e?style=flat-square&logo=rust&logoColor=white) ![MCP](https://img.shields.io/badge/AI%20agents-MCP-8b5cf6?style=flat-square)
+[![CI](https://github.com/CBFerrum/ferrum-app-lms/actions/workflows/ci.yml/badge.svg)](https://github.com/CBFerrum/ferrum-app-lms/actions/workflows/ci.yml) ![Version](https://img.shields.io/badge/version-0.8.0-3048a6?style=flat-square) ![Ferrum](https://img.shields.io/badge/Ferrum-%3E%3D0.3.2%2C%20%3C0.4-2f5bea?style=flat-square) ![License](https://img.shields.io/badge/license-AGPL--3.0-3b82f6?style=flat-square) ![Rust](https://img.shields.io/badge/Rust-native%20app-b7410e?style=flat-square&logo=rust&logoColor=white) ![MCP](https://img.shields.io/badge/AI%20agents-MCP-8b5cf6?style=flat-square)
 
 **A native app for [Ferrum](https://github.com/CBFerrum/Ferrum), the open-source, AI-first business platform.**
 
@@ -25,14 +25,14 @@ the server, and certificates issued exactly once with a public verification code
 
 | At a glance | |
 |---|---|
-| 📦 Version | `0.6.2` |
+| 📦 Version | `0.8.0` |
 | 🧱 Platform | Ferrum `>=0.3.2, <0.4` |
 | 🔗 Requires | nothing else |
 | 🖥️ Interface | Its own at `/lms/` (course player, quizzes, catalog, teaching, course builder); the other records in Ferrum's records screens |
-| 🗃️ Records | 24 entities in 1 package |
+| 🗃️ Records | 28 entities in 1 package |
 | 👥 Roles | 3: LMS Manager, Instructor, Learner |
-| 📊 Reports | 4 |
-| 🧪 Tests | 15 Rust tests, 136 interface tests |
+| 📊 Reports | 7 |
+| 🧪 Tests | 35 Rust tests, 136 interface tests |
 
 
 ## Highlights
@@ -214,12 +214,15 @@ erDiagram
 | **Learner** | Takes courses — enrols in published courses, works through lessons, attempts quizzes, submits assignments and earns certificates — and sees only their own enrolments, progress, attempts, submissions and certificates. | 8 |
 
 <details>
-<summary><b>Reports (4)</b></summary>
+<summary><b>Reports (7)</b></summary>
 
 - Lms Course Completion
 - Lms Quiz Scores
 - Lms Learner Progress
 - Lms Overdue Assignments
+- Lms Training Status
+- Lms Programme Status
+- Lms Team Training
 
 </details>
 
@@ -292,6 +295,7 @@ CHANGELOG.md  what changed in each version
 
 | Version | Highlights |
 |---|---|
+| **0.8.0** | Compliance training: enrolment due dates with reminders, certificates that expire and recertification, enrolment rules (by role, group or HR employee fields), training programmes and a status report, and a manager's team report. |
 | **0.7.0** | Live classes run in the product: a meeting per live session (with Comms), each member's join link, attendance read from the meeting or marked by the instructor, and Live lessons credited by attending. |
 | **0.6.16** | Rebuilt on the tuned design system: better menu icons, a lighter first page, a visible scroll cue, cleaner print. |
 | **0.6.15** | The redesigned interface: the upgraded design system, shaped loading, told-apart states. |

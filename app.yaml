@@ -1,6 +1,6 @@
 id: lms
 name: Learn
-version: 0.7.0
+version: 0.8.0
 publisher: cbferrum
 summary: "Learning management: courses, lessons, quizzes, enrollments, progress, certificates and a public course catalog"
 description: README.md
@@ -53,7 +53,7 @@ contributes:
         An LmsCourse (Draft, Published, Archived) has chapters and lessons. An LmsEnrollment is Active, Completed or
         Withdrawn; progress is kept for each lesson (LmsLessonProgress) and each SCORM or xAPI package
         (LmsPackageProgress). Quizzes are attempted (LmsQuizAttempt) and assignments submitted and graded
-        (LmsAssignmentSubmission). An LmsCertificate is Valid until revoked. Paid courses are bought through
+        (LmsAssignmentSubmission). An LmsCertificate is Valid until it expires, is revoked or a recertification supersedes it. An LmsEnrollment has a due date; its training state (Not Started, In Progress, Completed, Overdue) is in the Training Status report, a programme's in Programme Status, a manager's team in My Team's Training. An LmsEnrollmentRule enrols everyone who matches into a course or an LmsProgramme. Paid courses are bought through
         LmsCoursePurchase.
       suggestions:
         - "Which of my courses have I not finished?"

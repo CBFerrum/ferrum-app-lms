@@ -32,8 +32,8 @@
  <div><span class="name">{{ doc.learner_name }}</span></div>
  <p class="lead">has successfully completed the course</p>
  <p class="course">{{ doc.course_title }}</p>
- <p class="date">Issued on {{ doc.issued_on }}</p>
- {% if doc.status == "Revoked" %}<div class="revoked">REVOKED</div>{% endif %}
+ <p class="date">Issued on {{ doc.issued_on }}{% if doc.expires_on %} · valid until {{ doc.expires_on }}{% endif %}</p>
+ {% if doc.status == "Revoked" %}<div class="revoked">REVOKED</div>{% elif doc.status == "Expired" %}<div class="revoked">EXPIRED</div>{% elif doc.status == "Superseded" %}<div class="revoked">SUPERSEDED</div>{% endif %}
  <div class="footer">
   <div class="sig">{% if doc.signatory %}<div class="line"></div><b>{{ doc.signatory }}</b>{% if doc.signatory_title %}<br>{{ doc.signatory_title }}{% endif %}{% endif %}</div>
   <div class="verify">Certificate {{ doc.number or "" }}<br>Verification code <code>{{ doc.verification_code }}</code>{% if doc.verification_url %}<br>Verify at {{ doc.verification_url }}{% endif %}</div>

@@ -381,7 +381,7 @@ async fn public(k: &Kernel, req: &SiteRequest, path: &[&str]) -> Result<SiteResp
             let cert = certificate::by_code(&mut tx, req.tenant, code).await?.ok_or_else(|| not_found("certificate"))?;
             if rest.is_empty() {
                 let doc = load(k, &ctx, &mut tx, "LmsCertificate", cert).await?;
-                json_response(&json!({"certificate": certificate::public_view(&doc)}), "no-store")
+                json_response(&json!({"certificate": certificate::public_view(&doc, ctx.today())}), "no-store")
             } else {
                 tx.commit().await?;
                 let html = k.render_print(&ctx, "LmsCertificate", cert).await?;
@@ -410,12 +410,13 @@ async fn public(k: &Kernel, req: &SiteRequest, path: &[&str]) -> Result<SiteResp
 
 /// The caller's enrolment in a course, if any.
 async fn my_enrollment(k: &Kernel, ctx: &Ctx, tx: &mut Tx, course: Uuid) -> Result<Option<Doc>> {
-    let found: Option<Uuid> = sqlx::query_scalar("select id from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3")
-        .bind(ctx.tenant)
-        .bind(course)
-        .bind(ctx.email.to_lowercase())
-        .fetch_optional(&mut **tx)
-        .await?;
+    let found: Option<Uuid> =
+        sqlx::query_scalar("select id from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3 order by coalesce(cycle, 1) desc limit 1")
+            .bind(ctx.tenant)
+            .bind(course)
+            .bind(ctx.email.to_lowercase())
+            .fetch_optional(&mut **tx)
+            .await?;
     match found {
         Some(e) => Ok(Some(load(k, ctx, tx, "LmsEnrollment", e).await?)),
         None => Ok(None),
@@ -431,7 +432,7 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
             let mine: Vec<(Uuid, Uuid, String, Option<Decimal>)> = if ids.is_empty() {
                 vec![]
             } else {
-                sqlx::query_as("select course, id, status, progress_percent from e_lms_enrollment where tenant_id = $1 and learner = $2 and course = any($3)")
+                sqlx::query_as("select course, id, status, progress_percent from e_lms_enrollment where tenant_id = $1 and learner = $2 and course = any($3) order by coalesce(cycle, 1)")
                     .bind(user.tenant)
                     .bind(user.email.to_lowercase())
                     .bind(&ids)
@@ -623,10 +624,10 @@ async fn dashboard(k: &Kernel, user: &Ctx, tx: &mut Tx) -> Result<Value> {
          join e_lms_lesson l on l.tenant_id = e.tenant_id and l.course = e.course and l.assignment is not null \
          join e_lms_assignment a on a.tenant_id = l.tenant_id and a.id = l.assignment \
          left join lateral (select s.status, s.passed from e_lms_assignment_submission s where s.tenant_id = e.tenant_id \
-              and s.assignment = a.id and s.learner = e.learner order by s.submission_no desc limit 1) last on true \
+              and s.assignment = a.id and s.enrollment = e.id order by s.submission_no desc limit 1) last on true \
          where e.tenant_id = $1 and e.learner = $2 and e.status = 'Active' \
            and not exists (select 1 from e_lms_assignment_submission p where p.tenant_id = e.tenant_id and p.assignment = a.id \
-                and p.learner = e.learner and p.passed) \
+                and p.enrollment = e.id and p.passed) \
          order by c.title, l.position limit 500",
         )
         .bind(user.tenant)
@@ -667,7 +668,7 @@ async fn dashboard(k: &Kernel, user: &Ctx, tx: &mut Tx) -> Result<Value> {
         })
         .collect();
     let paths: Vec<(Uuid, String, i64, i64)> = sqlx::query_as(
-        "select p.id, p.title, count(pc.id), count(e.id) filter (where e.status = 'Completed') \
+        "select p.id, p.title, count(pc.id), count(distinct e.course) filter (where e.status = 'Completed') \
          from e_lms_learning_path p join e_lms_learning_path__courses pc on pc.tenant_id = p.tenant_id and pc.parent_id = p.id \
          left join e_lms_enrollment e on e.tenant_id = pc.tenant_id and e.course = pc.course and e.learner = $2 \
          where p.tenant_id = $1 and p.status = 'Published' group by p.id, p.title \

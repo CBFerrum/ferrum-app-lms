@@ -43,13 +43,13 @@ impl DocHook for AssignmentHook {
 /// A learner's earlier submissions of one assignment: `(number, status, passed)`, oldest first.
 type Previous = Vec<(i64, String, bool)>;
 
-async fn previous(tx: &mut Tx, tenant: Uuid, assignment: Uuid, learner: &str) -> Result<Previous> {
+async fn previous(tx: &mut Tx, tenant: Uuid, assignment: Uuid, enrollment: Uuid) -> Result<Previous> {
     Ok(sqlx::query_as(
-        "select submission_no, status, passed from e_lms_assignment_submission where tenant_id = $1 and assignment = $2 and learner = $3 order by submission_no",
+        "select submission_no, status, passed from e_lms_assignment_submission where tenant_id = $1 and assignment = $2 and enrollment = $3 order by submission_no",
     )
     .bind(tenant)
     .bind(assignment)
-    .bind(learner.to_lowercase())
+    .bind(enrollment)
     .fetch_all(&mut **tx)
     .await?)
 }
@@ -98,7 +98,7 @@ impl DocHook for SubmissionHook {
         let course = id(&assignment, "course").ok_or_else(|| Error::internal("assignment without course"))?;
         // The enrolment row lock serializes a learner's submissions.
         let enrolled: Option<(Uuid, String, NaiveDate, Option<String>)> = sqlx::query_as(
-            "select id, status, enrolled_on, learner_name from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3 for update",
+            "select id, status, enrolled_on, learner_name from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3 order by coalesce(cycle, 1) desc limit 1 for update",
         )
         .bind(hc.ctx.tenant)
         .bind(course)
@@ -120,7 +120,7 @@ impl DocHook for SubmissionHook {
         if !placed {
             return Err(Error::field("assignment", "is not part of a lesson of its course yet"));
         }
-        let prev = previous(hc.tx, hc.ctx.tenant, assignment_id, &learner).await?;
+        let prev = previous(hc.tx, hc.ctx.tenant, assignment_id, enrollment).await?;
         let due = enrollment::due_date(&assignment, Some(enrolled_on));
         let today = hc.ctx.today();
         if let Some(why) = blocked(&assignment, &prev, due, today) {
@@ -317,15 +317,15 @@ async fn grade(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, params: &Value) ->
 }
 
 /// A learner's standing at an assignment, for the lesson page.
-pub async fn state(k: &Kernel, ctx: &Ctx, tx: &mut Tx, assignment_id: Uuid, learner: &str, enrolled_on: Option<NaiveDate>) -> Result<Value> {
+pub async fn state(k: &Kernel, ctx: &Ctx, tx: &mut Tx, assignment_id: Uuid, enrollment: Uuid, enrolled_on: Option<NaiveDate>) -> Result<Value> {
     let assignment = load(k, ctx, tx, "LmsAssignment", assignment_id).await?;
     let subs: Vec<(Uuid, Option<String>, i64, String, Option<Decimal>, bool, Option<chrono::DateTime<chrono::Utc>>, bool, Option<String>)> = sqlx::query_as(
         "select id, number, submission_no, status, score, passed, submitted_at, late, feedback from e_lms_assignment_submission \
-         where tenant_id = $1 and assignment = $2 and learner = $3 order by submission_no",
+         where tenant_id = $1 and assignment = $2 and enrollment = $3 order by submission_no",
     )
     .bind(ctx.tenant)
     .bind(assignment_id)
-    .bind(learner.to_lowercase())
+    .bind(enrollment)
     .fetch_all(&mut **tx)
     .await?;
     let prev: Previous = subs.iter().map(|x| (x.2, x.3.clone(), x.5)).collect();

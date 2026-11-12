@@ -43,6 +43,8 @@ base64 = "0.22"
 [dev-dependencies]
 # Paid Courses are tested on ERP's records (customers, invoices, the ledger).
 ferrum-app-erp = { git = "https://github.com/CBFerrum/ferrum-app-erp", branch = "main" }
+# Enrolment rules and team reports read the HR app's employees, tested with HR itself.
+ferrum-app-hr = { git = "https://github.com/CBFerrum/ferrum-app-hr", branch = "main" }
 ferrum-apps = { git = "https://github.com/CBFerrum/Ferrum", branch = "main" }
 tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "io-util"] }
 

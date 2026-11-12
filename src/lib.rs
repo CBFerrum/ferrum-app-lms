@@ -27,6 +27,7 @@ mod notice;
 mod payments;
 mod quiz;
 mod reports;
+mod rules;
 pub mod scorm;
 mod site;
 mod util;
@@ -58,6 +59,8 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("LmsLesson", Arc::new(catalog::LessonHook))
         .register("LmsLearningPath", Arc::new(catalog::PathHook))
         .register("LmsCohort", Arc::new(cohort::CohortHook))
+        .register("LmsEnrollmentRule", Arc::new(rules::RuleHook))
+        .register("LmsProgramme", Arc::new(rules::ProgrammeHook))
         .register("LmsQuiz", Arc::new(quiz::QuizHook))
         .register("LmsQuestion", Arc::new(quiz::QuestionHook))
         .register("LmsQuizAttempt", Arc::new(quiz::AttemptHook))
@@ -88,9 +91,16 @@ pub fn reports() -> Vec<Arc<dyn ReportSource>> {
 
 /// Periodic upkeep: every minute, on one replica at a time (advisory lock); must be idempotent and cheap.
 /// Per tenant with Learn: closes quiz attempts whose time ran out, sends live-session reminders,
-/// completes enrolments that course changes finished, and purges old reminder bookkeeping. A failing
+/// completes enrolments that course changes finished, reminds learners of due and overdue enrolments, and purges old reminder bookkeeping. A failing
 /// step is logged and does not stop the others; the first error is returned.
 pub async fn maintenance(k: &Kernel) -> Result<()> {
+    maintenance_at(k, util::now()).await
+}
+
+/// [`maintenance`] as of `at`: what is due, overdue or expiring is read against that instant, so a
+/// test can step the clock. Steps that watch the database's own clock (attempt deadlines, sessions)
+/// are unaffected.
+pub async fn maintenance_at(k: &Kernel, at: chrono::DateTime<chrono::Utc>) -> Result<()> {
     let mut tx = k.db.system_tx().await?;
     let tenants: Vec<Uuid> = sqlx::query_scalar("select id from tenant where status = 'active' order by id").fetch_all(&mut *tx).await?;
     tx.commit().await?;
@@ -110,6 +120,10 @@ pub async fn maintenance(k: &Kernel) -> Result<()> {
             ("session reminders", cohort::send_reminders(k, &ctx).await),
             ("live attendance", live::close_ended(k, &ctx).await),
             ("completions", enrollment::complete_ready(k, &ctx).await),
+            ("due reminders", enrollment::send_due_reminders(k, &ctx, at).await),
+            ("expired certificates", certificate::expire_all(k, &ctx, at).await),
+            ("recertification", enrollment::recertify(k, &ctx, at).await),
+            ("enrolment rules", rules::apply(k, &ctx, at).await),
             ("lapsed purchases", payments::cancel_lapsed(k, &ctx).await),
             ("purge", purge(k, tenant).await),
             ("lti tokens", lti::purge(k, tenant).await),

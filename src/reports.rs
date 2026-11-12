@@ -260,7 +260,7 @@ async fn overdue(ctx: &Ctx, p: &Params<'_>, tx: &mut Tx) -> Result<Value> {
          join e_lms_lesson l on l.tenant_id = a.tenant_id and l.course = a.course and l.assignment is not null \
          join e_lms_assignment asg on asg.tenant_id = l.tenant_id and asg.id = l.assignment \
          left join lateral (select s.status, s.passed from e_lms_assignment_submission s where s.tenant_id = a.tenant_id \
-              and s.assignment = asg.id and s.learner = a.learner order by s.submission_no desc limit 1) last on true",
+              and s.assignment = asg.id and s.enrollment = a.id order by s.submission_no desc limit 1) last on true",
     )?;
     qb.push(" and a.status = 'Active' and (asg.due_date is not null or coalesce(asg.due_days, 0) > 0)");
     qb.push(" and coalesce(asg.due_date, a.enrolled_on + asg.due_days::int) < ").push_bind(as_of);
@@ -288,6 +288,189 @@ async fn overdue(ctx: &Ctx, p: &Params<'_>, tx: &mut Tx) -> Result<Value> {
         "totals": {"overdue": data.len()},
         "meta": {"as_of": as_of, "note": "Active learners whose work is missing, failed or returned for revision after its due date."},
     }))
+}
+
+/// What an enrolment `a` stands at on `as_of`: Not Started, In Progress, Completed, Overdue (not
+/// completed and past its due date) or Withdrawn.
+pub fn state_sql(as_of: NaiveDate) -> String {
+    format!(
+        "(case when a.status = 'Withdrawn' then 'Withdrawn' when a.status = 'Completed' then 'Completed' \
+          when a.due_date is not null and a.due_date < '{as_of}'::date then 'Overdue' \
+          when coalesce(a.completed_lessons, 0) > 0 or a.last_activity_at is not null then 'In Progress' else 'Not Started' end)"
+    )
+}
+
+pub const STATES: [&str; 5] = ["Not Started", "In Progress", "Completed", "Overdue", "Withdrawn"];
+
+/// Counts of each state in `rows` (each carrying a `state`), and the share completed of those not withdrawn.
+fn state_totals(rows: &[Value]) -> Value {
+    let count = |st: &str| rows.iter().filter(|r| r["state"] == json!(st)).count() as i64;
+    let live = rows.len() as i64 - count("Withdrawn");
+    json!({"enrolments": live, "not_enrolled": count("Not Enrolled"), "not_started": count("Not Started"), "in_progress": count("In Progress"), "completed": count("Completed"),
+           "overdue": count("Overdue"), "completion_rate": pct(count("Completed"), live)})
+}
+
+/// `select` over the caller's enrolments (alias `a`, joined to its course `co`) with the training state,
+/// the columns the training reports share.
+fn training_query(ctx: &Ctx, as_of: NaiveDate, extra_columns: &str, joins: &str) -> Result<QueryBuilder<Postgres>> {
+    visible(ctx, "LmsEnrollment", &training_columns_sql(as_of, extra_columns), &training_joins(joins))
+}
+
+fn training_columns_sql(as_of: NaiveDate, extra: &str) -> String {
+    format!(
+        "a.learner, a.learner_name, co.title as course_title, a.due_date, {} as state, a.enrolled_on, a.completed_at, a.progress_percent{extra}",
+        state_sql(as_of)
+    )
+}
+
+fn training_joins(joins: &str) -> String {
+    format!("join e_lms_course co on co.tenant_id = a.tenant_id and co.id = a.course {joins}")
+}
+
+fn training_row(r: &sqlx::postgres::PgRow, as_of: NaiveDate) -> Result<Value> {
+    use sqlx::Row;
+    let due: Option<NaiveDate> = r.try_get("due_date")?;
+    let state: String = r.try_get("state")?;
+    let completed: Option<chrono::DateTime<chrono::Utc>> = r.try_get("completed_at")?;
+    Ok(json!({
+        "learner": r.try_get::<String, _>("learner")?, "learner_name": r.try_get::<Option<String>, _>("learner_name")?,
+        "course_title": r.try_get::<String, _>("course_title")?, "due_date": due, "state": state,
+        "days_overdue": if state == "Overdue" { due.map(|d| (as_of - d).num_days()) } else { None },
+        "enrolled_on": r.try_get::<Option<NaiveDate>, _>("enrolled_on")?, "completed_at": completed.map(crate::util::ts),
+        "progress_percent": dec(r.try_get("progress_percent")?),
+    }))
+}
+
+fn training_columns() -> Vec<Value> {
+    vec![
+        col("learner_name", "Learner", "data"),
+        col("learner", "Email", "data"),
+        col("course_title", "Course", "data"),
+        col("state", "State", "data"),
+        col("due_date", "Due", "date"),
+        col("days_overdue", "Days Overdue", "int"),
+        col("enrolled_on", "Enrolled On", "date"),
+        col("completed_at", "Completed At", "datetime"),
+        col("progress_percent", "Progress %", "percent"),
+    ]
+}
+
+async fn training_status(ctx: &Ctx, p: &Params<'_>, tx: &mut Tx) -> Result<Value> {
+    let as_of = p.date("as_of")?.unwrap_or_else(today);
+    let mut qb = training_query(ctx, as_of, "", "")?;
+    uuid_filter(&mut qb, p, "course", "a.course")?;
+    if let Some(state) = p.str("state") {
+        if !STATES.contains(&state) {
+            return Err(Error::field("state", "use Not Started, In Progress, Completed, Overdue or Withdrawn"));
+        }
+        qb.push(format!(" and {} = ", state_sql(as_of))).push_bind(state.to_string());
+    }
+    qb.push(" order by co.title, a.due_date nulls last, lower(coalesce(a.learner_name, a.learner)) limit 10000");
+    let rows = qb.build().fetch_all(&mut **tx).await?.iter().map(|r| training_row(r, as_of)).collect::<Result<Vec<_>>>()?;
+    Ok(json!({"columns": training_columns(), "totals": state_totals(&rows), "rows": rows,
+              "meta": {"as_of": as_of, "note": "Overdue: not completed and past its due date. Withdrawn enrolments are left out of the totals."}}))
+}
+
+/// The people who report to the HR employee signed in as `email` (one level), as sign-in emails.
+async fn direct_reports(ctx: &Ctx, tx: &mut Tx, email: &str) -> Result<Vec<String>> {
+    let ent = ctx.schema.entity("Employee").ok_or_else(|| Error::NotFound("Employee".into()))?;
+    let t = ferrum_kernel::ddl::q(&ent.table);
+    let sql = format!(
+        "select lower(r.\"user\"::text) from {t} r where r.tenant_id = $1 and r.status <> 'Left' and coalesce(r.\"user\"::text, '') <> '' \
+         and r.reports_to = (select m.id from {t} m where m.tenant_id = $1 and lower(m.\"user\"::text) = lower($2) limit 1) order by 1"
+    );
+    Ok(sqlx::query_scalar(sqlx::AssertSqlSafe(sql)).bind(ctx.tenant).bind(email).fetch_all(&mut **tx).await?)
+}
+
+/// My team's training: where the HR app is installed, the enrolments of the people who report to the
+/// viewer (their own, never anyone else's: the viewer is whoever is signed in, whatever the parameters
+/// say); LMS managers see everyone, or one manager's team by `manager`. Without HR only LMS managers run
+/// it. The query itself is cut to the team, so what is not theirs is never read.
+async fn team_training(ctx: &Ctx, p: &Params<'_>, tx: &mut Tx) -> Result<Value> {
+    let as_of = p.date("as_of")?.unwrap_or_else(today);
+    let hr = ctx.schema.entity("Employee").is_some() && ctx.schema.packages.iter().any(|x| x == "hr");
+    let manager = crate::util::is_manager(ctx);
+    let team: Option<Vec<String>> = match (hr, manager) {
+        (false, false) => return Err(Error::Forbidden("a team needs the HR app: only LMS managers see everyone's training".into())),
+        (false, true) => None,
+        (true, false) => Some(direct_reports(ctx, tx, &ctx.email).await?),
+        (true, true) => match p.str("manager") {
+            Some(who) => Some(direct_reports(ctx, tx, who).await?),
+            None => None,
+        },
+    };
+    let mut qb = match &team {
+        None => training_query(ctx, as_of, "", "")?,
+        Some(emails) => {
+            let ent = ctx.schema.entity("LmsEnrollment").ok_or_else(|| Error::NotFound("LmsEnrollment".into()))?;
+            let mut qb = QueryBuilder::new(format!(
+                "select {} from {} a {} where a.tenant_id = ",
+                training_columns_sql(as_of, ""),
+                ferrum_kernel::ddl::q(&ent.table),
+                training_joins("")
+            ));
+            qb.push_bind(ctx.tenant).push(" and lower(a.learner) = any(").push_bind(emails.clone()).push(")");
+            qb
+        }
+    };
+    qb.push(
+        " and coalesce(a.cycle, 1) = (select max(coalesce(x.cycle, 1)) from e_lms_enrollment x \
+          where x.tenant_id = a.tenant_id and x.course = a.course and x.learner = a.learner)",
+    );
+    if let Some(state) = p.str("state") {
+        if !STATES.contains(&state) {
+            return Err(Error::field("state", "use Not Started, In Progress, Completed, Overdue or Withdrawn"));
+        }
+        qb.push(format!(" and {} = ", state_sql(as_of))).push_bind(state.to_string());
+    }
+    qb.push(" order by lower(coalesce(a.learner_name, a.learner)), a.due_date nulls last, co.title limit 10000");
+    let rows = qb.build().fetch_all(&mut **tx).await?.iter().map(|r| training_row(r, as_of)).collect::<Result<Vec<_>>>()?;
+    let mut totals = state_totals(&rows);
+    totals["people"] = json!(team.as_ref().map(Vec::len));
+    Ok(json!({"columns": training_columns(), "totals": totals, "rows": rows,
+              "meta": {"as_of": as_of, "note": "The latest enrolment of each person who reports to you in each course. People are the HR employees whose reports-to is you."}}))
+}
+
+/// A programme's audience against its courses: each person and course with the state and dates of the
+/// latest enrolment, and, for LMS managers, the pairs nobody has enrolled yet (the upkeep has not run, or
+/// the course is not open). The completion rate counts those among the people who owe the training.
+async fn programme_status(k: &Kernel, ctx: &Ctx, p: &Params<'_>, tx: &mut Tx) -> Result<Value> {
+    let as_of = p.date("as_of")?.unwrap_or_else(today);
+    let programme = p.uuid("programme")?.ok_or_else(|| Error::field("programme", "choose a programme"))?;
+    let doc = crate::util::load(k, ctx, tx, "LmsProgramme", programme).await?;
+    let mut qb = training_query(ctx, as_of, ", a.course", "")?;
+    qb.push(" and a.programme = ").push_bind(programme);
+    qb.push(
+        " and coalesce(a.cycle, 1) = (select max(coalesce(x.cycle, 1)) from e_lms_enrollment x \
+          where x.tenant_id = a.tenant_id and x.course = a.course and x.learner = a.learner)",
+    );
+    qb.push(" order by lower(coalesce(a.learner_name, a.learner)), co.title limit 10000");
+    let found = qb.build().fetch_all(&mut **tx).await?;
+    let mut have = std::collections::HashSet::new();
+    let mut rows = Vec::with_capacity(found.len());
+    for r in &found {
+        use sqlx::Row;
+        have.insert((r.try_get::<String, _>("learner")?.to_lowercase(), r.try_get::<Uuid, _>("course")?));
+        rows.push(training_row(r, as_of)?);
+    }
+    if crate::util::is_manager(ctx) {
+        let people = crate::rules::audience(k, ctx, tx, programme).await?;
+        let names: HashMap<String, String> = crate::util::users(tx, ctx.tenant, &people).await?.into_iter().map(|u| (u.email.clone(), u.name())).collect();
+        for person in &people {
+            for c in crate::util::rows(&doc, "courses") {
+                let Some(course) = crate::util::id(&c, "course") else { continue };
+                if have.contains(&(person.clone(), course)) {
+                    continue;
+                }
+                let title = crate::util::load(k, ctx, tx, "LmsCourse", course).await.ok().and_then(|c| crate::util::s(&c, "title").map(str::to_string));
+                rows.push(json!({"learner": person, "learner_name": names.get(person), "course_title": title, "state": "Not Enrolled"}));
+            }
+        }
+        rows.sort_by_key(|r| (r["learner_name"].as_str().or(r["learner"].as_str()).unwrap_or_default().to_lowercase(), r["course_title"].to_string()));
+    }
+    Ok(json!({"columns": training_columns(), "totals": state_totals(&rows), "rows": rows,
+              "meta": {"as_of": as_of, "programme": crate::util::s(&doc, "programme_name"),
+                       "note": "The latest enrolment of each person in each course of the programme. Completion rate: completed of all who owe the training, those not enrolled yet included."}}))
 }
 
 #[async_trait]
@@ -319,6 +502,30 @@ impl ReportSource for LearnReports {
                 ],
             ),
             entry(
+                "lms_training_status",
+                "Training Status",
+                "LmsEnrollment",
+                vec![
+                    course(),
+                    json!({"name": "state", "label": "State", "type": "select", "options": STATES}),
+                    json!({"name": "as_of", "label": "As Of", "type": "date", "default": "today"}),
+                ],
+            ),
+            // Narrowed by its own query, to the viewer's reports; any signed-in learner may run it.
+            json!({"name": "lms_team_training", "label": "My Team's Training", "module": "learn", "entity": "LmsEnrollment", "scoped": "owner", "params": [
+                json!({"name": "state", "label": "State", "type": "select", "options": STATES}),
+                json!({"name": "manager", "label": "Manager's Sign-in (LMS managers)", "type": "data"}),
+                json!({"name": "as_of", "label": "As Of", "type": "date", "default": "today"})]}),
+            entry(
+                "lms_programme_status",
+                "Programme Status",
+                "LmsEnrollment",
+                vec![
+                    json!({"name": "programme", "label": "Programme", "type": "link", "to": "LmsProgramme", "required": true}),
+                    json!({"name": "as_of", "label": "As Of", "type": "date", "default": "today"}),
+                ],
+            ),
+            entry(
                 "lms_overdue_assignments",
                 "Overdue Assignments",
                 "LmsEnrollment",
@@ -334,6 +541,9 @@ impl ReportSource for LearnReports {
             "lms_course_completion" => completion(ctx, &p, &mut tx).await,
             "lms_quiz_scores" => quiz_scores(ctx, &p, &mut tx).await,
             "lms_learner_progress" => learner_progress(ctx, &p, &mut tx).await,
+            "lms_training_status" => training_status(ctx, &p, &mut tx).await,
+            "lms_team_training" => team_training(ctx, &p, &mut tx).await,
+            "lms_programme_status" => programme_status(k, ctx, &p, &mut tx).await,
             "lms_overdue_assignments" => overdue(ctx, &p, &mut tx).await,
             _ => Err(Error::NotFound(format!("report {name}"))),
         };
