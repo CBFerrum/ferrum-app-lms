@@ -2580,6 +2580,10 @@ async fn rules_for_users() {
     assert_eq!(night_made[0]["due_date"], Value::Null, "no due days anywhere");
     assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"course": draft.to_string()})).await.unwrap().len(), 0);
     assert_eq!(t.act(&manager, "LmsEnrollmentRule", wip, "preview", json!({})).await["open_courses"], json!(0));
+    // Without HR there are no teams: only LMS managers run the team report, and they see everyone.
+    let no_params = HashMap::new();
+    assert!(matches!(ferrum_domain::reports::run(&t.k, &who["ben"], "lms_team_training", &no_params).await, Err(Error::Forbidden(_))));
+    assert!(ferrum_domain::reports::run(&t.k, &manager, "lms_team_training", &no_params).await.unwrap()["rows"].as_array().unwrap().len() >= 3);
     t.sql("delete from scim_group_member where tenant_id = $1 and user_id = $2", dee.user).await;
     ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
     assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"course": other.to_string()})).await.unwrap()[0]["status"], json!("Active"), "Keep is the default");
@@ -2779,4 +2783,83 @@ async fn programme() {
     assert_eq!((c2["programme"].clone(), c2["rule"].clone(), c2["due_date"].clone()), (json!(programme.to_string()), json!(rule.to_string()), json!(day(30))));
     let r = report(26).await;
     assert_eq!(state(&r, "asha", "Fire Drill"), json!("Not Started"), "the latest cycle is the one shown");
+}
+
+#[test]
+fn my_teams_training() {
+    run(team());
+}
+
+/// With HR, a manager's report lists the enrolments of the people who report to them, one level, and no
+/// one else's, whatever parameters they send; LMS managers see everyone or one team; a completed
+/// course lands on the employee's HR training record. Without HR only LMS managers run it.
+async fn team() {
+    use chrono::Duration;
+    let (t, company) = boot_hr("team").await;
+    let manager = t.user("manager@team.test", "Mona Manager", "LMS Manager").await;
+    let mut who = HashMap::new();
+    for n in ["maya", "esha", "omar", "pia", "olga", "zoe", "sam"] {
+        who.insert(n, t.user(&format!("{n}@team.test"), n, "Learner").await);
+    }
+    let email = |n: &str| format!("{n}@team.test");
+    let person = |n: &str, boss: Option<Uuid>| {
+        let mut e = json!({"first_name": n, "company": company.to_string(), "date_of_joining": "2024-06-01", "user": email(n)});
+        if let Some(b) = boss {
+            e["reports_to"] = json!(b.to_string());
+        }
+        t.insert(&t.admin, "Employee", e)
+    };
+    let maya = uid(&person("maya", None).await);
+    let olga = uid(&person("olga", None).await);
+    let esha = uid(&person("esha", Some(maya)).await);
+    let omar = uid(&person("omar", Some(maya)).await);
+    person("pia", Some(olga)).await;
+    person("zoe", Some(esha)).await;
+    person("sam", None).await;
+    let _ = omar;
+
+    let (course, lessons) =
+        course_of(&t, &manager, "Workplace Safety", 1, json!({"issue_certificate": true, "certificate_valid_days": 365, "due_days": 14})).await;
+    let names = ["maya", "esha", "omar", "pia", "olga", "zoe"];
+    let made = enrol(&t, &manager, course, &names.map(email).iter().map(String::as_str).collect::<Vec<_>>()).await;
+    let team_of = |ctx: Ctx, params: Vec<(&'static str, String)>| {
+        let t = &t;
+        async move {
+            let p: HashMap<String, String> = params.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+            let r = ferrum_domain::reports::run(&t.k, &ctx, "lms_team_training", &p).await.unwrap_or_else(|e| panic!("team report: {e:?}"));
+            let rows =
+                r["rows"].as_array().unwrap().iter().map(|x| x["learner"].as_str().unwrap().trim_end_matches("@team.test").to_string()).collect::<Vec<_>>();
+            (rows, r)
+        }
+    };
+    let (rows, r) = team_of(who["maya"].clone(), vec![]).await;
+    assert_eq!(rows, ["esha", "omar"], "her two reports: not Zoe (one level), not Pia, not herself");
+    assert_eq!(r["totals"]["people"], json!(2));
+    assert_eq!(r["rows"][0]["due_date"], json!((manager.today() + Duration::days(14)).to_string()));
+    assert_eq!(r["rows"][0]["state"], json!("Not Started"));
+    let (rows, _) = team_of(who["olga"].clone(), vec![]).await;
+    assert_eq!(rows, ["pia"]);
+    // Asking for another team gets the caller's own, not that one.
+    let (rows, _) = team_of(who["maya"].clone(), vec![("manager", email("olga"))]).await;
+    assert_eq!(rows, ["esha", "omar"]);
+    assert!(team_of(who["sam"].clone(), vec![]).await.0.is_empty(), "no one reports to Sam");
+    assert!(team_of(who["pia"].clone(), vec![]).await.0.is_empty());
+    let (rows, _) = team_of(manager.clone(), vec![]).await;
+    assert_eq!(rows.len(), 6, "an LMS manager sees everyone");
+    let (rows, _) = team_of(manager.clone(), vec![("manager", email("olga"))]).await;
+    assert_eq!(rows, ["pia"], "or one team");
+    // Her reports' state shows on the team report after they act: Esha finishes.
+    finish(&t, &who["esha"], made[&email("esha")], &lessons).await;
+    let (_, r) = team_of(who["maya"].clone(), vec![]).await;
+    assert_eq!(r["rows"][0]["state"], json!("Completed"));
+    assert_eq!(r["totals"]["completed"], json!(1));
+
+    // The completed course is on Esha's HR training record, valid as long as the certificate.
+    let records = t.list(&t.admin, "TrainingRecord", json!({"employee": esha.to_string()})).await.unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0]["program_name"], json!("Workplace Safety"));
+    assert_eq!(records[0]["completed_on"], json!(manager.today().to_string()));
+    assert_eq!(records[0]["valid_until"], json!((manager.today() + Duration::days(365)).to_string()));
+    assert_eq!(t.list(&t.admin, "TrainingRecord", json!({})).await.unwrap().len(), 1, "nobody else's");
+    assert_eq!(t.list(&t.admin, "TrainingProgram", json!({})).await.unwrap().len(), 1);
 }

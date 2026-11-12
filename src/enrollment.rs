@@ -517,6 +517,7 @@ pub async fn refresh(k: &Kernel, ctx: &Ctx, tx: &mut Tx, e: &Doc, touched: Optio
         values.insert("certificate".into(), c.get("id").cloned().unwrap_or(Value::Null));
     }
     let updated = k.update_tx(&elevated(ctx), tx, "LmsEnrollment", me, values, None).await?;
+    hr_training_record(k, ctx, tx, s(e, "learner").unwrap_or_default(), &course, cert.as_ref()).await?;
     let title = s(&course, "title").unwrap_or_default();
     let n = match &cert {
         Some(c) => Notice {
@@ -538,6 +539,49 @@ pub async fn refresh(k: &Kernel, ctx: &Ctx, tx: &mut Tx, e: &Doc, touched: Optio
     };
     notice::send(k, ctx, tx, &[s(e, "learner").unwrap_or_default().to_string()], &n).await?;
     Ok(updated)
+}
+
+/// Where the HR app is installed, a completed course goes on the employee's HR training record (the
+/// course's name as the HR training program, made when HR has none of that name), valid until the
+/// certificate's last day. Learn keeps no record of its own beside it.
+async fn hr_training_record(k: &Kernel, ctx: &Ctx, tx: &mut Tx, learner: &str, course: &Doc, cert: Option<&Doc>) -> Result<()> {
+    let (Some(employee), Some(program), Some(_)) = (ctx.schema.entity("Employee"), ctx.schema.entity("TrainingProgram"), ctx.schema.entity("TrainingRecord"))
+    else {
+        return Ok(());
+    };
+    let found: Option<(Uuid, Uuid)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "select id, company from {} where tenant_id = $1 and lower(\"user\"::text) = lower($2) limit 1",
+        ferrum_kernel::ddl::q(&employee.table)
+    )))
+    .bind(ctx.tenant)
+    .bind(learner)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some((emp, company)) = found else { return Ok(()) };
+    let title = s(course, "title").unwrap_or_default();
+    let known: Option<Uuid> =
+        sqlx::query_scalar(sqlx::AssertSqlSafe(format!("select id from {} where tenant_id = $1 and program_name = $2", ferrum_kernel::ddl::q(&program.table))))
+            .bind(ctx.tenant)
+            .bind(title)
+            .fetch_optional(&mut **tx)
+            .await?;
+    let program_id = match known {
+        Some(p) => p,
+        None => {
+            let made = obj(&[("program_name", json!(title)), ("company", json!(company.to_string()))]);
+            doc_id(&k.insert_tx(&sys(ctx), tx, "TrainingProgram", made).await?)?
+        }
+    };
+    let record = obj(&[
+        ("employee", json!(emp.to_string())),
+        ("program", json!(program_id.to_string())),
+        ("program_name", json!(title)),
+        ("company", json!(company.to_string())),
+        ("completed_on", json!(ctx.today().to_string())),
+        ("valid_until", cert.and_then(|c| c.get("expires_on")).cloned().unwrap_or(Value::Null)),
+    ]);
+    k.insert_tx(&sys(ctx), tx, "TrainingRecord", record).await?;
+    Ok(())
 }
 
 /// Maintenance: a learner whose certificate expires within the course's days (or Learn Settings') is
