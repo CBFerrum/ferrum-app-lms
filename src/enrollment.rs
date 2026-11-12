@@ -229,6 +229,9 @@ async fn check_new(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc) -> Result<()> 
         _ => return Err(Error::invalid("the course is not open for enrolment yet")),
     }
     if !author {
+        if ctx.outside && s(&course, "visibility") != Some("Public") {
+            return Err(Error::invalid("this course is for the workspace's own people"));
+        }
         if !b(&course, "self_enrollment") {
             return Err(Error::invalid("enrolment in this course is by invitation: ask an instructor"));
         }

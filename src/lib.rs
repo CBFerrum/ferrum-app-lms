@@ -29,6 +29,7 @@ mod quiz;
 mod reports;
 mod rules;
 pub mod scorm;
+mod signup;
 mod site;
 mod util;
 mod video;
@@ -71,7 +72,9 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("LmsPackageProgress", Arc::new(scorm::ProgressHook))
         .register("LmsLtiTool", Arc::new(lti::ToolHook))
         .register("LmsCertificate", Arc::new(certificate::CertificateHook))
-        .add_site(util::PACKAGE, Arc::new(site::LearnSite));
+        .add_site(util::PACKAGE, Arc::new(site::LearnSite))
+        // People who signed themselves up on a course page are enrolled in it (or it is bought for them).
+        .add_event_sink(Arc::new(signup::SignupSink));
     // The connector with Commerce: only where Paid Courses is installed.
     hooks.scoped(&[payments::PACKAGE.to_string()], |h| {
         h.register("LmsCourse", Arc::new(payments::CourseHook))

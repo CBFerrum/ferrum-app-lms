@@ -1206,7 +1206,7 @@ async fn paid() {
     ferrum_app_commerce::register(&mut hooks);
     ferrum_app_lms::register(&mut hooks);
     let settings = KernelSettings { secret_key: Some(SecretKey::new([7u8; 32])), ..Default::default() };
-    let k = Kernel::boot(db, catalog, hooks, settings, None).await.expect("boot");
+    let k = Kernel::boot(db, catalog, hooks, settings, Some(Arc::new(NoMail))).await.expect("boot");
     ferrum_domain::maintenance(&k).await.expect("partitions");
     ferrum_app_erp::maintenance(&k).await.expect("partitions");
     let tenant = k
@@ -1384,6 +1384,32 @@ async fn paid() {
     assert_eq!(t.get("SalesInvoice", chen_invoice).await["docstatus"], json!(2), "its invoice cancelled");
     let page = t.page(Some(&chen), "courses/rust-for-teams").await["course"].clone();
     assert_eq!((page["sale"]["can_buy"].clone(), page["sale"]["purchase"].clone()), (json!(true), Value::Null));
+
+    // ───────────── someone with no account signs up on the paid course's page: an order, then the course on payment ─────────────
+    use ferrum_kernel::portal_signup::{PortalSignup, SignupRequest};
+    t.k.set_portal_signup(&a, "Online Learner", Some(&PortalSignup { domains: vec![], passes: vec!["course".into()] })).await.unwrap();
+    let req = SignupRequest {
+        tenant: "academy".into(),
+        role: "Online Learner".into(),
+        name: "Dev Outside".into(),
+        email: "dev@outside.test".into(),
+        passes: json!({"course": "rust-for-teams"}).as_object().cloned().unwrap(),
+    };
+    t.k.request_portal_signup(&req, "10.2.2.2").await.expect("asked");
+    let code = mailed_code(&t, "dev@outside.test").await;
+    let ferrum_kernel::auth::SignIn::Session(s) = t.k.sign_in_with_code("academy", "dev@outside.test", &code).await.expect("confirmed") else { panic!() };
+    drain(&t.k).await;
+    let dev = t.k.load_ctx(tenant, s.user, None, "it".into()).await.unwrap();
+    let theirs = t.list(&dev, "LmsCoursePurchase", json!({})).await.expect("their purchases");
+    assert_eq!((theirs.len(), theirs[0]["status"].clone(), dec(&theirs[0]["amount"])), (1, json!("Awaiting Payment"), n("1500")), "ordered, not enrolled");
+    assert!(t.list(&dev, "LmsEnrollment", json!({})).await.unwrap().is_empty());
+    let page = t.page(Some(&dev), "courses/rust-for-teams").await["course"].clone();
+    assert_eq!(page["sale"]["purchase"]["payment"]["status"], json!("Initiated"), "the way to pay is on the page");
+    let request = vid(&theirs[0]["payment_request"]);
+    t.act(&fakepay, "PaymentRequest", request, "mark_paid", json!({"amount": "1500", "currency": "INR", "gateway_reference": "pi_dev"})).await;
+    let enrolled = t.list(&dev, "LmsEnrollment", json!({})).await.unwrap();
+    assert_eq!((enrolled.len(), enrolled[0]["status"].clone()), (1, json!("Active")), "enrolled on payment");
+    assert_eq!(t.page(Some(&dev), &format!("lessons/{}", lessons[0])).await["lesson"]["title"], json!("Moves"));
 }
 
 #[test]
@@ -2205,6 +2231,45 @@ async fn live_sessions() {
 /// A fresh workspace of Europe/Berlin with Learn and `extra` packages installed (`installs` names the
 /// ones the workspace gets), the hooks of `register` beside Learn's.
 async fn boot(slug: &str, extra: Vec<ferrum_meta::Package>, installs: &[&str], register: fn(&mut HookRegistry)) -> T {
+    boot_with(slug, extra, installs, register, None).await
+}
+
+/// Mail the server would send, kept in the outbox (sign-up and sign-in codes are read from there).
+struct NoMail;
+
+#[async_trait::async_trait]
+impl ferrum_kernel::Mailer for NoMail {
+    async fn send(&self, _to: &str, _subject: &str, _html: &str) -> ferrum_kernel::Result<()> {
+        Ok(())
+    }
+}
+
+/// The latest six-digit code mailed to `to`.
+async fn mailed_code(t: &T, to: &str) -> String {
+    let mut tx = t.k.db.system_tx().await.unwrap();
+    let html: String = sqlx::query_scalar(
+        "select payload->>'html' from outbox where tenant_id = $1 and topic = 'ferrum.mail' and payload->>'to' = $2 order by id desc limit 1",
+    )
+    .bind(t.tenant)
+    .bind(to)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    html.split(|c: char| !c.is_ascii_digit()).find(|w| w.len() == 6).unwrap().to_string()
+}
+
+/// Every event waiting in the outbox handed to its sinks.
+async fn drain(k: &Kernel) {
+    while k.dispatch_outbox_once().await.expect("outbox") > 0 {}
+}
+
+async fn boot_with(
+    slug: &str,
+    extra: Vec<ferrum_meta::Package>,
+    installs: &[&str],
+    register: fn(&mut HookRegistry),
+    mailer: Option<Arc<dyn ferrum_kernel::Mailer>>,
+) -> T {
     static REPORTS: std::sync::Once = std::sync::Once::new();
     let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
     let db = Db::connect(DbConfig { url, max_connections: 16, ..Default::default() }).await.expect("connect");
@@ -2222,7 +2287,7 @@ async fn boot(slug: &str, extra: Vec<ferrum_meta::Package>, installs: &[&str], r
             ferrum_domain::reports::add_source(source);
         }
     });
-    let k = Kernel::boot(db, catalog, hooks, KernelSettings::default(), None).await.expect("boot");
+    let k = Kernel::boot(db, catalog, hooks, KernelSettings::default(), mailer).await.expect("boot");
     ferrum_domain::maintenance(&k).await.expect("domain maintenance");
     let mut packages = vec!["lms".to_string()];
     packages.extend(installs.iter().map(|p| p.to_string()));
@@ -2862,4 +2927,98 @@ async fn team() {
     assert_eq!(records[0]["valid_until"], json!((manager.today() + Duration::days(365)).to_string()));
     assert_eq!(t.list(&t.admin, "TrainingRecord", json!({})).await.unwrap().len(), 1, "nobody else's");
     assert_eq!(t.list(&t.admin, "TrainingProgram", json!({})).await.unwrap().len(), 1);
+}
+
+// ───────────────────────────── outside people sign up on a course page ─────────────────────────────
+
+#[test]
+fn outside_people_sign_up_and_take_courses() {
+    run(portal_sign_up());
+}
+
+/// Someone with no account signs up on a public course page (the course passed along), confirms the
+/// mailed code and is an Online Learner enrolled in it; they reach their own records and the course's
+/// lessons, never another learner's, the question bank or an internal course; a course that cannot be
+/// signed up for enrols nobody; coming back, they sign in with a code and find their courses.
+async fn portal_sign_up() {
+    use ferrum_kernel::auth::SignIn;
+    use ferrum_kernel::portal_signup::{PortalSignup, SignupRequest};
+    let t = boot_with("portal", vec![], &[], |_| {}, Some(Arc::new(NoMail))).await;
+    let teacher = t.user("teacher@portal.test", "Tara Teacher", "Instructor").await;
+    let bob = t.user("bob@portal.test", "Bob Member", "Learner").await;
+    let (course, lessons) = course_of(&t, &teacher, "Open Rust", 2, json!({"visibility": "Public"})).await;
+    let (internal, _) = course_of(&t, &teacher, "Staff Rust", 1, json!({})).await;
+    let draft = uid(&t.insert(&teacher, "LmsCourse", json!({"title": "Later Rust", "visibility": "Public"})).await);
+    let bank = uid(&t
+        .insert(
+            &teacher,
+            "LmsQuestion",
+            json!({"question": "2+2?", "course": course.to_string(), "question_type": "Short Answer",
+        "accepted_answers": [{"answer": "4"}]}),
+        )
+        .await);
+    let bobs = enrol(&t, &teacher, course, &["bob@portal.test"]).await["bob@portal.test"];
+
+    // Off until the workspace turns sign-up on for the role, passing the course.
+    assert_eq!(t.page(None, "courses/open-rust").await["course"]["signup"], Value::Null);
+    t.k.set_portal_signup(&t.admin, "Online Learner", Some(&PortalSignup { domains: vec![], passes: vec!["course".into()] })).await.expect("sign-up on");
+    let page = t.page(None, "courses/open-rust").await["course"].clone();
+    assert_eq!(page["signup"], json!({"role": "Online Learner", "passes": {"course": "open-rust"}}));
+
+    let ask = |email: &str, course: &str| SignupRequest {
+        tenant: "portal".into(),
+        role: "Online Learner".into(),
+        name: "Ann Outside".into(),
+        email: email.into(),
+        passes: json!({"course": course}).as_object().cloned().unwrap(),
+    };
+    t.k.request_portal_signup(&ask("ann@outside.test", "open-rust"), "10.1.1.1").await.expect("asked");
+    let code = mailed_code(&t, "ann@outside.test").await;
+    let SignIn::Session(s) = t.k.sign_in_with_code("portal", "ann@outside.test", &code).await.expect("confirmed") else { panic!("a session") };
+    drain(&t.k).await;
+    let ann = t.k.load_ctx(t.tenant, s.user, None, "it".into()).await.unwrap();
+    assert_eq!((ann.roles.clone(), ann.outside), (vec!["Online Learner".to_string()], true));
+
+    // Enrolled in the course passed, once, and reaching only her own records.
+    let mine = t.list(&ann, "LmsEnrollment", json!({})).await.expect("her enrolments");
+    assert_eq!(mine.len(), 1);
+    assert_eq!((mine[0]["course"].clone(), mine[0]["learner"].clone()), (json!(course.to_string()), json!("ann@outside.test")));
+    let enrolment = uid(&mine[0]);
+    assert!(t.k.get(&ann, "LmsEnrollment", bobs, false).await.is_err(), "nobody else's enrolment");
+    for secret in ["LmsQuestion", "LmsQuiz", "LmsLesson", "LmsChapter", "LmsAssignment", "LmsCohort", "LmsSettings"] {
+        assert!(t.list(&ann, secret, json!({})).await.is_err(), "{secret} is course administration");
+    }
+    assert!(t.k.get(&ann, "LmsQuestion", bank, false).await.is_err());
+    let courses = t.list(&ann, "LmsCourse", json!({})).await.unwrap();
+    assert_eq!(courses.iter().map(|c| c["title"].as_str().unwrap()).collect::<Vec<_>>(), vec!["Open Rust"], "published public courses only");
+
+    // Learn's own pages: her dashboard, the course's lessons, progress by her own action.
+    let dash = t.page(Some(&ann), "dashboard").await;
+    assert_eq!(dash["courses"][0]["course"]["slug"], json!("open-rust"));
+    assert_eq!(t.page(Some(&ann), &format!("lessons/{}", lessons[0])).await["lesson"]["title"], json!("Lesson 1"));
+    let done = t.act(&ann, "LmsEnrollment", enrolment, "complete_lesson", json!({"lesson": lessons[0].to_string()})).await;
+    assert_eq!(dec(&done["progress_percent"]), n("50"));
+    let catalog = t.page(Some(&ann), "catalog").await;
+    assert!(catalog["courses"].as_array().unwrap().iter().all(|c| c["slug"] != json!("staff-rust")), "the public catalog");
+    assert!(t.call(Some(&ann), "GET", "courses/staff-rust").await.is_err(), "an internal course is not hers to see");
+    assert!(t.try_insert(&ann, "LmsEnrollment", json!({"course": internal.to_string()})).await.is_err(), "nor to enrol in");
+    assert!(t.call(Some(&ann), "GET", &format!("teaching/courses/{course}/roster")).await.is_err(), "no roster");
+    assert!(t.page(Some(&bob), "catalog").await["courses"].as_array().unwrap().iter().any(|c| c["slug"] == json!("staff-rust")), "members still do");
+
+    // A course that takes no sign-up (a draft) enrols nobody; the person is still made.
+    t.k.request_portal_signup(&ask("cy@outside.test", "later-rust"), "10.1.1.2").await.expect("asked");
+    let code = mailed_code(&t, "cy@outside.test").await;
+    t.k.sign_in_with_code("portal", "cy@outside.test", &code).await.expect("confirmed");
+    drain(&t.k).await;
+    assert_eq!(t.count("select count(*) from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3", draft, "cy@outside.test").await, 0);
+    assert_eq!(t.count("select count(*) from e_lms_enrollment where tenant_id = $1 and $2 is not null and learner = $3", draft, "cy@outside.test").await, 0);
+
+    // Coming back: a sign-in code, and her courses are there.
+    t.k.send_sign_in_code("portal", "ann@outside.test").await.expect("code sent");
+    let code = mailed_code(&t, "ann@outside.test").await;
+    let SignIn::Session(again) = t.k.sign_in_with_code("portal", "ann@outside.test", &code).await.expect("signed in") else { panic!("a session") };
+    assert_eq!(again.user, s.user, "the same person");
+    drain(&t.k).await;
+    assert_eq!(t.list(&ann, "LmsEnrollment", json!({})).await.unwrap().len(), 1, "still one enrolment");
+    assert_eq!(dec(&t.page(Some(&ann), "dashboard").await["courses"][0]["progress_percent"]), n("50"));
 }

@@ -13,6 +13,8 @@ pub const PACKAGE: &str = "lms";
 pub const MANAGER: &str = "LMS Manager";
 pub const INSTRUCTOR: &str = "Instructor";
 pub const LEARNER: &str = "Learner";
+/// The portal role of people who signed themselves up on a course page.
+pub const ONLINE_LEARNER: &str = "Online Learner";
 
 pub fn now() -> DateTime<Utc> {
     Utc::now()
@@ -60,7 +62,7 @@ pub fn is_manager(ctx: &Ctx) -> bool {
 
 /// Whether the caller may use Learn's signed-in endpoints.
 pub fn is_member(ctx: &Ctx) -> bool {
-    is_manager(ctx) || ctx.roles.iter().any(|r| r == INSTRUCTOR || r == LEARNER)
+    is_manager(ctx) || ctx.roles.iter().any(|r| r == INSTRUCTOR || r == LEARNER || r == ONLINE_LEARNER)
 }
 
 /// The course's instructors (lower-case emails).
