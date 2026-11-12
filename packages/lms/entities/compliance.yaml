@@ -1,0 +1,50 @@
+- name: LmsRuleCriterion
+  label: Rule Criterion
+  kind: child
+  fields:
+    - {name: field, type: data, required: true, in_list: true, max_length: 100, description: "For users: role or group. For employees: a field of the Employee, such as department, designation, branch or employment_type"}
+    - {name: value, type: data, required: true, in_list: true, max_length: 200, description: "The role or group name; for a field linking to another record, that record's name; otherwise the value the field must have"}
+
+- name: LmsEnrollmentRule
+  label: Enrolment Rule
+  kind: master
+  module: learn
+  title_field: rule_name
+  description: "Enrols everyone who matches into a course or programme, at the next upkeep after they match (a new joiner, a transfer) and never twice. Preview says how many people it would enrol before it is switched on."
+  fields:
+    - {name: rule_name, type: data, required: true, unique: true, max_length: 140, in_list: true}
+    - {name: active, type: check, label: Switched On, in_list: true, in_filter: true, description: "Only a switched-on rule enrols people"}
+    - {name: course, type: link, to: LmsCourse, in_list: true, in_filter: true, description: "The course to enrol them in; or name a programme instead"}
+    - {name: programme, type: link, to: LmsProgramme, in_list: true, in_filter: true, description: "The programme whose courses to enrol them in, each as the programme says; or name a course instead"}
+    - {name: audience, type: select, options: [Users, Employees], default: Users, required: true, in_list: true, description: "Users: the workspace's active users, by role or group. Employees: the active employees of the HR app who sign in, by their fields"}
+    - {name: criteria, type: table, of: LmsRuleCriterion, description: "Everyone who meets all of them matches; none: every active person of the audience"}
+    - {name: due_days, type: int, label: Due (Days After Matching), min: 0, max: 3650, description: "Empty or 0: the course's due days"}
+    - {name: when_no_longer_matching, type: select, options: [Keep, Withdraw If Not Started], default: Keep, required: true, description: "What happens to an enrolment this rule made when its learner stops matching: Keep it, or withdraw it while the learner has not started"}
+  form:
+    - {label: Rule, fields: [rule_name, active, course, programme]}
+    - {label: Who, fields: [audience, criteria]}
+    - {label: Then, fields: [due_days, when_no_longer_matching]}
+  actions:
+    - {name: preview, label: Preview, permission: read}
+  list: {columns: [rule_name, course, programme, audience, active], sort: rule_name asc}
+
+- name: LmsProgrammeCourse
+  label: Programme Course
+  kind: child
+  fields:
+    - {name: course, type: link, to: LmsCourse, required: true, in_list: true}
+    - {name: course_title, type: data, fetch_from: course.title, read_only: true, in_list: true}
+    - {name: due_days, type: int, label: Due (Days After Matching), min: 0, max: 3650, in_list: true, description: "Empty or 0: the rule's due days, then the course's"}
+    - {name: repeats, type: check, default: true, in_list: true, description: "When the course's certificate is about to expire, enrol the learner again (as the course's validity and re-enrolment days say); unchecked, they are not"}
+
+- name: LmsProgramme
+  label: Training Programme
+  kind: master
+  module: learn
+  title_field: programme_name
+  description: "The training a group of people must complete: courses with their own due days and whether each repeats. Enrolment rules that name it enrol its audience in every course; the Programme Status report shows each person and course."
+  fields:
+    - {name: programme_name, type: data, required: true, unique: true, max_length: 140, in_list: true}
+    - {name: description, type: text, max_length: 2000}
+    - {name: courses, type: table, of: LmsProgrammeCourse, required: true}
+  list: {columns: [programme_name], sort: programme_name asc}

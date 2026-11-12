@@ -1,7 +1,7 @@
 package: lms
-version: 0.3.0
+version: 0.4.0
 label: Learn
-description: Learning management — courses with chapters and lessons, learning paths, cohorts with live sessions, question banks and timed quizzes, graded assignments, enrolments with server-computed progress, certificates with public verification and a public course catalog.
+description: Learning management — courses with chapters and lessons, learning paths, cohorts with live sessions, question banks and timed quizzes, graded assignments, enrolments with server-computed progress, certificates that can expire and be recertified, due dates, enrolment rules, training programmes and a manager's team report, with public verification and a public course catalog.
 depends: [core]
 
 modules:
@@ -10,8 +10,8 @@ modules:
     icon: graduation-cap
     order: 55
     items: [LmsCourse, LmsChapter, LmsLesson, LmsQuiz, LmsQuestion, LmsAssignment, LmsLearningPath, LmsCohort, LmsEnrollment, LmsLessonProgress, LmsPackageProgress,
-            LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsLtiTool, LmsSettings,
-            report:lms_course_completion, report:lms_quiz_scores, report:lms_learner_progress, report:lms_overdue_assignments]
+            LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsLtiTool, LmsSettings, LmsEnrollmentRule, LmsProgramme,
+            report:lms_course_completion, report:lms_quiz_scores, report:lms_learner_progress, report:lms_overdue_assignments, report:lms_training_status, report:lms_programme_status, report:lms_team_training]
 
 roles:
   - name: LMS Manager
@@ -19,6 +19,8 @@ roles:
     permissions:
       - {entity: LmsSettings, read: true, write: true, create: true}
       - {entity: LmsCategory, read: true, write: true, create: true, delete: true, export: true, import: true}
+      - {entity: LmsEnrollmentRule, read: true, write: true, create: true, delete: true}
+      - {entity: LmsProgramme, read: true, write: true, create: true, delete: true}
       - {entity: LmsLtiTool, read: true, write: true, create: true, delete: true, export: true}
       - {entity: LmsCourse, read: true, write: true, create: true, delete: true, export: true, import: true}
       - {entity: LmsChapter, read: true, write: true, create: true, delete: true, export: true, import: true}

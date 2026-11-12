@@ -185,7 +185,7 @@ async fn launch_of(k: &Kernel, ctx: &Ctx, tx: &mut Tx, lesson: Uuid) -> Result<L
     let tool = load(k, ctx, tx, "LmsLtiTool", id(&l, "lti_tool").ok_or_else(gone)?).await?;
     let course = load(k, ctx, tx, "LmsCourse", id(&l, "course").unwrap_or_default()).await?;
     let mine: Option<Uuid> =
-        sqlx::query_scalar("select id from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3 and status <> 'Withdrawn'")
+        sqlx::query_scalar("select id from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3 and status <> 'Withdrawn' order by coalesce(cycle, 1) desc limit 1")
             .bind(ctx.tenant)
             .bind(doc_id(&course)?)
             .bind(ctx.email.to_lowercase())
@@ -529,7 +529,7 @@ async fn record_score(k: &Kernel, ctx: &Ctx, tx: &mut Tx, l: &Doc, score: &Value
     let lid = doc_id(l)?;
     let enrollment: Option<Uuid> = match &email {
         Some(e) => {
-            sqlx::query_scalar("select id from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3")
+            sqlx::query_scalar("select id from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3 order by coalesce(cycle, 1) desc limit 1")
                 .bind(ctx.tenant)
                 .bind(id(l, "course"))
                 .bind(e)
