@@ -27,6 +27,7 @@ mod notice;
 mod payments;
 mod quiz;
 mod reports;
+mod rules;
 pub mod scorm;
 mod site;
 mod util;
@@ -58,6 +59,7 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("LmsLesson", Arc::new(catalog::LessonHook))
         .register("LmsLearningPath", Arc::new(catalog::PathHook))
         .register("LmsCohort", Arc::new(cohort::CohortHook))
+        .register("LmsEnrollmentRule", Arc::new(rules::RuleHook))
         .register("LmsQuiz", Arc::new(quiz::QuizHook))
         .register("LmsQuestion", Arc::new(quiz::QuestionHook))
         .register("LmsQuizAttempt", Arc::new(quiz::AttemptHook))
@@ -120,6 +122,7 @@ pub async fn maintenance_at(k: &Kernel, at: chrono::DateTime<chrono::Utc>) -> Re
             ("due reminders", enrollment::send_due_reminders(k, &ctx, at).await),
             ("expired certificates", certificate::expire_all(k, &ctx, at).await),
             ("recertification", enrollment::recertify(k, &ctx, at).await),
+            ("enrolment rules", rules::apply(k, &ctx, at).await),
             ("lapsed purchases", payments::cancel_lapsed(k, &ctx).await),
             ("purge", purge(k, tenant).await),
             ("lti tokens", lti::purge(k, tenant).await),

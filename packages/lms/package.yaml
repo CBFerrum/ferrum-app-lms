@@ -10,7 +10,7 @@ modules:
     icon: graduation-cap
     order: 55
     items: [LmsCourse, LmsChapter, LmsLesson, LmsQuiz, LmsQuestion, LmsAssignment, LmsLearningPath, LmsCohort, LmsEnrollment, LmsLessonProgress, LmsPackageProgress,
-            LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsLtiTool, LmsSettings,
+            LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsLtiTool, LmsSettings, LmsEnrollmentRule,
             report:lms_course_completion, report:lms_quiz_scores, report:lms_learner_progress, report:lms_overdue_assignments, report:lms_training_status]
 
 roles:
@@ -19,6 +19,7 @@ roles:
     permissions:
       - {entity: LmsSettings, read: true, write: true, create: true}
       - {entity: LmsCategory, read: true, write: true, create: true, delete: true, export: true, import: true}
+      - {entity: LmsEnrollmentRule, read: true, write: true, create: true, delete: true}
       - {entity: LmsLtiTool, read: true, write: true, create: true, delete: true, export: true}
       - {entity: LmsCourse, read: true, write: true, create: true, delete: true, export: true, import: true}
       - {entity: LmsChapter, read: true, write: true, create: true, delete: true, export: true, import: true}
