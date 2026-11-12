@@ -79,7 +79,9 @@ pub fn register(hooks: &mut HookRegistry) {
     hooks.scoped(&[payments::PACKAGE.to_string()], |h| {
         h.register("LmsCourse", Arc::new(payments::CourseHook))
             .register("LmsEnrollment", Arc::new(payments::EnrollmentHook))
-            .register("PaymentEntry", Arc::new(payments::PaidHook));
+            .register("PaymentEntry", Arc::new(payments::PaidHook))
+            .register("SalesInvoice", Arc::new(payments::ReturnHook))
+            .register("LmsCourseBundle", Arc::new(payments::BundleHook));
     });
 }
 
