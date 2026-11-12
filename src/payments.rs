@@ -181,12 +181,14 @@ async fn buy(hc: &mut HookCtx<'_>, course: &Doc) -> Result<Value> {
     if !missing.is_empty() {
         return Err(Error::invalid(format!("complete these courses first: {}", missing.join(", "))));
     }
-    let enrolled: Option<String> = sqlx::query_scalar("select status from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3")
-        .bind(ctx.tenant)
-        .bind(cid)
-        .bind(&learner)
-        .fetch_optional(&mut **hc.tx)
-        .await?;
+    let enrolled: Option<String> = sqlx::query_scalar(
+        "select status from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3 order by coalesce(cycle, 1) desc limit 1",
+    )
+    .bind(ctx.tenant)
+    .bind(cid)
+    .bind(&learner)
+    .fetch_optional(&mut **hc.tx)
+    .await?;
     if enrolled.as_deref().is_some_and(|st| st != WITHDRAWN) {
         return Err(Error::invalid("you are enrolled in this course already"));
     }

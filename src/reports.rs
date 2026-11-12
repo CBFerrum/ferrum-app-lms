@@ -260,7 +260,7 @@ async fn overdue(ctx: &Ctx, p: &Params<'_>, tx: &mut Tx) -> Result<Value> {
          join e_lms_lesson l on l.tenant_id = a.tenant_id and l.course = a.course and l.assignment is not null \
          join e_lms_assignment asg on asg.tenant_id = l.tenant_id and asg.id = l.assignment \
          left join lateral (select s.status, s.passed from e_lms_assignment_submission s where s.tenant_id = a.tenant_id \
-              and s.assignment = asg.id and s.learner = a.learner order by s.submission_no desc limit 1) last on true",
+              and s.assignment = asg.id and s.enrollment = a.id order by s.submission_no desc limit 1) last on true",
     )?;
     qb.push(" and a.status = 'Active' and (asg.due_date is not null or coalesce(asg.due_days, 0) > 0)");
     qb.push(" and coalesce(asg.due_date, a.enrolled_on + asg.due_days::int) < ").push_bind(as_of);

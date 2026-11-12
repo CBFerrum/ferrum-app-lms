@@ -118,6 +118,8 @@ pub async fn maintenance_at(k: &Kernel, at: chrono::DateTime<chrono::Utc>) -> Re
             ("live attendance", live::close_ended(k, &ctx).await),
             ("completions", enrollment::complete_ready(k, &ctx).await),
             ("due reminders", enrollment::send_due_reminders(k, &ctx, at).await),
+            ("expired certificates", certificate::expire_all(k, &ctx, at).await),
+            ("recertification", enrollment::recertify(k, &ctx, at).await),
             ("lapsed purchases", payments::cancel_lapsed(k, &ctx).await),
             ("purge", purge(k, tenant).await),
             ("lti tokens", lti::purge(k, tenant).await),

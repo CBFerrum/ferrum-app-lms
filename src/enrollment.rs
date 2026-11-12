@@ -47,6 +47,7 @@ impl DocHook for EnrollmentHook {
             ("enrolled_on", json!(hc.ctx.today().to_string())),
             ("enrolled_by", if hc.ctx.user.is_nil() { Value::Null } else { json!(hc.ctx.email.to_lowercase()) }),
             ("progress_percent", json!("0")),
+            ("cycle", json!(int(doc, "cycle").max(1))),
             ("completed_lessons", json!(0)),
             ("completed_at", Value::Null),
             ("certificate", Value::Null),
@@ -295,12 +296,20 @@ async fn check_cohort(ctx: &Ctx, tx: &mut Tx, course: &Doc, cohort: Uuid, me: Op
 async fn announce(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc) -> Result<()> {
     let (Some(learner), Some(course)) = (s(doc, "learner"), id(doc, "course")) else { return Ok(()) };
     let title = load(k, ctx, tx, "LmsCourse", course).await.ok().and_then(|c| s(&c, "title").map(str::to_string)).unwrap_or_default();
-    let body = if same_email(learner, &ctx.email) || ctx.user.is_nil() {
-        format!("You are enrolled in {title}.")
+    let (heading, body) = if id(doc, "previous").is_some() {
+        let due = s(doc, "due_date").map(|d| format!(", due {d}")).unwrap_or_default();
+        ("Recertification", format!("Your certificate for {title} is expiring: you are enrolled again{due}."))
     } else {
-        format!("{} enrolled you in {title}.", if ctx.full_name.trim().is_empty() { &ctx.email } else { &ctx.full_name })
+        (
+            "Enrolled",
+            if same_email(learner, &ctx.email) || ctx.user.is_nil() {
+                format!("You are enrolled in {title}.")
+            } else {
+                format!("{} enrolled you in {title}.", if ctx.full_name.trim().is_empty() { &ctx.email } else { &ctx.full_name })
+            },
+        )
     };
-    let n = Notice { title: format!("Enrolled: {title}"), body, entity: "LmsEnrollment", record: doc_id(doc)? };
+    let n = Notice { title: format!("{heading}: {title}"), body, entity: "LmsEnrollment", record: doc_id(doc)? };
     notice::send(k, ctx, tx, &[learner.to_string()], &n).await?;
     Ok(())
 }
@@ -315,12 +324,14 @@ pub enum Outcome {
 /// Enrols one learner inside a savepoint, so a refusal leaves the surrounding transaction usable.
 /// Transient conflicts propagate (the whole request is retried).
 pub async fn try_enroll(k: &Kernel, ctx: &Ctx, tx: &mut Tx, course: Uuid, learner: &str, cohort: Option<Uuid>) -> Result<Outcome> {
-    let existing: Option<(Uuid, String)> = sqlx::query_as("select id, status from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3")
-        .bind(ctx.tenant)
-        .bind(course)
-        .bind(learner)
-        .fetch_optional(&mut **tx)
-        .await?;
+    let existing: Option<(Uuid, String)> = sqlx::query_as(
+        "select id, status from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3 order by coalesce(cycle, 1) desc limit 1",
+    )
+    .bind(ctx.tenant)
+    .bind(course)
+    .bind(learner)
+    .fetch_optional(&mut **tx)
+    .await?;
     if let Some((e, status)) = existing {
         return Ok(Outcome::Already(json!({"id": e, "status": status})));
     }
@@ -521,6 +532,56 @@ pub async fn refresh(k: &Kernel, ctx: &Ctx, tx: &mut Tx, e: &Doc, touched: Optio
     };
     notice::send(k, ctx, tx, &[s(e, "learner").unwrap_or_default().to_string()], &n).await?;
     Ok(updated)
+}
+
+/// Maintenance: a learner whose certificate expires within the course's days (or Learn Settings') is
+/// enrolled again, due on the day it expires, in a new enrolment that points at the one it follows (that
+/// one, its progress and its certificate stay as they were). Completing it issues the certificate that
+/// supersedes the old. One re-enrolment per expiry: an enrolment that already has a successor is skipped,
+/// whatever became of it.
+pub async fn recertify(k: &Kernel, ctx: &Ctx, at: chrono::DateTime<chrono::Utc>) -> Result<usize> {
+    let today = util::today_at(ctx, at);
+    let mut tx = k.db.tenant_tx(ctx.tenant).await?;
+    let lead = sqlx::query_scalar("select recertify_before_days from e_lms_settings where tenant_id = $1 limit 1")
+        .bind(ctx.tenant)
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten()
+        .unwrap_or(30i64);
+    let due: Vec<(Uuid, Uuid, String, i64, NaiveDate)> = sqlx::query_as(
+        "select e.id, e.course, e.learner, coalesce(e.cycle, 1), c.expires_on from e_lms_enrollment e \
+         join e_lms_certificate c on c.tenant_id = e.tenant_id and c.id = e.certificate \
+         join e_lms_course co on co.tenant_id = e.tenant_id and co.id = e.course \
+         where e.tenant_id = $1 and e.status = 'Completed' and c.status in ('Valid', 'Expired') and c.expires_on is not null \
+           and co.status = 'Published' and coalesce(co.recertify_before_days, $2) > 0 \
+           and $3 >= c.expires_on - coalesce(co.recertify_before_days, $2)::int \
+           and not exists (select 1 from e_lms_enrollment n where n.tenant_id = e.tenant_id and n.previous = e.id) \
+           and exists (select 1 from app_user u where u.tenant_id = e.tenant_id and u.is_active and lower(u.email::text) = lower(e.learner)) \
+         order by c.expires_on limit 500",
+    )
+    .bind(ctx.tenant)
+    .bind(lead)
+    .bind(today)
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    for (previous, course, learner, cycle, expires) in &due {
+        ferrum_kernel::with_retry(|| async {
+            let mut tx = k.db.tenant_tx(ctx.tenant).await?;
+            let doc = obj(&[
+                ("course", json!(course.to_string())),
+                ("learner", json!(learner)),
+                ("previous", json!(previous.to_string())),
+                ("cycle", json!(cycle + 1)),
+                ("due_date", json!(expires.to_string())),
+            ]);
+            k.insert_tx(ctx, &mut tx, "LmsEnrollment", doc).await?;
+            tx.commit().await?;
+            Ok(())
+        })
+        .await?;
+    }
+    Ok(due.len())
 }
 
 /// Maintenance: each Active enrolment with a due date is reminded once before it (within the course's
@@ -750,13 +811,12 @@ pub async fn open_lesson(k: &Kernel, ctx: &Ctx, tx: &mut Tx, enrollment: Option<
             .await?;
     out["completed"] = json!(done.is_some());
     out["completed_at"] = json!(done.map(util::ts));
-    let learner = s(e, "learner").unwrap_or_default().to_string();
     if let Some(q) = id(&l, "quiz") {
-        out["quiz"] = quiz::state(k, ctx, tx, q, &learner).await?;
+        out["quiz"] = quiz::state(k, ctx, tx, q, eid).await?;
     }
     if let Some(a) = id(&l, "assignment") {
         let enrolled_on = s(e, "enrolled_on").and_then(|v| v.parse().ok());
-        out["assignment"] = crate::assignment::state(k, ctx, tx, a, &learner, enrolled_on).await?;
+        out["assignment"] = crate::assignment::state(k, ctx, tx, a, eid, enrolled_on).await?;
     }
     if s(e, "status") != Some(WITHDRAWN) {
         k.set_values_tx(

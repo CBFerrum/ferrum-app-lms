@@ -122,7 +122,7 @@ pub async fn handle(k: &Kernel, user: &Ctx, req: &SiteRequest, lesson: Uuid, pat
     };
     let course = load(k, user, &mut tx, "LmsCourse", id(&l, "course").unwrap_or_default()).await?;
     let mine: Option<Uuid> =
-        sqlx::query_scalar("select id from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3 and status <> 'Withdrawn'")
+        sqlx::query_scalar("select id from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3 and status <> 'Withdrawn' order by coalesce(cycle, 1) desc limit 1")
             .bind(user.tenant)
             .bind(doc_id(&course)?)
             .bind(user.email.to_lowercase())
