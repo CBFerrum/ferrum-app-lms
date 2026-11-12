@@ -13,13 +13,16 @@ import { Catalog } from "./Catalog";
 import { CourseDashboardRoute } from "./CourseDashboard";
 import { CourseRoute } from "./Course";
 import { Done } from "./Done";
+import { DueMarks } from "./Due";
+import { LivePanel } from "./Live";
+import { previewText } from "./Record";
 import { Home } from "./Home";
 import { PlayerRoute } from "./Player";
 import { PublicCatalog, PublicCertificate, PublicCourse, PublicLesson } from "./Public";
 import { docKey, type LessonDoc, LessonEditor } from "./LessonEditor";
 import { Intro, Result, Sitting } from "./QuizPlayer";
 import { Teaching } from "./Teaching";
-import type { Attempt, AssignmentState, CoursePage, Dashboard, LessonView, OutlineChapter, QuizState, Roster } from "./types";
+import type { LiveSession, EnrolmentDue, Attempt, AssignmentState, CoursePage, Dashboard, LessonView, OutlineChapter, QuizState, Roster } from "./types";
 
 const draw = (path: string, route: string, element: React.ReactElement, fill: (qc: QueryClient) => void) => {
   const qc = new QueryClient();
@@ -491,6 +494,15 @@ describe("pages for anyone", () => {
     expect(draws(false)).toContain("This certificate was revoked");
     expect(draws(true)).toContain("/api/site/acme/lms/certificates/ABCD-EFGH/view");
   });
+
+  it("says expired or replaced, with the date, instead of revoked", () => {
+    const cert = (status: string) => ({ valid: false, status, expires_on: "2026-06-30", number: "CERT-1", learner_name: "Asha Rao", course_title: "Site safety", issued_on: "2025-06-30", issuer: null, verification_code: "ABCD-EFGH" });
+    const draws = (status: string) => pub("/c/acme/certificate/ABCD-EFGH", "/c/:workspace/certificate/:code", <PublicCertificate />, (qc) => qc.setQueryData(["lms", "public", "acme", "certificate", "ABCD-EFGH"], cert(status)));
+    expect(draws("Expired")).toContain("This certificate has expired");
+    expect(draws("Expired")).toContain("<dt>Expired</dt>");
+    expect(draws("Superseded")).toContain("replaced by a newer one");
+    expect(draws("Superseded")).not.toContain("was revoked");
+  });
 });
 
 describe("the lesson editor", () => {
@@ -512,5 +524,65 @@ describe("the lesson editor", () => {
     const html = editor(lesson({ quiz: "q1" }));
     expect(html).toContain('href="/e/LmsQuiz/q1"');
     expect(html).not.toContain("New quiz");
+  });
+});
+
+describe("live sessions on a lesson", () => {
+  const at = (minutes: number) => new Date(Date.UTC(2030, 0, 1, 10, 0) + minutes * 60_000).toISOString();
+  const session = (over: Partial<LiveSession> = {}): LiveSession => ({ session: "s1", cohort: "co", title: "Office hour", starts_at: at(0), duration_minutes: 60, join_url: "https://meet.example/x", has_meeting: true, attended: null, minutes: null, ...over });
+  const panel = (s: LiveSession, now: number, learning = true) => render(<MemoryRouter><LivePanel sessions={[s]} learning={learning} now={now} /></MemoryRouter>);
+  const t0 = Date.parse(at(0));
+
+  it("holds the way in back until the session opens, then offers the learner's own link", () => {
+    const early = panel(session(), t0 - 60 * 60_000);
+    expect(early).toContain("Not open yet");
+    expect(early).not.toContain("https://meet.example/x");
+    const now = panel(session(), t0 + 5 * 60_000);
+    expect(now).toContain("Live now");
+    expect(now).toContain('href="https://meet.example/x"');
+  });
+
+  it("says after the end whether the learner was credited, and why not", () => {
+    const over = t0 + 2 * 60 * 60_000;
+    expect(panel(session({ attended: true, minutes: 55 }), over)).toContain("This lesson is credited");
+    const short = panel(session({ attended: false, minutes: 12 }), over);
+    expect(short).toContain("Not credited");
+    expect(short).toContain("12 of 60 min");
+    expect(panel(session(), over)).toContain("read from the meeting");
+    expect(panel(session(), over)).not.toContain("https://meet.example/x");
+  });
+
+  it("sends an author to the cohort for its attendance", () => {
+    const html = panel(session(), t0 - 60 * 60_000, false);
+    expect(html).toContain('href="/e/LmsCohort/co"');
+    expect(html).not.toContain("Not credited");
+  });
+
+  it("says when no cohort session names the lesson", () => {
+    expect(render(<LivePanel sessions={[]} learning />)).toContain("No live session is set for this lesson in your cohort yet.");
+  });
+});
+
+describe("due dates and recertification", () => {
+  const dues = (d: Partial<EnrolmentDue>) => new Map([["e1", { id: "e1", due_date: null, cycle: 1, ...d }]]);
+  it("marks an overdue enrolment and a renewal", () => {
+    const html = render(<DueMarks enrollment="e1" dues={dues({ due_date: "2026-11-01", cycle: 2 })} today="2026-11-05" />);
+    expect(html).toContain("Overdue");
+    expect(html).toContain("4 days late");
+    expect(html).toContain("Recertification");
+  });
+  it("says when it is due, and says nothing for a plain enrolment", () => {
+    expect(render(<DueMarks enrollment="e1" dues={dues({ due_date: "2026-11-07" })} today="2026-11-05" />)).toContain("Due in 2 days");
+    expect(render(<DueMarks enrollment="e1" dues={dues({ due_date: "2026-11-07" })} today="2026-11-05" />)).not.toContain("Overdue");
+    expect(render(<DueMarks enrollment="e1" dues={dues({})} today="2026-11-05" />)).toBe("");
+    expect(render(<DueMarks enrollment="other" dues={dues({ due_date: "2020-01-01" })} />)).toBe("");
+  });
+});
+
+describe("an enrolment rule's preview", () => {
+  it("says how many people it would enrol", () => {
+    const p = { matching: 5, would_enrol: 3, enrolments: 3, open_courses: 1, already_enrolled: 2, switched_on: false };
+    expect(previewText(p)).toBe("3 people would be enrolled at the next upkeep.");
+    expect(previewText({ ...p, would_enrol: 1 })).toBe("1 person would be enrolled at the next upkeep.");
   });
 });

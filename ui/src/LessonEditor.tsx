@@ -42,7 +42,7 @@ export interface LessonDoc {
   lti_custom: string | null;
 }
 
-export const LESSON_TYPES: LessonType[] = ["Article", "Video", "Document", "Quiz", "Assignment", "SCORM", "xAPI", "LTI"];
+export const LESSON_TYPES: LessonType[] = ["Article", "Video", "Document", "Quiz", "Assignment", "SCORM", "xAPI", "LTI", "Live"];
 export const docKey = (id: string) => ["lms", "lesson-doc", id] as const;
 
 const STATE_TEXT: Record<SaveState | "clean", string> = { get clean() { return tr("All changes saved"); }, get idle() { return tr("All changes saved"); }, get waiting() { return tr("Saving…"); }, get saving() { return tr("Saving…"); }, get failed() { return tr("Could not save, trying again"); } };
@@ -304,6 +304,7 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
             </Field>
           </>
         )}
+        {type === "Live" && <Alert tone="info">{tr("Learners get this lesson by attending a live session of their cohort. Name this lesson as the session's Lesson Credited in the cohort.")}</Alert>}
         {type === "Quiz" && (
           <Field label={tr("Quiz")} htmlFor="le-quiz" required error={errors.quiz} hint={tr("One of this course's quizzes, or a new one named after the lesson; each belongs to one lesson.")}>
             <div className="row">

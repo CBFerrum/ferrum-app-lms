@@ -14,7 +14,10 @@ import type {
   Purchase,
   ScormSaved,
   LessonView,
+  EnrolmentDue,
   Roster,
+  RulePreview,
+  SessionAttendance,
   SubmitResult,
   TeachingCourse,
 } from "./types";
@@ -44,6 +47,9 @@ export const keys = {
   teaching: ["lms", "teaching"] as const,
   roster: (course: string, cohort?: string) => ["lms", "roster", course, cohort ?? ""] as const,
   attempts: (quiz: string) => ["lms", "attempts", quiz] as const,
+  dues: ["lms", "dues"] as const,
+  cohort: (id: string) => ["lms", "cohort", id] as const,
+  attendance: (cohort: string, session: string) => ["lms", "attendance", cohort, session] as const,
 };
 
 // ───────────────────────────── signed in ─────────────────────────────
@@ -125,3 +131,14 @@ export const enrolLearners = (course: string, learners: string, cohort?: string)
 
 /** The records of the course's own, read as an instructor (their rights decide what comes back). */
 export const rowsOf = <T>(entity: string, query: Record<string, string | number | boolean>) => api.get<{ rows: T[]; next_cursor?: string }>(docPath(entity), query).then((r) => r.rows);
+
+/** The due dates and cycles of the viewer's own active enrolments (their records, read as their owner). */
+export const getDues = () => rowsOf<EnrolmentDue>("LmsEnrollment", { filters: JSON.stringify({ status: "Active" }), fields: "due_date,cycle", limit: 500 });
+
+/** An enrolment rule's Preview: how many people it would enrol now. */
+export const previewRule = (rule: string) => act<RulePreview>("LmsEnrollmentRule", rule, "preview");
+
+/** The learners recorded for a cohort's session so far, and the instructor's mark on one of them. */
+export const sessionAttendance = (cohort: string, session: string) => act<SessionAttendance>("LmsCohort", cohort, "session_attendance", { session });
+export const markAttendance = (cohort: string, session: string, learner: string, attended: boolean) =>
+  act("LmsCohort", cohort, "mark_attendance", { session, learner, attended });

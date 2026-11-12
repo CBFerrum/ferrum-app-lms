@@ -2322,3 +2322,15 @@ a.lms-row:hover {
   top: 0.5rem;
   inset-inline-end: 0.5rem;
 }
+
+.lms-live-note {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+.lms-report-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}

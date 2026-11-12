@@ -208,7 +208,7 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
     const prev = nav.prev?.lesson;
     const kind = view.lesson.lesson_type;
     // Quizzes and assignments finish when passed; everything else, by the button, or the arrow keys.
-    const graded = kind === "Quiz" || kind === "Assignment" || kind === "SCORM" || kind === "xAPI" || (kind === "LTI" && !!view.lti?.sends_grades);
+    const graded = kind === "Quiz" || kind === "Assignment" || kind === "SCORM" || kind === "xAPI" || kind === "Live" || (kind === "LTI" && !!view.lti?.sends_grades);
     const hint = graded
       ? !view.completed &&
         learning &&
@@ -216,7 +216,9 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
           ? t("Passing the quiz completes this lesson.")
           : kind === "Assignment"
             ? t("A passing grade completes this lesson.")
-            : kind === "LTI"
+            : kind === "Live"
+              ? t("Attending the live session completes this lesson.")
+              : kind === "LTI"
               ? t("The tool completes this lesson when it says you are done.")
               : t("The package completes this lesson when it says you completed or passed it."))
       : t("Tip: the arrow keys move between lessons.");

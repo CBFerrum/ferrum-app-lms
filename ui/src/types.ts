@@ -1,7 +1,7 @@
 // What Learn's endpoints answer (src/site.rs, enrollment.rs, quiz.rs, assignment.rs and the
 // package README). Decimals arrive as strings and stay strings until they are shown.
 
-export type LessonType = "Article" | "Video" | "Document" | "Quiz" | "Assignment" | "SCORM" | "xAPI" | "LTI";
+export type LessonType = "Article" | "Video" | "Document" | "Quiz" | "Assignment" | "SCORM" | "xAPI" | "LTI" | "Live";
 export type Level = "Beginner" | "Intermediate" | "Advanced";
 export type EnrollmentStatus = "Active" | "Completed" | "Withdrawn";
 export type QuestionType = "Single Choice" | "Multiple Choice" | "True/False" | "Short Answer";
@@ -252,6 +252,48 @@ export interface LessonView {
   xapi?: XapiPlayer | null;
   /** An LTI lesson: its tool, and where the launch starts (a new window). */
   lti?: { tool_name: string | null; launch_url: string; sends_grades: boolean } | null;
+  /** A Live lesson: the sessions that credit it, the learner's cohort's (every cohort's for an author). */
+  live?: LiveSession[];
+}
+
+/** A live session of a Live lesson, with the viewer's own join link and what was recorded of them. */
+export interface LiveSession {
+  session: string;
+  cohort: string;
+  title: string;
+  starts_at: string;
+  duration_minutes: number;
+  /** The meeting's link for this viewer, else the one typed on the session. */
+  join_url: string | null;
+  has_meeting: boolean;
+  /** Null until the session has been read or marked. */
+  attended: boolean | null;
+  minutes: number | null;
+}
+
+/** What `session_attendance` answers: the learners recorded so far. */
+export interface SessionAttendance {
+  session: string;
+  title: string | null;
+  has_meeting: boolean;
+  learners: { learner: string; attended: boolean; minutes: number; source: "Meeting" | "Instructor"; marked_at: string }[];
+}
+
+/** What an enrolment rule's `preview` answers. */
+export interface RulePreview {
+  matching: number;
+  would_enrol: number;
+  enrolments: number;
+  open_courses: number;
+  already_enrolled: number;
+  switched_on: boolean;
+}
+
+/** An enrolment's due date and cycle, as the learner reads their own records. */
+export interface EnrolmentDue {
+  id: string;
+  due_date: string | null;
+  cycle: number | null;
 }
 
 /** What `complete_lesson` answers. */
@@ -424,8 +466,9 @@ export interface Roster {
 /** The certificate check's answer. */
 export interface CertificateCheck {
   valid: boolean;
-  status: "Valid" | "Revoked";
+  status: "Valid" | "Revoked" | "Expired" | "Superseded";
   number: string | null;
+  expires_on?: string | null;
   learner_name: string | null;
   course_title: string | null;
   issued_on: string | null;
