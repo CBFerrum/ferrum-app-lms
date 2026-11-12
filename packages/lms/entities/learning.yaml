@@ -19,6 +19,7 @@
     - {name: overdue_reminder_at, type: datetime, read_only: true, no_copy: true, description: "When the reminder after the due date was sent"}
     - {name: cycle, type: int, default: 1, read_only: true, no_copy: true, description: "1 for the first enrolment of the learner in the course; each recertification is the next"}
     - {name: previous, type: link, to: LmsEnrollment, read_only: true, no_copy: true, on_delete: set_null, description: "The enrolment this one recertifies"}
+    - {name: rule, type: link, to: LmsEnrollmentRule, read_only: true, no_copy: true, on_delete: set_null, in_filter: true, description: "The enrolment rule that made this enrolment"}
     - {name: enrolled_at, type: datetime, read_only: true, no_copy: true}
     - {name: enrolled_on, type: date, read_only: true, no_copy: true, in_filter: true}
     - {name: enrolled_by, type: email, read_only: true, no_copy: true}
@@ -30,7 +31,7 @@
     - {name: completed_at, type: datetime, read_only: true, no_copy: true, in_filter: true}
     - {name: certificate, type: link, to: LmsCertificate, read_only: true, no_copy: true, on_delete: set_null}
   form:
-    - {label: Enrolment, fields: [course, learner, learner_name, cohort, status, due_date, cycle, previous]}
+    - {label: Enrolment, fields: [course, learner, learner_name, cohort, status, due_date, cycle, previous, rule]}
     - {label: Progress, fields: [progress_percent, completed_lessons, total_lessons, last_lesson, last_activity_at, completed_at, certificate]}
     - {label: History, collapsible: true, fields: [enrolled_at, enrolled_on, enrolled_by, due_reminder_at, overdue_reminder_at]}
   actions:

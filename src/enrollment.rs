@@ -324,6 +324,11 @@ pub enum Outcome {
 /// Enrols one learner inside a savepoint, so a refusal leaves the surrounding transaction usable.
 /// Transient conflicts propagate (the whole request is retried).
 pub async fn try_enroll(k: &Kernel, ctx: &Ctx, tx: &mut Tx, course: Uuid, learner: &str, cohort: Option<Uuid>) -> Result<Outcome> {
+    try_enroll_with(k, ctx, tx, course, learner, cohort, Doc::new()).await
+}
+
+/// [`try_enroll`] with more fields on the new enrolment (the rule that made it, its due date).
+pub async fn try_enroll_with(k: &Kernel, ctx: &Ctx, tx: &mut Tx, course: Uuid, learner: &str, cohort: Option<Uuid>, extra: Doc) -> Result<Outcome> {
     let existing: Option<(Uuid, String)> = sqlx::query_as(
         "select id, status from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3 order by coalesce(cycle, 1) desc limit 1",
     )
@@ -339,6 +344,7 @@ pub async fn try_enroll(k: &Kernel, ctx: &Ctx, tx: &mut Tx, course: Uuid, learne
     if let Some(c) = cohort {
         doc.insert("cohort".into(), json!(c.to_string()));
     }
+    doc.extend(extra);
     sqlx::query("savepoint lms_enrol").execute(&mut **tx).await?;
     match k.insert_tx(ctx, tx, "LmsEnrollment", doc).await {
         Ok(d) => {

@@ -2477,3 +2477,210 @@ async fn expiry() {
     assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"course": plain.to_string()})).await.unwrap().len(), 1);
     assert_eq!(cert_of(p[&email("dee")]).await["status"], json!("Expired"));
 }
+
+#[test]
+fn enrolment_rules_by_role_and_group() {
+    run(rules_for_users());
+}
+
+/// A rule enrols the users with a role (or in a group) once, at the upkeep: a new joiner next time, never
+/// someone who is enrolled already, never twice; preview counts before it is switched on; someone who
+/// stops matching is kept or, if the rule says so and they have not started, withdrawn; a draft course
+/// takes nobody; a criterion the workspace does not know is refused.
+async fn rules_for_users() {
+    use chrono::Duration;
+    let t = boot("rules", vec![], &[], |_| {}).await;
+    let manager = t.user("manager@rules.test", "Mona Manager", "LMS Manager").await;
+    let today = manager.today();
+    let at = noon(today);
+    let mut who = HashMap::new();
+    for n in ["asha", "ben", "chen"] {
+        who.insert(n, t.user(&format!("{n}@rules.test"), n, "Learner").await);
+    }
+    let teacher = t.user("teacher@rules.test", "Tara", "Instructor").await;
+    let email = |n: &str| format!("{n}@rules.test");
+    let (course, lessons) = course_of(&t, &manager, "Induction", 2, json!({"due_days": 30})).await;
+    let by_hand = enrol(&t, &manager, course, &[&email("ben")]).await;
+
+    let rule = |name: &str, criteria: Value, extra: Value| {
+        let mut r = json!({"rule_name": name, "course": course.to_string(), "criteria": criteria});
+        r.as_object_mut().unwrap().extend(extra.as_object().cloned().unwrap());
+        r
+    };
+    // Refused: an unknown role, a field users do not have, employees without the HR app.
+    let bad = t.try_insert(&manager, "LmsEnrollmentRule", rule("Bad", json!([{"field": "role", "value": "Nonesuch"}]), json!({}))).await;
+    assert!(matches!(bad, Err(Error::Validation(_))));
+    assert!(t.try_insert(&manager, "LmsEnrollmentRule", rule("Bad2", json!([{"field": "department", "value": "x"}]), json!({}))).await.is_err());
+    assert!(t.try_insert(&manager, "LmsEnrollmentRule", rule("Bad3", json!([]), json!({"audience": "Employees"}))).await.is_err());
+    // Only managers write rules.
+    assert!(t.try_insert(&teacher, "LmsEnrollmentRule", rule("Mine", json!([]), json!({}))).await.is_err());
+
+    let all = uid(&t
+        .insert(
+            &manager,
+            "LmsEnrollmentRule",
+            rule("All learners", json!([{"field": "role", "value": "Learner"}]), json!({"due_days": 14, "when_no_longer_matching": "Withdraw If Not Started"})),
+        )
+        .await);
+    let preview = t.act(&manager, "LmsEnrollmentRule", all, "preview", json!({})).await;
+    assert_eq!(
+        (preview["matching"].clone(), preview["would_enrol"].clone(), preview["already_enrolled"].clone()),
+        (json!(3), json!(2), json!(1)),
+        "Ben is enrolled already"
+    );
+    // Switched off, it enrols nobody.
+    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"course": course.to_string()})).await.unwrap().len(), 1);
+    t.update(&manager, "LmsEnrollmentRule", all, json!({"active": true})).await;
+    for _ in 0..2 {
+        ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    }
+    let made = t.list(&t.admin, "LmsEnrollment", json!({"rule": all.to_string()})).await.unwrap();
+    assert_eq!(made.iter().map(|r| r["learner"].as_str().unwrap().to_string()).collect::<BTreeSet<_>>(), BTreeSet::from([email("asha"), email("chen")]));
+    assert!(made.iter().all(|r| r["due_date"] == json!((today + Duration::days(14)).to_string()) && r["status"] == json!("Active")), "N days after matching");
+    assert_eq!(t.get("LmsEnrollment", by_hand[&email("ben")]).await["rule"], Value::Null, "an enrolment made by hand is left alone");
+    assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"course": course.to_string()})).await.unwrap().len(), 3, "never twice");
+    assert_eq!(t.notes(&who["asha"], "Enrolled").await, 1);
+    assert_eq!(t.act(&manager, "LmsEnrollmentRule", all, "preview", json!({})).await["would_enrol"], json!(0));
+
+    // A new joiner is enrolled at the next upkeep; the course's own due days apply when the rule has none.
+    let dee = t.user("dee@rules.test", "dee", "Learner").await;
+    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"learner": email("dee")})).await.unwrap().len(), 1);
+    assert_eq!(t.notes(&dee, "Enrolled").await, 1);
+
+    // Stopping to match: Chen has started, Asha has not. Withdrawn only when not started.
+    let chen_e = made.iter().find(|r| r["learner"] == json!(email("chen"))).map(uid).unwrap();
+    t.act(&who["chen"], "LmsEnrollment", chen_e, "complete_lesson", json!({"lesson": lessons[0].to_string()})).await;
+    for n in ["asha", "chen"] {
+        t.sql("delete from user_role where tenant_id = $1 and user_id = $2", who[n].user).await;
+    }
+    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    let status = |n: &str| t.list(&t.admin, "LmsEnrollment", json!({"learner": email(n), "course": course.to_string()}));
+    assert_eq!(status("asha").await.unwrap()[0]["status"], json!("Withdrawn"));
+    assert_eq!(status("chen").await.unwrap()[0]["status"], json!("Active"), "started: kept");
+    assert_eq!(status("ben").await.unwrap()[0]["status"], json!("Active"), "not the rule's");
+
+    // By group, keeping whoever leaves; a draft course takes nobody.
+    t.sql(
+        "insert into scim_group (tenant_id, id, display_name) values ($1, '00000000-0000-0000-0000-0000000000a1', 'Night shift') on conflict do nothing",
+        Uuid::nil(),
+    )
+    .await;
+    t.sql("insert into scim_group_member (tenant_id, group_id, user_id) values ($1, '00000000-0000-0000-0000-0000000000a1', $2)", dee.user).await;
+    let (other, _) = course_of(&t, &manager, "Night Safety", 1, json!({})).await;
+    let night = json!({"rule_name": "Night", "course": other.to_string(), "active": true, "criteria": [{"field": "group", "value": "Night shift"}]});
+    t.insert(&manager, "LmsEnrollmentRule", night).await;
+    let (draft, _) = course_of(&t, &manager, "Draft", 1, json!({})).await;
+    t.update(&manager, "LmsCourse", draft, json!({"status": "Draft"})).await;
+    let wip = uid(&t.insert(&manager, "LmsEnrollmentRule", json!({"rule_name": "WIP", "course": draft.to_string(), "active": true, "criteria": []})).await);
+    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    let night_made = t.list(&t.admin, "LmsEnrollment", json!({"course": other.to_string()})).await.unwrap();
+    assert_eq!(night_made.iter().map(|r| r["learner"].clone()).collect::<Vec<_>>(), vec![json!(email("dee"))]);
+    assert_eq!(night_made[0]["due_date"], Value::Null, "no due days anywhere");
+    assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"course": draft.to_string()})).await.unwrap().len(), 0);
+    assert_eq!(t.act(&manager, "LmsEnrollmentRule", wip, "preview", json!({})).await["course_open"], json!(false));
+    t.sql("delete from scim_group_member where tenant_id = $1 and user_id = $2", dee.user).await;
+    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"course": other.to_string()})).await.unwrap()[0]["status"], json!("Active"), "Keep is the default");
+}
+
+/// A workspace with Learn and the HR app (and a company to employ people in).
+async fn boot_hr(slug: &str) -> (T, Uuid) {
+    let mut extra = ferrum_app_erp::packages().expect("ERP's packages");
+    extra.extend(ferrum_app_hr::packages().expect("HR's packages"));
+    let t = boot(slug, extra, &["hr"], |h| {
+        ferrum_app_erp::register(h);
+        ferrum_app_hr::register(h);
+    })
+    .await;
+    let inr = t.list(&t.admin, "Currency", json!({"code": "INR"})).await.unwrap().remove(0);
+    let company = uid(&t.insert(&t.admin, "Company", json!({"company_name": "Acme Works", "abbr": "AW", "default_currency": inr["id"]})).await);
+    (t, company)
+}
+
+#[test]
+fn enrolment_rules_by_employee() {
+    run(rules_for_employees());
+}
+
+/// With HR installed, a rule matches the active employees who sign in by their department, branch and the
+/// like (by name or id), links to the employee rather than copying it, and follows a transfer: the
+/// employee who moves out stops matching, one who moves in or joins is enrolled at the next upkeep.
+async fn rules_for_employees() {
+    let (t, company) = boot_hr("rulehr").await;
+    let manager = t.user("manager@rulehr.test", "Mona Manager", "LMS Manager").await;
+    let at = noon(manager.today());
+    let mut who = HashMap::new();
+    for n in ["asha", "ben", "chen", "dee", "eli"] {
+        who.insert(n, t.user(&format!("{n}@rulehr.test"), n, "Learner").await);
+    }
+    let email = |n: &str| format!("{n}@rulehr.test");
+    let dept = |name: &str| {
+        let (t, name) = (&t, name.to_string());
+        async move { uid(&t.insert(&t.admin, "Department", json!({"department_name": name, "company": company.to_string()})).await) }
+    };
+    let (safety, sales) = (dept("Safety").await, dept("Sales").await);
+    let north = uid(&t.insert(&t.admin, "Branch", json!({"branch_name": "North"})).await);
+    let south = uid(&t.insert(&t.admin, "Branch", json!({"branch_name": "South"})).await);
+    let staff = |name: &str, user: Option<&str>, d: Uuid, b: Uuid, extra: Value| {
+        let mut e =
+            json!({"first_name": name, "company": company.to_string(), "date_of_joining": "2024-06-01", "department": d.to_string(), "branch": b.to_string()});
+        if let Some(u) = user {
+            e["user"] = json!(email(u));
+        }
+        e.as_object_mut().unwrap().extend(extra.as_object().cloned().unwrap());
+        t.insert(&t.admin, "Employee", e)
+    };
+    staff("Asha", Some("asha"), safety, north, json!({})).await;
+    let ben = uid(&staff("Ben", Some("ben"), safety, south, json!({})).await);
+    staff("Chen", Some("chen"), sales, north, json!({})).await;
+    staff("Nobody", None, safety, north, json!({})).await;
+    staff("Dee", Some("dee"), safety, north, json!({"status": "Inactive"})).await;
+
+    let (course, lessons) = course_of(&t, &manager, "Workshop Safety", 1, json!({})).await;
+    let rule = |name: &str, criteria: Value| json!({"rule_name": name, "course": course.to_string(), "audience": "Employees", "criteria": criteria, "when_no_longer_matching": "Withdraw If Not Started"});
+    for (field, value) in [("department", "Nonesuch"), ("bank_account_no", "1"), ("nonesuch", "x")] {
+        assert!(
+            matches!(t.try_insert(&manager, "LmsEnrollmentRule", rule("Bad", json!([{"field": field, "value": value}]))).await, Err(Error::Validation(_))),
+            "{field}"
+        );
+    }
+    let id = uid(&t.insert(&manager, "LmsEnrollmentRule", rule("Safety staff", json!([{"field": "department", "value": "safety"}]))).await);
+    let north_only = uid(&t
+        .insert(
+            &manager,
+            "LmsEnrollmentRule",
+            rule("North safety", json!([{"field": "department", "value": safety.to_string()}, {"field": "branch", "value": "North"}])),
+        )
+        .await);
+    let preview = |r: Uuid| t.act(&manager, "LmsEnrollmentRule", r, "preview", json!({}));
+    assert_eq!(preview(id).await["matching"], json!(2), "Asha and Ben: Dee is inactive, Nobody has no sign-in, Chen is in Sales");
+    assert_eq!(preview(north_only).await["matching"], json!(1));
+    t.update(&manager, "LmsEnrollmentRule", id, json!({"active": true})).await;
+    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    let who_is = || async {
+        t.list(&t.admin, "LmsEnrollment", json!({"course": course.to_string(), "status": "Active"}))
+            .await
+            .unwrap()
+            .iter()
+            .map(|r| r["learner"].as_str().unwrap().to_string())
+            .collect::<BTreeSet<_>>()
+    };
+    assert_eq!(who_is().await, BTreeSet::from([email("asha"), email("ben")]));
+
+    // Ben moves to Sales, Chen to Safety, and Eli joins Safety: the next upkeep follows.
+    t.update(&t.admin, "Employee", ben, json!({"department": sales.to_string()})).await;
+    staff("Eli", Some("eli"), safety, south, json!({})).await;
+    let chen = t.list(&t.admin, "Employee", json!({"user": email("chen")})).await.unwrap().remove(0);
+    t.update(&t.admin, "Employee", uid(&chen), json!({"department": safety.to_string()})).await;
+    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    assert_eq!(who_is().await, BTreeSet::from([email("asha"), email("chen"), email("eli")]));
+    let ben_e = t.list(&t.admin, "LmsEnrollment", json!({"learner": email("ben")})).await.unwrap();
+    assert_eq!(ben_e[0]["status"], json!("Withdrawn"), "moved out and not started");
+    // Moving back does not enrol him a second time: he is withdrawn, not forgotten.
+    t.update(&t.admin, "Employee", ben, json!({"department": safety.to_string()})).await;
+    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"learner": email("ben")})).await.unwrap().len(), 1);
+    let _ = lessons;
+}
