@@ -505,7 +505,12 @@ pub async fn refresh(k: &Kernel, ctx: &Ctx, tx: &mut Tx, e: &Doc, touched: Optio
         values.insert("last_lesson".into(), json!(lesson.to_string()));
         values.insert("last_activity_at".into(), json!(util::ts(util::now())));
     }
-    let completing = s(e, "status") == Some(ACTIVE) && total > 0 && done >= total;
+    let mut completing = s(e, "status") == Some(ACTIVE) && total > 0 && done >= total;
+    if completing {
+        // A course asking for a minimum total completes only once the gradebook reaches it.
+        let course = load(k, ctx, tx, "LmsCourse", course_id).await?;
+        completing = crate::gradebook::may_complete(k, ctx, tx, &course, me).await?;
+    }
     if !completing {
         k.set_values_tx(&sys(ctx), tx, "LmsEnrollment", me, values.clone()).await?;
         let mut out = e.clone();
@@ -707,7 +712,8 @@ pub async fn complete_ready(k: &Kernel, ctx: &Ctx) -> Result<usize> {
     let mut tx = k.db.tenant_tx(ctx.tenant).await?;
     let ready: Vec<Uuid> = sqlx::query_scalar(
         "select e.id from e_lms_enrollment e where e.tenant_id = $1 and ((e.status = 'Active' and e.total_lessons > 0 \
-         and e.completed_lessons >= e.total_lessons) or (e.status = 'Completed' and e.certificate is null and exists \
+         and e.completed_lessons >= e.total_lessons and not exists (select 1 from e_lms_course c where c.tenant_id = e.tenant_id \
+         and c.id = e.course and coalesce(c.min_grade_percent, 0) > 0)) or (e.status = 'Completed' and e.certificate is null and exists \
          (select 1 from e_lms_course c where c.tenant_id = e.tenant_id and c.id = e.course and c.issue_certificate))) limit 500",
     )
     .bind(ctx.tenant)

@@ -3357,3 +3357,129 @@ async fn assessment() {
     let page = t.page(Some(&asha), &format!("lessons/{}", lessons[1])).await;
     assert_eq!(page["assignment"]["submissions"][0]["rubric"]["criteria"][0]["level"], json!("Strong"));
 }
+
+// ───────────────────────────── the gradebook ─────────────────────────────
+
+#[test]
+fn gradebook_weights_drops_penalties_and_the_minimum_total() {
+    run(gradebook());
+}
+
+/// Weighted categories with the lowest dropped, a late penalty, a hidden item, an excused one and an
+/// override; learners see their own released marks only; the export; a course that needs 60% to
+/// complete waits for the marks.
+async fn gradebook() {
+    let t = boot("grades", vec![], &[], |_| {}).await;
+    let teacher = t.user("teacher@grades.test", "Tara Teacher", "Instructor").await;
+    let asha = t.user("asha@grades.test", "Asha Rao", "Learner").await;
+    let ben = t.user("ben@grades.test", "Ben Okafor", "Learner").await;
+    let scale = uid(&t.insert(&t.admin, "LmsGradingScale", json!({"scale_name": "Letters", "bands": [{"grade": "A", "min_percent": "90"}, {"grade": "B", "min_percent": "75"}, {"grade": "C", "min_percent": "0"}]})).await);
+    let course = uid(&t
+        .insert(
+            &teacher,
+            "LmsCourse",
+            json!({"title": "Biology", "instructors": [{"instructor": "teacher@grades.test"}],
+        "grade_categories": [{"category": "Quizzes", "weight": "40", "drop_lowest": 1}, {"category": "Work", "weight": "60"}],
+        "grading_scale": scale.to_string(), "min_grade_percent": "60"}),
+        )
+        .await);
+    let c = course.to_string();
+    let question = uid(&t
+        .insert(&teacher, "LmsQuestion", json!({"question": "Cells?", "course": c, "options": [{"option": "Yes", "is_correct": true}, {"option": "No"}]}))
+        .await);
+    let quiz = uid(&t
+        .insert(&teacher, "LmsQuiz", json!({"title": "Cells", "course": c, "passing_percentage": "50", "questions": [{"question": question.to_string()}]}))
+        .await);
+    let due = t.admin.today() - chrono::Duration::days(2);
+    let assignment = uid(&t.insert(&teacher, "LmsAssignment", json!({"title": "Essay", "course": c, "max_score": "100", "due_date": due.to_string()})).await);
+    let (_, lessons) = t
+        .chapter(
+            &teacher,
+            course,
+            "All",
+            &[
+                json!({"title": "Read"}),
+                json!({"title": "Quiz", "lesson_type": "Quiz", "quiz": quiz.to_string()}),
+                json!({"title": "Essay", "lesson_type": "Assignment", "assignment": assignment.to_string()}),
+            ],
+        )
+        .await;
+    t.update(&teacher, "LmsCourse", course, json!({"status": "Published"})).await;
+    let item = |v: Value| {
+        let mut v = v;
+        v["course"] = json!(c);
+        v
+    };
+    assert!(field_error(t.try_insert(&teacher, "LmsGradeItem", item(json!({"title": "Loose", "max_points": "10"}))).await, "category").contains("Quizzes"));
+    t.insert(
+        &teacher,
+        "LmsGradeItem",
+        item(json!({"title": "Cells quiz", "category": "Quizzes", "source": "Quiz", "quiz": quiz.to_string(), "max_points": "10"})),
+    )
+    .await;
+    let lab1 = uid(&t.insert(&teacher, "LmsGradeItem", item(json!({"title": "Lab 1", "category": "Quizzes", "max_points": "10"}))).await);
+    let lab2 = uid(&t.insert(&teacher, "LmsGradeItem", item(json!({"title": "Lab 2", "category": "Quizzes", "max_points": "10", "released": false}))).await);
+    t.insert(
+        &teacher,
+        "LmsGradeItem",
+        item(json!({"title": "Essay", "category": "Work", "source": "Assignment", "assignment": assignment.to_string(),
+        "max_points": "100", "late_penalty_percent": "10", "late_penalty_max": "50"})),
+    )
+    .await;
+    let ids = enrol(&t, &teacher, course, &["asha@grades.test", "ben@grades.test"]).await;
+    let (ae, be) = (ids["asha@grades.test"], ids["ben@grades.test"]);
+    let entry = |e: Uuid, it: Uuid, v: Value| {
+        let mut v = v;
+        v["enrollment"] = json!(e.to_string());
+        v["item"] = json!(it.to_string());
+        v
+    };
+
+    // Asha: the quiz right (10 of 10), labs 4 and 8 (the second hidden), the essay 90 but two days late (20% off: 72).
+    t.act(&asha, "LmsEnrollment", ae, "complete_lesson", json!({"lesson": lessons[0].to_string()})).await;
+    let a = t.act(&asha, "LmsEnrollment", ae, "start_quiz", json!({"quiz": quiz.to_string()})).await["attempt"].clone();
+    t.act(&asha, "LmsQuizAttempt", vid(&a["id"]), "submit_answers", json!({"answers": {question.to_string(): key(&a, question, "Yes")}})).await;
+    t.insert(&teacher, "LmsGradeEntry", entry(ae, lab1, json!({"points": "4"}))).await;
+    t.insert(&teacher, "LmsGradeEntry", entry(ae, lab2, json!({"points": "8"}))).await;
+    assert!(t.try_insert(&teacher, "LmsGradeEntry", entry(ae, lab2, json!({"points": "11"}))).await.is_err(), "once, and within its points");
+    let sub = uid(&t.insert(&asha, "LmsAssignmentSubmission", json!({"assignment": assignment.to_string(), "answer": "Mitosis"})).await);
+    assert_eq!(t.get("LmsEnrollment", ae).await["status"], json!("Active"), "nothing graded at Work yet");
+    t.act(&teacher, "LmsAssignmentSubmission", sub, "grade", json!({"score": "90"})).await;
+
+    let book = t.page(Some(&teacher), &format!("teaching/courses/{course}/gradebook")).await;
+    let row_of = |b: &Value, who: &str| b["learners"].as_array().unwrap().iter().find(|l| l["learner"] == json!(who)).cloned().unwrap();
+    let asha_row = row_of(&book, "asha@grades.test");
+    // Quizzes: 10, 4, 8 with the lowest dropped = 18 of 20 = 90%; Work 72%; 0.4·90 + 0.6·72 = 79.2.
+    assert_eq!((dec(&asha_row["total_percent"]), asha_row["grade"].clone()), (n("79.2"), json!("B")));
+    assert_eq!((asha_row["marks"][3]["late_days"].clone(), dec(&asha_row["marks"][3]["points"])), (json!(2), n("72")));
+    assert_eq!(t.get("LmsEnrollment", ae).await["status"], json!("Completed"), "every lesson done and 79.2% ≥ 60%");
+    let mine = t.page(Some(&asha), "courses/biology/grades").await;
+    assert_eq!(mine["items"].as_array().unwrap().len(), 3, "the hidden lab is not hers to see");
+    assert_eq!(mine["learners"].as_array().unwrap().len(), 1);
+    // Quizzes she sees: 10 and 4, the lowest dropped = 100%; 0.4·100 + 0.6·72 = 83.2.
+    assert_eq!(dec(&mine["learners"][0]["total_percent"]), n("83.2"));
+    assert!(t.call(Some(&asha), "GET", &format!("teaching/courses/{course}/gradebook")).await.is_err(), "not the book");
+    assert!(t.list(&asha, "LmsGradeEntry", json!({})).await.is_err(), "nor the entries");
+
+    // Ben: every lesson done by his instructor, but 2 of 10 in a lab is 20%: he waits until his marks reach 60%.
+    for l in &lessons {
+        t.act(&teacher, "LmsEnrollment", be, "complete_lesson", json!({"lesson": l.to_string()})).await;
+    }
+    let low = uid(&t.insert(&teacher, "LmsGradeEntry", entry(be, lab1, json!({"points": "2"}))).await);
+    t.insert(&teacher, "LmsGradeEntry", entry(be, lab2, json!({"excused": true}))).await;
+    let ben_row = row_of(&t.page(Some(&teacher), &format!("teaching/courses/{course}/gradebook")).await, "ben@grades.test");
+    assert_eq!((dec(&ben_row["total_percent"]), ben_row["marks"][2]["excused"].clone()), (n("20"), json!(true)));
+    assert_eq!(t.get("LmsEnrollment", be).await["status"], json!("Active"), "below the minimum total");
+    ferrum_app_lms::maintenance(&t.k).await.expect("upkeep");
+    assert_eq!(t.get("LmsEnrollment", be).await["status"], json!("Active"));
+    t.update(&teacher, "LmsGradeEntry", low, json!({"points": "9"})).await;
+    assert_eq!(t.get("LmsEnrollment", be).await["status"], json!("Completed"), "90% now");
+    assert_eq!(t.page(Some(&ben), "courses/biology/grades").await["learners"][0]["learner"], json!("ben@grades.test"), "his own");
+
+    // The export.
+    let r = t.call(Some(&teacher), "GET", &format!("teaching/courses/{course}/gradebook?format=csv")).await.expect("csv");
+    let text = String::from_utf8(r.body).unwrap();
+    assert!(r.content_type.starts_with("text/csv"));
+    assert!(text.starts_with("Learner,Email,Cells quiz,Lab 1,Lab 2,Essay,Total (%),Grade\n"), "{text}");
+    assert!(text.contains("Asha Rao,asha@grades.test,10,4,8,72,79.2,B"), "{text}");
+}
