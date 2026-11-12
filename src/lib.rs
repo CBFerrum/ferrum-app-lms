@@ -19,16 +19,20 @@ mod assignment;
 mod catalog;
 mod certificate;
 mod cohort;
+mod discussion;
 mod enrollment;
+mod gradebook;
 mod grading;
 mod live;
 mod lti;
+mod media;
 mod notice;
 mod payments;
 mod quiz;
 mod reports;
 mod rules;
 pub mod scorm;
+mod signup;
 mod site;
 mod util;
 mod video;
@@ -65,18 +69,27 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("LmsQuestion", Arc::new(quiz::QuestionHook))
         .register("LmsQuizAttempt", Arc::new(quiz::AttemptHook))
         .register("LmsAssignment", Arc::new(assignment::AssignmentHook))
+        .register("LmsRubric", Arc::new(assignment::RubricHook))
+        .register("LmsGradeItem", Arc::new(gradebook::ItemHook))
+        .register("LmsGradeEntry", Arc::new(gradebook::EntryHook))
+        .register("LmsCourse", Arc::new(discussion::CourseHook))
+        .register("LmsPost", Arc::new(discussion::PostHook))
         .register("LmsAssignmentSubmission", Arc::new(assignment::SubmissionHook))
         .register("LmsEnrollment", Arc::new(enrollment::EnrollmentHook))
         .register("LmsLessonProgress", Arc::new(enrollment::ProgressHook))
         .register("LmsPackageProgress", Arc::new(scorm::ProgressHook))
         .register("LmsLtiTool", Arc::new(lti::ToolHook))
         .register("LmsCertificate", Arc::new(certificate::CertificateHook))
-        .add_site(util::PACKAGE, Arc::new(site::LearnSite));
+        .add_site(util::PACKAGE, Arc::new(site::LearnSite))
+        // People who signed themselves up on a course page are enrolled in it (or it is bought for them).
+        .add_event_sink(Arc::new(signup::SignupSink));
     // The connector with Commerce: only where Paid Courses is installed.
     hooks.scoped(&[payments::PACKAGE.to_string()], |h| {
         h.register("LmsCourse", Arc::new(payments::CourseHook))
             .register("LmsEnrollment", Arc::new(payments::EnrollmentHook))
-            .register("PaymentEntry", Arc::new(payments::PaidHook));
+            .register("PaymentEntry", Arc::new(payments::PaidHook))
+            .register("SalesInvoice", Arc::new(payments::ReturnHook))
+            .register("LmsCourseBundle", Arc::new(payments::BundleHook));
     });
 }
 

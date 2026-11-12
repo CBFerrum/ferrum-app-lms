@@ -3,7 +3,7 @@
 # installed.
 id: lms-payments
 name: Paid Courses
-version: 0.1.0
+version: 0.2.0
 publisher: cbferrum
 summary: Sell courses - learners pay on the course page, are enrolled when the payment arrives and refunded when they withdraw in time
 categories: [education, sales]

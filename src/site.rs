@@ -360,7 +360,10 @@ async fn public(k: &Kernel, req: &SiteRequest, path: &[&str]) -> Result<SiteResp
         }
         ["courses", slug] => {
             let course = course_by_slug(k, &ctx, &mut tx, slug).await?.filter(public_course).ok_or_else(|| not_found("course"))?;
-            json_response(&json!({"course": course_page(k, &ctx, &mut tx, &course, Audience::Public).await?}), "public, max-age=60")
+            let mut page = course_page(k, &ctx, &mut tx, &course, Audience::Public).await?;
+            // How someone without an account signs up and enrols (or buys) here.
+            page["signup"] = crate::signup::offer(&mut tx, req.tenant, &course).await?;
+            json_response(&json!({"course": page}), "public, max-age=60")
         }
         ["courses", slug, "lessons", lesson, rest @ ..] if rest.is_empty() || rest == ["file"] => {
             let course = course_by_slug(k, &ctx, &mut tx, slug).await?.filter(public_course).ok_or_else(|| not_found("lesson"))?;
@@ -427,7 +430,9 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
     let mut tx = k.db.tenant_tx(user.tenant).await?;
     let out = match path {
         ["catalog"] => {
-            let (mut courses, ids, next) = catalog(&mut tx, user.tenant, req, Audience::Members).await?;
+            // People outside the workspace (the portal) see the public catalog.
+            let audience = if user.outside { Audience::Public } else { Audience::Members };
+            let (mut courses, ids, next) = catalog(&mut tx, user.tenant, req, audience).await?;
             price_cards(user, &mut tx, &mut courses, &ids).await?;
             let mine: Vec<(Uuid, Uuid, String, Option<Decimal>)> = if ids.is_empty() {
                 vec![]
@@ -464,10 +469,11 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
             let cid = util::doc_id(&course)?;
             let mine = my_enrollment(k, user, &mut tx, cid).await?;
             let author = authors(user, &course);
-            if s(&course, "status") != Some("Published") && !author && mine.is_none() {
+            if (s(&course, "status") != Some("Published") || (user.outside && !public_course(&course))) && !author && mine.is_none() {
                 return Err(not_found("course"));
             }
-            let mut page = course_page(k, user, &mut tx, &course, Audience::Members).await?;
+            let audience = if user.outside { Audience::Public } else { Audience::Members };
+            let mut page = course_page(k, user, &mut tx, &course, audience).await?;
             let mut blockers = Vec::new();
             if mine.is_none() {
                 if s(&course, "status") != Some("Published") {
@@ -528,6 +534,23 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
             let body = scorm::entry(&data, &path)?.ok_or_else(|| not_found("file"))?;
             return Ok(scorm::respond(&path, body));
         }
+        ["lessons", lesson, kind @ ("video" | "captions")] => {
+            // An uploaded video and its captions: for whoever may open the lesson, by a link signed for them.
+            let lesson = match load(k, user, &mut tx, "LmsLesson", uuid(lesson)?).await {
+                Ok(l) => l,
+                Err(Error::NotFound(_)) => return Err(not_found("video")),
+                Err(e) => return Err(e),
+            };
+            let course = load(k, user, &mut tx, "LmsCourse", id(&lesson, "course").unwrap_or_default()).await?;
+            let mine = my_enrollment(k, user, &mut tx, util::doc_id(&course)?).await?.filter(|e| s(e, "status") != Some(WITHDRAWN));
+            let preview = util::b(&lesson, "is_preview") && s(&course, "status") == Some("Published");
+            if mine.is_none() && !authors(user, &course) && !preview {
+                return Err(not_found("video"));
+            }
+            let r = crate::media::serve(k, user, &mut tx, &lesson, kind, &req.query).await?;
+            tx.commit().await?;
+            return Ok(r);
+        }
         ["lessons", lesson, rest @ ..] if rest.is_empty() || rest == ["file"] => {
             let lesson = match load(k, user, &mut tx, "LmsLesson", uuid(lesson)?).await {
                 Ok(l) => l,
@@ -550,6 +573,34 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
         }
         ["dashboard"] => json_response(&dashboard(k, user, &mut tx).await?, "no-store"),
         ["teaching"] => json_response(&teaching(user, &mut tx).await?, "no-store"),
+        ["teaching", "grading"] => json_response(&grading_queue(user, &mut tx).await?, "no-store"),
+        ["teaching", "courses", course, "gradebook"] => {
+            let course = match util::authored_course(k, user, &mut tx, uuid(course)?).await {
+                Err(Error::NotFound(_)) => return Err(not_found("course")),
+                other => other?,
+            };
+            let book = crate::gradebook::book(k, user, &mut tx, &course, None, false).await?;
+            tx.commit().await?;
+            if param(req, "format") == Some("csv") {
+                let mut r = SiteResponse::text(200, "text/csv; charset=utf-8", crate::gradebook::csv(&book));
+                r.headers.push(("content-disposition".into(), format!("attachment; filename=\"gradebook-{}.csv\"", s(&course, "slug").unwrap_or("course"))));
+                r.headers.push(("cache-control".into(), "no-store".into()));
+                return Ok(r);
+            }
+            return Ok(json_response(&book, "no-store"));
+        }
+        ["courses", slug, "discussion"] => {
+            let course = course_by_slug(k, user, &mut tx, slug).await?.ok_or_else(|| not_found("course"))?;
+            let id_param = |key: &str| param(req, key).map(|v| v.parse::<Uuid>().map_err(|_| Error::field(key, "must be a record id"))).transpose();
+            let (lesson, thread) = (id_param("lesson")?, id_param("thread")?);
+            json_response(&crate::discussion::page(k, user, &mut tx, &course, lesson, thread).await?, "no-store")
+        }
+        ["courses", slug, "grades"] => {
+            // A learner's own marks: the released items and the total of those.
+            let course = course_by_slug(k, user, &mut tx, slug).await?.ok_or_else(|| not_found("course"))?;
+            let mine = my_enrollment(k, user, &mut tx, util::doc_id(&course)?).await?.ok_or_else(|| not_found("grades"))?;
+            json_response(&crate::gradebook::book(k, user, &mut tx, &course, Some(util::doc_id(&mine)?), true).await?, "no-store")
+        }
         ["teaching", "courses", course, "roster"] => {
             let course = match util::authored_course(k, user, &mut tx, uuid(course)?).await {
                 Err(Error::NotFound(_)) => return Err(not_found("course")),
@@ -780,4 +831,40 @@ async fn roster(user: &Ctx, tx: &mut Tx, course: &Doc, cohort: Option<Uuid>) -> 
         "enrolled": live, "completed": completed, "completion_rate": money(enrollment::percent(completed, live)),
         "learners": learners,
     }))
+}
+
+/// Quiz attempts waiting for a person to grade answers, in the courses the caller authors (every
+/// course for LMS managers), oldest first: each with the questions still to grade, and whether the
+/// caller graded one already (a second grader or a third is someone else).
+async fn grading_queue(user: &Ctx, tx: &mut Tx) -> Result<Value> {
+    let mut qb = QueryBuilder::<Postgres>::new(
+        "select a.id, a.number, a.quiz_title, a.course, c.title, a.learner_name, a.submitted_at, \
+                (select coalesce(jsonb_agg(r.question), '[]') from e_lms_quiz_attempt__answers r where r.tenant_id = a.tenant_id and r.parent_id = a.id \
+                 and r.by_person and r.points_awarded is null), \
+                (select coalesce(jsonb_agg(n.question), '[]') from lms_grading_note n where n.tenant_id = a.tenant_id and n.attempt = a.id and n.grader = ",
+    );
+    qb.push_bind(user.email.to_lowercase())
+        .push(
+            ") from e_lms_quiz_attempt a join e_lms_course c on c.tenant_id = a.tenant_id and c.id = a.course \
+             where a.status = 'Awaiting Grading' and a.tenant_id = ",
+        )
+        .push_bind(user.tenant);
+    if !is_manager(user) {
+        qb.push(" and (c.created_by = ")
+            .push_bind(user.user)
+            .push(" or exists (select 1 from e_lms_course__instructors i where i.tenant_id = c.tenant_id and i.parent_id = c.id and i.instructor = ")
+            .push_bind(user.email.to_lowercase())
+            .push("))");
+    }
+    qb.push(" order by a.submitted_at nulls last, a.id limit 500");
+    let found: Vec<(Uuid, Option<String>, Option<String>, Uuid, String, Option<String>, Option<DateTime<Utc>>, Value, Value)> =
+        qb.build_query_as().fetch_all(&mut **tx).await?;
+    let attempts: Vec<Value> = found
+        .into_iter()
+        .map(|(id, number, quiz, course, course_title, learner, at, waiting, mine)| {
+            json!({"attempt": id, "number": number, "quiz_title": quiz, "course": {"id": course, "title": course_title}, "learner_name": learner,
+                   "submitted_at": at.map(util::ts), "questions": waiting, "graded_by_me": mine})
+        })
+        .collect();
+    Ok(json!({"attempts": attempts}))
 }

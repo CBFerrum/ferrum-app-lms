@@ -871,7 +871,7 @@ async fn scenario() {
         let actions = &teacher.schema.entity(entity).unwrap().def.actions;
         actions.iter().find(|a| a.name == name).unwrap().params.iter().map(|p| p.name.clone()).collect()
     };
-    assert_eq!(asks("LmsAssignmentSubmission", "grade"), ["outcome", "score", "feedback"]);
+    assert_eq!(asks("LmsAssignmentSubmission", "grade"), ["outcome", "score", "feedback", "rubric"]);
     assert_eq!(asks("LmsCertificate", "revoke"), ["reason"]);
     assert_eq!(asks("LmsCourse", "enroll_learners"), ["learners", "cohort"]);
     assert_eq!(asks("LmsCohort", "schedule_sessions"), ["first_date", "time", "count", "every_days", "duration_minutes", "title", "join_url"]);
@@ -1206,7 +1206,7 @@ async fn paid() {
     ferrum_app_commerce::register(&mut hooks);
     ferrum_app_lms::register(&mut hooks);
     let settings = KernelSettings { secret_key: Some(SecretKey::new([7u8; 32])), ..Default::default() };
-    let k = Kernel::boot(db, catalog, hooks, settings, None).await.expect("boot");
+    let k = Kernel::boot(db, catalog, hooks, settings, Some(Arc::new(NoMail))).await.expect("boot");
     ferrum_domain::maintenance(&k).await.expect("partitions");
     ferrum_app_erp::maintenance(&k).await.expect("partitions");
     let tenant = k
@@ -1384,6 +1384,152 @@ async fn paid() {
     assert_eq!(t.get("SalesInvoice", chen_invoice).await["docstatus"], json!(2), "its invoice cancelled");
     let page = t.page(Some(&chen), "courses/rust-for-teams").await["course"].clone();
     assert_eq!((page["sale"]["can_buy"].clone(), page["sale"]["purchase"].clone()), (json!(true), Value::Null));
+
+    // ───────────── someone with no account signs up on the paid course's page: an order, then the course on payment ─────────────
+    use ferrum_kernel::portal_signup::{PortalSignup, SignupRequest};
+    t.k.set_portal_signup(&a, "Online Learner", Some(&PortalSignup { domains: vec![], passes: vec!["course".into()] })).await.unwrap();
+    let req = SignupRequest {
+        tenant: "academy".into(),
+        role: "Online Learner".into(),
+        name: "Dev Outside".into(),
+        email: "dev@outside.test".into(),
+        passes: json!({"course": "rust-for-teams"}).as_object().cloned().unwrap(),
+    };
+    t.k.request_portal_signup(&req, "10.2.2.2").await.expect("asked");
+    let code = mailed_code(&t, "dev@outside.test").await;
+    let ferrum_kernel::auth::SignIn::Session(s) = t.k.sign_in_with_code("academy", "dev@outside.test", &code).await.expect("confirmed") else { panic!() };
+    drain(&t.k).await;
+    let dev = t.k.load_ctx(tenant, s.user, None, "it".into()).await.unwrap();
+    let theirs = t.list(&dev, "LmsCoursePurchase", json!({})).await.expect("their purchases");
+    assert_eq!((theirs.len(), theirs[0]["status"].clone(), dec(&theirs[0]["amount"])), (1, json!("Awaiting Payment"), n("1500")), "ordered, not enrolled");
+    assert!(t.list(&dev, "LmsEnrollment", json!({})).await.unwrap().is_empty());
+    let page = t.page(Some(&dev), "courses/rust-for-teams").await["course"].clone();
+    assert_eq!(page["sale"]["purchase"]["payment"]["status"], json!("Initiated"), "the way to pay is on the page");
+    let request = vid(&theirs[0]["payment_request"]);
+    t.act(&fakepay, "PaymentRequest", request, "mark_paid", json!({"amount": "1500", "currency": "INR", "gateway_reference": "pi_dev"})).await;
+    let enrolled = t.list(&dev, "LmsEnrollment", json!({})).await.unwrap();
+    assert_eq!((enrolled.len(), enrolled[0]["status"].clone()), (1, json!("Active")), "enrolled on payment");
+    assert_eq!(t.page(Some(&dev), &format!("lessons/{}", lessons[0])).await["lesson"]["title"], json!("Moves"));
+
+    // ───────────── a code on the order: ERP's promotion for the Learn channel; a bad code refuses ─────────────
+    let promo = |v: Value| {
+        let mut p = json!({"company": company.to_string(), "priority": 1});
+        p.as_object_mut().unwrap().extend(v.as_object().cloned().unwrap());
+        p
+    };
+    let twenty = uid(&t
+        .insert(
+            &a,
+            "Promotion",
+            promo(json!({"title": "Learn 20", "gives": "Percent Off the Document", "percent": "20", "requires_code": true, "channels": "Learn"})),
+        )
+        .await);
+    t.insert(&a, "PromotionCode", json!({"code": "LEARN20", "promotion": twenty.to_string()})).await;
+    let shop = uid(&t
+        .insert(
+            &a,
+            "Promotion",
+            promo(json!({"title": "Shop 50", "gives": "Percent Off the Document", "percent": "50", "requires_code": true, "channels": "Web Shop"})),
+        )
+        .await);
+    t.insert(&a, "PromotionCode", json!({"code": "SHOP50", "promotion": shop.to_string()})).await;
+    assert!(field_error(t.try_act(&chen, "LmsCourse", cid, "buy", json!({"codes": "NOPE1"})).await, "promotion_codes").contains("cannot be used"));
+    assert_eq!(
+        t.count(
+            "select count(*) from e_lms_course_purchase where tenant_id = $1 and course = $2 and learner = $3 and status <> 'Cancelled'",
+            cid,
+            "chen@academy.test"
+        )
+        .await,
+        0,
+        "a refused code leaves nothing"
+    );
+    let bought = t.act(&chen, "LmsCourse", cid, "buy", json!({"codes": "learn20, shop50"})).await;
+    assert_eq!(dec(&bought["purchase"]["amount"]), n("1200"), "20% off on Learn; the shop's code gives nothing here");
+    let chens = vid(&bought["purchase"]["id"]);
+    let p = t.get("LmsCoursePurchase", chens).await;
+    let chen_invoice = vid(&p["sales_invoice"]);
+    assert_eq!(t.get("SalesInvoice", chen_invoice).await["channel"], json!("Learn"));
+    t.act(&fakepay, "PaymentRequest", vid(&p["payment_request"]), "mark_paid", json!({"amount": "1200", "currency": "INR", "gateway_reference": "pi_c"})).await;
+    let chen_enrolment = vid(&t.get("LmsCoursePurchase", chens).await["enrollment"]);
+    assert_eq!(t.get("LmsEnrollment", chen_enrolment).await["status"], json!("Active"));
+    assert_eq!(dec(&t.get("Promotion", twenty).await["used_count"]), n("1"), "counted once");
+
+    // ───────────── the store refunds it (a credit note against its invoice): access ends, progress kept ─────────────
+    t.act(&chen, "LmsEnrollment", chen_enrolment, "complete_lesson", json!({"lesson": lessons[0].to_string()})).await;
+    let note = vid(&t.act(&a, "SalesInvoice", chen_invoice, "make_credit_note", json!({})).await["id"]);
+    t.k.submit(&a, "SalesInvoice", note, None).await.expect("credit note");
+    let credited = t.get("SalesInvoice", note).await;
+    assert_eq!(dec(&credited["grand_total"]), n("-1200"), "what was paid, the promotion's share kept: {:?}", credited["items"]);
+    let e = t.get("LmsEnrollment", chen_enrolment).await;
+    assert_eq!((e["status"].clone(), dec(&e["progress_percent"])), (json!("Withdrawn"), n("50")));
+    assert_eq!(t.get("LmsCoursePurchase", chens).await["status"], json!("Refund Requested"));
+
+    // ───────────── a bundle: two courses at one price, on one invoice, enrolled on one payment ─────────────
+    let paid_course = |title: &'static str, code: &'static str| {
+        let t = &t;
+        let teacher = &teacher;
+        let item = item(code);
+        async move {
+            let it = uid(&t.insert(&t.admin, "Item", item).await);
+            let c =
+                uid(&t.insert(teacher, "LmsCourse", json!({"title": title, "visibility": "Public", "lpay_price": "1000", "lpay_item": it.to_string()})).await);
+            t.chapter(teacher, c, "One", &[json!({"title": "Only"})]).await;
+            t.update(teacher, "LmsCourse", c, json!({"status": "Published"})).await;
+            (c, it)
+        }
+    };
+    let (async_rust, async_item) = paid_course("Async Rust", "ASYNC").await;
+    let (unsafe_rust, unsafe_item) = paid_course("Unsafe Rust", "UNSAFE").await;
+    let pair = uid(&t
+        .insert(
+            &a,
+            "Promotion",
+            promo(json!({"title": "Two for 1500", "gives": "Bundle Price", "amount": "1500", "channels": "Learn",
+        "bundle_items": [{"item": async_item.to_string(), "qty": "1"}, {"item": unsafe_item.to_string(), "qty": "1"}]})),
+        )
+        .await);
+    assert!(
+        field_error(
+            t.try_insert(
+                &manager,
+                "LmsCourseBundle",
+                json!({"title": "Wrong", "promotion": twenty.to_string(),
+        "courses": [{"course": async_rust.to_string()}]})
+            )
+            .await,
+            "promotion"
+        )
+        .contains("Bundle Price")
+    );
+    let bundle = t
+        .insert(
+            &manager,
+            "LmsCourseBundle",
+            json!({"title": "Rust in Depth", "promotion": pair.to_string(),
+        "courses": [{"course": async_rust.to_string()}, {"course": unsafe_rust.to_string()}]}),
+        )
+        .await;
+    assert_eq!(dec(&bundle["price"]), n("1500"));
+    let bought = t.act(&ben, "LmsCourseBundle", uid(&bundle), "buy", json!({})).await;
+    let list = bought["purchases"].as_array().unwrap();
+    assert_eq!(list.iter().map(|p| dec(&p["amount"])).collect::<Vec<_>>(), vec![n("750"), n("750")], "the bundle's price shared out");
+    let again = t.act(&ben, "LmsCourseBundle", uid(&bundle), "buy", json!({})).await;
+    assert_eq!(again["purchases"][0]["id"], list[0]["id"], "asked again, not invoiced twice");
+    let first = t.get("LmsCoursePurchase", vid(&list[0]["id"])).await;
+    let second = t.get("LmsCoursePurchase", vid(&list[1]["id"])).await;
+    assert_eq!((first["sales_invoice"].clone(), first["payment_request"].clone()), (second["sales_invoice"].clone(), second["payment_request"].clone()));
+    assert_eq!(dec(&t.get("SalesInvoice", vid(&first["sales_invoice"])).await["grand_total"]), n("1500"));
+    t.act(&fakepay, "PaymentRequest", vid(&first["payment_request"]), "mark_paid", json!({"amount": "1500", "currency": "INR", "gateway_reference": "pi_b"}))
+        .await;
+    for c in [async_rust, unsafe_rust] {
+        assert_eq!(
+            t.count("select count(*) from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3 and status = 'Active'", c, "ben@academy.test")
+                .await,
+            1
+        );
+    }
+    assert!(t.try_act(&ben, "LmsCourseBundle", uid(&bundle), "buy", json!({})).await.is_err(), "bought: nothing more to buy");
 }
 
 #[test]
@@ -2205,6 +2351,45 @@ async fn live_sessions() {
 /// A fresh workspace of Europe/Berlin with Learn and `extra` packages installed (`installs` names the
 /// ones the workspace gets), the hooks of `register` beside Learn's.
 async fn boot(slug: &str, extra: Vec<ferrum_meta::Package>, installs: &[&str], register: fn(&mut HookRegistry)) -> T {
+    boot_with(slug, extra, installs, register, None).await
+}
+
+/// Mail the server would send, kept in the outbox (sign-up and sign-in codes are read from there).
+struct NoMail;
+
+#[async_trait::async_trait]
+impl ferrum_kernel::Mailer for NoMail {
+    async fn send(&self, _to: &str, _subject: &str, _html: &str) -> ferrum_kernel::Result<()> {
+        Ok(())
+    }
+}
+
+/// The latest six-digit code mailed to `to`.
+async fn mailed_code(t: &T, to: &str) -> String {
+    let mut tx = t.k.db.system_tx().await.unwrap();
+    let html: String = sqlx::query_scalar(
+        "select payload->>'html' from outbox where tenant_id = $1 and topic = 'ferrum.mail' and payload->>'to' = $2 order by id desc limit 1",
+    )
+    .bind(t.tenant)
+    .bind(to)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    html.split(|c: char| !c.is_ascii_digit()).find(|w| w.len() == 6).unwrap().to_string()
+}
+
+/// Every event waiting in the outbox handed to its sinks.
+async fn drain(k: &Kernel) {
+    while k.dispatch_outbox_once().await.expect("outbox") > 0 {}
+}
+
+async fn boot_with(
+    slug: &str,
+    extra: Vec<ferrum_meta::Package>,
+    installs: &[&str],
+    register: fn(&mut HookRegistry),
+    mailer: Option<Arc<dyn ferrum_kernel::Mailer>>,
+) -> T {
     static REPORTS: std::sync::Once = std::sync::Once::new();
     let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
     let db = Db::connect(DbConfig { url, max_connections: 16, ..Default::default() }).await.expect("connect");
@@ -2222,7 +2407,7 @@ async fn boot(slug: &str, extra: Vec<ferrum_meta::Package>, installs: &[&str], r
             ferrum_domain::reports::add_source(source);
         }
     });
-    let k = Kernel::boot(db, catalog, hooks, KernelSettings::default(), None).await.expect("boot");
+    let k = Kernel::boot(db, catalog, hooks, KernelSettings::default(), mailer).await.expect("boot");
     ferrum_domain::maintenance(&k).await.expect("domain maintenance");
     let mut packages = vec!["lms".to_string()];
     packages.extend(installs.iter().map(|p| p.to_string()));
@@ -2862,4 +3047,578 @@ async fn team() {
     assert_eq!(records[0]["valid_until"], json!((manager.today() + Duration::days(365)).to_string()));
     assert_eq!(t.list(&t.admin, "TrainingRecord", json!({})).await.unwrap().len(), 1, "nobody else's");
     assert_eq!(t.list(&t.admin, "TrainingProgram", json!({})).await.unwrap().len(), 1);
+}
+
+// ───────────────────────────── outside people sign up on a course page ─────────────────────────────
+
+#[test]
+fn outside_people_sign_up_and_take_courses() {
+    run(portal_sign_up());
+}
+
+/// Someone with no account signs up on a public course page (the course passed along), confirms the
+/// mailed code and is an Online Learner enrolled in it; they reach their own records and the course's
+/// lessons, never another learner's, the question bank or an internal course; a course that cannot be
+/// signed up for enrols nobody; coming back, they sign in with a code and find their courses.
+async fn portal_sign_up() {
+    use ferrum_kernel::auth::SignIn;
+    use ferrum_kernel::portal_signup::{PortalSignup, SignupRequest};
+    let t = boot_with("portal", vec![], &[], |_| {}, Some(Arc::new(NoMail))).await;
+    let teacher = t.user("teacher@portal.test", "Tara Teacher", "Instructor").await;
+    let bob = t.user("bob@portal.test", "Bob Member", "Learner").await;
+    let (course, lessons) = course_of(&t, &teacher, "Open Rust", 2, json!({"visibility": "Public"})).await;
+    let (internal, _) = course_of(&t, &teacher, "Staff Rust", 1, json!({})).await;
+    let draft = uid(&t.insert(&teacher, "LmsCourse", json!({"title": "Later Rust", "visibility": "Public"})).await);
+    let bank = uid(&t
+        .insert(
+            &teacher,
+            "LmsQuestion",
+            json!({"question": "2+2?", "course": course.to_string(), "question_type": "Short Answer",
+        "accepted_answers": [{"answer": "4"}]}),
+        )
+        .await);
+    let bobs = enrol(&t, &teacher, course, &["bob@portal.test"]).await["bob@portal.test"];
+
+    // Off until the workspace turns sign-up on for the role, passing the course.
+    assert_eq!(t.page(None, "courses/open-rust").await["course"]["signup"], Value::Null);
+    t.k.set_portal_signup(&t.admin, "Online Learner", Some(&PortalSignup { domains: vec![], passes: vec!["course".into()] })).await.expect("sign-up on");
+    let page = t.page(None, "courses/open-rust").await["course"].clone();
+    assert_eq!(page["signup"], json!({"role": "Online Learner", "passes": {"course": "open-rust"}}));
+
+    let ask = |email: &str, course: &str| SignupRequest {
+        tenant: "portal".into(),
+        role: "Online Learner".into(),
+        name: "Ann Outside".into(),
+        email: email.into(),
+        passes: json!({"course": course}).as_object().cloned().unwrap(),
+    };
+    t.k.request_portal_signup(&ask("ann@outside.test", "open-rust"), "10.1.1.1").await.expect("asked");
+    let code = mailed_code(&t, "ann@outside.test").await;
+    let SignIn::Session(s) = t.k.sign_in_with_code("portal", "ann@outside.test", &code).await.expect("confirmed") else { panic!("a session") };
+    drain(&t.k).await;
+    let ann = t.k.load_ctx(t.tenant, s.user, None, "it".into()).await.unwrap();
+    assert_eq!((ann.roles.clone(), ann.outside), (vec!["Online Learner".to_string()], true));
+
+    // Enrolled in the course passed, once, and reaching only her own records.
+    let mine = t.list(&ann, "LmsEnrollment", json!({})).await.expect("her enrolments");
+    assert_eq!(mine.len(), 1);
+    assert_eq!((mine[0]["course"].clone(), mine[0]["learner"].clone()), (json!(course.to_string()), json!("ann@outside.test")));
+    let enrolment = uid(&mine[0]);
+    assert!(t.k.get(&ann, "LmsEnrollment", bobs, false).await.is_err(), "nobody else's enrolment");
+    for secret in ["LmsQuestion", "LmsQuiz", "LmsLesson", "LmsChapter", "LmsAssignment", "LmsCohort", "LmsSettings"] {
+        assert!(t.list(&ann, secret, json!({})).await.is_err(), "{secret} is course administration");
+    }
+    assert!(t.k.get(&ann, "LmsQuestion", bank, false).await.is_err());
+    let courses = t.list(&ann, "LmsCourse", json!({})).await.unwrap();
+    assert_eq!(courses.iter().map(|c| c["title"].as_str().unwrap()).collect::<Vec<_>>(), vec!["Open Rust"], "published public courses only");
+
+    // Learn's own pages: her dashboard, the course's lessons, progress by her own action.
+    let dash = t.page(Some(&ann), "dashboard").await;
+    assert_eq!(dash["courses"][0]["course"]["slug"], json!("open-rust"));
+    assert_eq!(t.page(Some(&ann), &format!("lessons/{}", lessons[0])).await["lesson"]["title"], json!("Lesson 1"));
+    let done = t.act(&ann, "LmsEnrollment", enrolment, "complete_lesson", json!({"lesson": lessons[0].to_string()})).await;
+    assert_eq!(dec(&done["progress_percent"]), n("50"));
+    let catalog = t.page(Some(&ann), "catalog").await;
+    assert!(catalog["courses"].as_array().unwrap().iter().all(|c| c["slug"] != json!("staff-rust")), "the public catalog");
+    assert!(t.call(Some(&ann), "GET", "courses/staff-rust").await.is_err(), "an internal course is not hers to see");
+    assert!(t.try_insert(&ann, "LmsEnrollment", json!({"course": internal.to_string()})).await.is_err(), "nor to enrol in");
+    assert!(t.call(Some(&ann), "GET", &format!("teaching/courses/{course}/roster")).await.is_err(), "no roster");
+    assert!(t.page(Some(&bob), "catalog").await["courses"].as_array().unwrap().iter().any(|c| c["slug"] == json!("staff-rust")), "members still do");
+
+    // A course that takes no sign-up (a draft) enrols nobody; the person is still made.
+    t.k.request_portal_signup(&ask("cy@outside.test", "later-rust"), "10.1.1.2").await.expect("asked");
+    let code = mailed_code(&t, "cy@outside.test").await;
+    t.k.sign_in_with_code("portal", "cy@outside.test", &code).await.expect("confirmed");
+    drain(&t.k).await;
+    assert_eq!(t.count("select count(*) from e_lms_enrollment where tenant_id = $1 and course = $2 and learner = $3", draft, "cy@outside.test").await, 0);
+    assert_eq!(t.count("select count(*) from e_lms_enrollment where tenant_id = $1 and $2 is not null and learner = $3", draft, "cy@outside.test").await, 0);
+
+    // Coming back: a sign-in code, and her courses are there.
+    t.k.send_sign_in_code("portal", "ann@outside.test").await.expect("code sent");
+    let code = mailed_code(&t, "ann@outside.test").await;
+    let SignIn::Session(again) = t.k.sign_in_with_code("portal", "ann@outside.test", &code).await.expect("signed in") else { panic!("a session") };
+    assert_eq!(again.user, s.user, "the same person");
+    drain(&t.k).await;
+    assert_eq!(t.list(&ann, "LmsEnrollment", json!({})).await.unwrap().len(), 1, "still one enrolment");
+    assert_eq!(dec(&t.page(Some(&ann), "dashboard").await["courses"][0]["progress_percent"]), n("50"));
+}
+
+// ───────────────────────────── questions, grading by people and rubrics ─────────────────────────────
+
+#[test]
+fn question_types_manual_grading_and_rubrics() {
+    run(assessment());
+}
+
+/// Every question type in one quiz with partial credit, negative marking and a second grader, one
+/// question drawn from the bank by category and kept with the attempt; the keys never reach the
+/// learner; essays and files wait for people, two graders who differ are settled by a third, and the
+/// result is final, revealed and rubric-filled only then; an assignment graded with its rubric.
+async fn assessment() {
+    let t = boot("assess", vec![], &[], |_| {}).await;
+    t.k.set_file_store(Arc::new(MemFiles(Mutex::new(HashMap::new()))));
+    let manager = t.user("manager@assess.test", "Mona Manager", "LMS Manager").await;
+    let teacher = t.user("teacher@assess.test", "Tara Teacher", "Instructor").await;
+    let tom = t.user("tom@assess.test", "Tom Tutor", "Instructor").await;
+    let asha = t.user("asha@assess.test", "Asha Rao", "Learner").await;
+    let course = uid(&t
+        .insert(&teacher, "LmsCourse", json!({"title": "Physics", "instructors": [{"instructor": "teacher@assess.test"}, {"instructor": "tom@assess.test"}]}))
+        .await);
+    let c = course.to_string();
+    let q = |v: Value| {
+        let mut v = v;
+        v["course"] = json!(c);
+        v
+    };
+    let rubric = t
+        .insert(
+            &teacher,
+            "LmsRubric",
+            q(json!({"title": "Essay", "criteria": [{"criterion": "Argument"}, {"criterion": "Style"}],
+            "levels": [{"criterion": "Argument", "level": "Strong", "points": "6"}, {"criterion": "Argument", "level": "Weak", "points": "2"},
+                       {"criterion": "Style", "level": "Clear", "points": "4"}, {"criterion": "Style", "level": "Muddled", "points": "1"}]})),
+        )
+        .await;
+    assert_eq!(dec(&rubric["max_points"]), n("10"));
+    let rubric = uid(&rubric);
+    assert!(
+        t.try_insert(
+            &teacher,
+            "LmsRubric",
+            q(json!({"title": "Bad", "criteria": [{"criterion": "A"}], "levels": [{"criterion": "B", "level": "x", "points": "1"}]}))
+        )
+        .await
+        .is_err()
+    );
+    let hard = uid(&t.insert(&teacher, "LmsQuestionCategory", json!({"category_name": "Hard"})).await);
+
+    // The bank, each type checked as it is written.
+    assert!(
+        field_error(
+            t.try_insert(
+                &teacher,
+                "LmsQuestion",
+                q(json!({"question": "No blanks here", "question_type": "Fill in the Blanks",
+        "accepted_answers": [{"answer": "x", "blank": 1}]}))
+            )
+            .await,
+            "question"
+        )
+        .contains("[[1]]")
+    );
+    assert!(
+        t.try_insert(&teacher, "LmsQuestion", q(json!({"question": "Match", "question_type": "Matching", "options": [{"option": "a"}, {"option": "b"}]})))
+            .await
+            .is_err()
+    );
+    let ins = |v: Value| {
+        let t = &t;
+        let teacher = &teacher;
+        async move { uid(&t.insert(teacher, "LmsQuestion", v).await) }
+    };
+    let short = ins(q(json!({"question": "The colour of ash?", "question_type": "Short Answer", "accepted_answers": [{"answer": "grey"}, {"answer": "gr?y", "pattern": true}]}))).await;
+    let numeric = ins(q(json!({"question": "g in m/s²?", "question_type": "Numeric", "numeric_answer": "9.81", "tolerance": "0.05"}))).await;
+    let order = ins(q(json!({"question": "Smallest first", "question_type": "Ordering",
+        "options": [{"option": "Quark"}, {"option": "Proton"}, {"option": "Atom"}, {"option": "Molecule"}]})))
+    .await;
+    let matching = ins(q(json!({"question": "Units", "question_type": "Matching",
+        "options": [{"option": "Force", "match_text": "Newton"}, {"option": "Energy", "match_text": "Joule"}, {"option": "Power", "match_text": "Watt"}]})))
+    .await;
+    let blanks = ins(q(json!({"question": "The [[1]] of France is [[2]].", "question_type": "Fill in the Blanks",
+        "accepted_answers": [{"answer": "capital", "blank": 1}, {"answer": "Paris", "blank": 2}, {"answer": "par*", "pattern": true, "blank": 2}]})))
+    .await;
+    let multi = ins(q(json!({"question": "Leptons?", "question_type": "Multiple Choice",
+        "options": [{"option": "Electron", "is_correct": true}, {"option": "Muon", "is_correct": true}, {"option": "Tau", "is_correct": true}, {"option": "Pion"}]}))).await;
+    let essay = ins(q(json!({"question": "Why is the sky blue?", "question_type": "Essay", "points": "4", "rubric": rubric.to_string()}))).await;
+    let file = ins(q(json!({"question": "Upload your lab sheet", "question_type": "File Upload", "points": "2"}))).await;
+    let hard1 =
+        ins(q(json!({"question": "Hard one", "category": hard.to_string(), "options": [{"option": "Right", "is_correct": true}, {"option": "Wrong"}]}))).await;
+    let hard2 =
+        ins(q(json!({"question": "Hard two", "category": hard.to_string(), "options": [{"option": "Right", "is_correct": true}, {"option": "Wrong"}]}))).await;
+
+    let listed: Vec<Value> = [short, numeric, order, matching, blanks, multi, essay, file].iter().map(|x| json!({"question": x.to_string()})).collect();
+    let quiz = json!({"title": "Mixed", "course": c, "passing_percentage": "50", "partial_credit": true, "negative_marking": "25", "second_marking": true,
+        "show_answers": "After Each Attempt", "questions": listed});
+    let mut too_many = quiz.clone();
+    too_many["draws"] = json!([{"category": hard.to_string(), "count": 3}]);
+    assert!(field_error(t.try_insert(&teacher, "LmsQuiz", too_many).await, "count").contains("has 2"));
+    let mut quiz = quiz;
+    quiz["draws"] = json!([{"category": hard.to_string(), "count": 1}]);
+    let quiz = t.insert(&teacher, "LmsQuiz", quiz).await;
+    assert_eq!(quiz["question_count"], json!(9));
+    let quiz = uid(&quiz);
+    let assignment = uid(&t.insert(&teacher, "LmsAssignment", json!({"title": "Report", "course": c, "max_score": "20", "rubric": rubric.to_string()})).await);
+    let (_, lessons) = t
+        .chapter(
+            &teacher,
+            course,
+            "Tests",
+            &[
+                json!({"title": "Quiz", "lesson_type": "Quiz", "quiz": quiz.to_string()}),
+                json!({"title": "Report", "lesson_type": "Assignment", "assignment": assignment.to_string()}),
+            ],
+        )
+        .await;
+    t.update(&teacher, "LmsCourse", course, json!({"status": "Published"})).await;
+    let enrolment = enrol(&t, &teacher, course, &["asha@assess.test"]).await["asha@assess.test"];
+
+    // The attempt: what it asks is kept; nothing of a key reaches the learner, in any answer she gets.
+    let started = t.act(&asha, "LmsEnrollment", enrolment, "start_quiz", json!({"quiz": quiz.to_string()})).await;
+    let attempt = started["attempt"].clone();
+    let aid = vid(&attempt["id"]);
+    let asked: BTreeSet<String> = attempt["answers"].as_array().unwrap().iter().map(|r| r["question"].as_str().unwrap().to_string()).collect();
+    assert_eq!(asked.len(), 9);
+    let drawn = if asked.contains(&hard1.to_string()) { hard1 } else { hard2 };
+    assert!(asked.contains(&drawn.to_string()) && !(asked.contains(&hard1.to_string()) && asked.contains(&hard2.to_string())), "one drawn");
+    let lesson_page = t.page(Some(&asha), &format!("lessons/{}", lessons[0])).await;
+    let own_record = Value::Object(t.k.get(&asha, "LmsQuizAttempt", aid, false).await.expect("her attempt"));
+    let listed_records = Value::Array(t.list(&asha, "LmsQuizAttempt", json!({})).await.unwrap().into_iter().map(Value::Object).collect());
+    for seen in [&started, &lesson_page, &own_record, &listed_records] {
+        let text = seen.to_string();
+        for secret in ["9.81", "Paris", "capital", "grey", "gr?y", "par*", "\"is_correct\":true"] {
+            assert!(!text.contains(secret), "the learner sees {secret}");
+        }
+    }
+    let ordered: Vec<String> = row(&attempt, order)["options"].as_array().unwrap().iter().map(|o| o["text"].as_str().unwrap().to_string()).collect();
+    assert_ne!(ordered, vec!["Quark", "Proton", "Atom", "Molecule"], "never shown in the right order");
+    assert!(t.list(&asha, "LmsRubric", json!({})).await.is_err() && t.list(&asha, "LmsQuestionCategory", json!({})).await.is_err());
+
+    // Her answers.
+    let k_ = |qid: Uuid, text: &str| key(&attempt, qid, text);
+    let choice = |list: &str, text: &str| {
+        row(&attempt, matching)[list].as_array().unwrap().iter().find(|o| o["text"] == json!(text)).unwrap()["key"].as_str().unwrap().to_string()
+    };
+    let sheet = vid(&t.k.store_file(&asha, None, "lab.pdf", "application/pdf", b"%PDF-1.4 lab").await.unwrap()["id"]);
+    let theirs = vid(&t.k.store_file(&teacher, None, "other.pdf", "application/pdf", b"%PDF-1.4 x").await.unwrap()["id"]);
+    let mut answers = Map::new();
+    answers.insert(short.to_string(), json!("Gray"));
+    answers.insert(numeric.to_string(), json!("9.8"));
+    answers.insert(order.to_string(), json!(["Quark", "Proton", "Atom", "Molecule"].iter().map(|x| k_(order, x)).collect::<Vec<_>>()));
+    answers.insert(
+        matching.to_string(),
+        json!({choice("options", "Force"): choice("choices", "Newton"), choice("options", "Energy"): choice("choices", "Watt"),
+        choice("options", "Power"): choice("choices", "Joule")}),
+    );
+    answers.insert(blanks.to_string(), json!(["Capital", "Parigi"]));
+    answers.insert(multi.to_string(), json!([k_(multi, "Electron"), k_(multi, "Muon")]));
+    answers.insert(essay.to_string(), json!("Rayleigh scattering."));
+    answers.insert(drawn.to_string(), json!(k_(drawn, "Wrong")));
+    let mut bad = answers.clone();
+    bad.insert(file.to_string(), json!(format!("/files/{theirs}")));
+    assert!(field_error(t.try_act(&asha, "LmsQuizAttempt", aid, "save_answers", json!({"answers": bad})).await, "answers").contains("you uploaded"));
+    answers.insert(file.to_string(), json!(format!("/files/{sheet}")));
+    let done = t.act(&asha, "LmsQuizAttempt", aid, "submit_answers", json!({"answers": answers})).await;
+    assert_eq!((done["status"].clone(), done["passed"].clone()), (json!("Awaiting Grading"), json!(false)), "not final while people grade");
+    // 1 + 1 + 1 + ⅓ + 1 + ⅔ - ¼ of the drawn one, before the essay and the file.
+    assert_eq!(dec(&done["score"]), n("4.75"));
+    assert!(done["attempt"]["answers"].as_array().unwrap().iter().all(|r| r["correct_answer"].is_null()), "nothing revealed yet");
+
+    // The queue, two graders who differ, a third who settles it; the learner reads nothing of it meanwhile.
+    let queue = t.page(Some(&teacher), "teaching/grading").await;
+    assert_eq!(queue["attempts"].as_array().unwrap().len(), 1);
+    assert_eq!(texts(&queue["attempts"][0]["questions"]), [essay.to_string(), file.to_string()].into_iter().collect());
+    let grade = |who: &Ctx, v: Value| {
+        let t = &t;
+        let who = who.clone();
+        async move { t.try_act(&who, "LmsQuizAttempt", aid, "grade_answers", v).await }
+    };
+    assert!(grade(&asha, json!({"question": essay.to_string(), "points": "4"})).await.is_err(), "not hers to grade");
+    let first = grade(&tom, json!({"question": essay.to_string(), "rubric": {"Argument": "Strong", "Style": "Clear"}, "comment": "Tom's note"})).await.unwrap();
+    assert_eq!(first["waiting_for"], json!("a second grader"));
+    assert!(grade(&tom, json!({"question": essay.to_string(), "points": "1"})).await.is_err(), "a grader grades once");
+    assert!(!Value::Object(t.k.get(&asha, "LmsQuizAttempt", aid, false).await.unwrap()).to_string().contains("Tom's note"), "not before it is final");
+    assert!(grade(&teacher, json!({"question": essay.to_string(), "points": "9"})).await.is_err(), "within the question's points");
+    let second = grade(&teacher, json!({"question": essay.to_string(), "rubric": {"Argument": "Weak", "Style": "Muddled"}})).await.unwrap();
+    assert_eq!(second["waiting_for"], json!("a third grader to settle it"));
+    grade(&manager, json!({"question": essay.to_string(), "rubric": {"Argument": "Strong", "Style": "Muddled"}, "comment": "Clear physics, untidy prose."}))
+        .await
+        .unwrap();
+    grade(&teacher, json!({"question": file.to_string(), "points": "1.5", "comment": "Tables missing."})).await.unwrap();
+    let last = grade(&tom, json!({"question": file.to_string(), "points": "1.5"})).await.unwrap();
+    let a = &last["attempt"];
+    // 4.75 + 2.8 (7 of 10 rubric points, out of 4) + 1.5 = 9.05 of 13.
+    assert_eq!((a["status"].clone(), dec(&a["score"]), dec(&a["percentage"]), a["passed"].clone()), (json!("Submitted"), n("9.05"), n("69.62"), json!(true)));
+    let essay_row = row(a, essay);
+    assert_eq!((essay_row["comment"].clone(), dec(&essay_row["points_awarded"])), (json!("Clear physics, untidy prose."), n("2.8")));
+    assert_eq!(essay_row["rubric_result"]["criteria"][1]["level"], json!("Muddled"));
+    assert_eq!(row(a, file)["comment"], json!("Tables missing."), "the agreeing second grader keeps the first's comment");
+    assert_eq!(row(a, numeric)["correct_answer"], json!({"answer": "9.81", "tolerance": "0.05"}), "revealed now");
+    assert!(t.page(Some(&teacher), "teaching/grading").await["attempts"].as_array().unwrap().is_empty());
+    let review = t.act(&teacher, "LmsQuizAttempt", aid, "review", json!({})).await;
+    assert!(review["answers"].as_array().unwrap().iter().any(|r| r["question"] == json!(drawn.to_string())), "the review shows what was drawn");
+    assert_eq!(t.count("select count(*) from lms_grading_note where tenant_id = $1 and attempt = $2 and $3 <> ''", aid, "x").await, 0);
+    assert!(t.page(Some(&asha), "courses/physics").await["course"]["chapters"][0]["lessons"][0]["completed"] == json!(true), "the quiz lesson is done");
+
+    // An assignment graded with its rubric: the score is the rubric's share of the maximum, and she sees the rubric.
+    let sub = uid(&t.insert(&asha, "LmsAssignmentSubmission", json!({"assignment": assignment.to_string(), "answer": "My report"})).await);
+    assert!(t.try_act(&teacher, "LmsAssignmentSubmission", sub, "grade", json!({"rubric": {"Argument": "Strong"}})).await.is_err(), "every criterion");
+    let graded = t.act(&teacher, "LmsAssignmentSubmission", sub, "grade", json!({"rubric": "{\"Argument\": \"Strong\", \"Style\": \"Clear\"}"})).await;
+    assert_eq!(dec(&graded["submission"]["score"]), n("20"));
+    let page = t.page(Some(&asha), &format!("lessons/{}", lessons[1])).await;
+    assert_eq!(page["assignment"]["submissions"][0]["rubric"]["criteria"][0]["level"], json!("Strong"));
+}
+
+// ───────────────────────────── the gradebook ─────────────────────────────
+
+#[test]
+fn gradebook_weights_drops_penalties_and_the_minimum_total() {
+    run(gradebook());
+}
+
+/// Weighted categories with the lowest dropped, a late penalty, a hidden item, an excused one and an
+/// override; learners see their own released marks only; the export; a course that needs 60% to
+/// complete waits for the marks.
+async fn gradebook() {
+    let t = boot("grades", vec![], &[], |_| {}).await;
+    let teacher = t.user("teacher@grades.test", "Tara Teacher", "Instructor").await;
+    let asha = t.user("asha@grades.test", "Asha Rao", "Learner").await;
+    let ben = t.user("ben@grades.test", "Ben Okafor", "Learner").await;
+    let scale = uid(&t.insert(&t.admin, "LmsGradingScale", json!({"scale_name": "Letters", "bands": [{"grade": "A", "min_percent": "90"}, {"grade": "B", "min_percent": "75"}, {"grade": "C", "min_percent": "0"}]})).await);
+    let course = uid(&t
+        .insert(
+            &teacher,
+            "LmsCourse",
+            json!({"title": "Biology", "instructors": [{"instructor": "teacher@grades.test"}],
+        "grade_categories": [{"category": "Quizzes", "weight": "40", "drop_lowest": 1}, {"category": "Work", "weight": "60"}],
+        "grading_scale": scale.to_string(), "min_grade_percent": "60"}),
+        )
+        .await);
+    let c = course.to_string();
+    let question = uid(&t
+        .insert(&teacher, "LmsQuestion", json!({"question": "Cells?", "course": c, "options": [{"option": "Yes", "is_correct": true}, {"option": "No"}]}))
+        .await);
+    let quiz = uid(&t
+        .insert(&teacher, "LmsQuiz", json!({"title": "Cells", "course": c, "passing_percentage": "50", "questions": [{"question": question.to_string()}]}))
+        .await);
+    let due = t.admin.today() - chrono::Duration::days(2);
+    let assignment = uid(&t.insert(&teacher, "LmsAssignment", json!({"title": "Essay", "course": c, "max_score": "100", "due_date": due.to_string()})).await);
+    let (_, lessons) = t
+        .chapter(
+            &teacher,
+            course,
+            "All",
+            &[
+                json!({"title": "Read"}),
+                json!({"title": "Quiz", "lesson_type": "Quiz", "quiz": quiz.to_string()}),
+                json!({"title": "Essay", "lesson_type": "Assignment", "assignment": assignment.to_string()}),
+            ],
+        )
+        .await;
+    t.update(&teacher, "LmsCourse", course, json!({"status": "Published"})).await;
+    let item = |v: Value| {
+        let mut v = v;
+        v["course"] = json!(c);
+        v
+    };
+    assert!(field_error(t.try_insert(&teacher, "LmsGradeItem", item(json!({"title": "Loose", "max_points": "10"}))).await, "category").contains("Quizzes"));
+    t.insert(
+        &teacher,
+        "LmsGradeItem",
+        item(json!({"title": "Cells quiz", "category": "Quizzes", "source": "Quiz", "quiz": quiz.to_string(), "max_points": "10"})),
+    )
+    .await;
+    let lab1 = uid(&t.insert(&teacher, "LmsGradeItem", item(json!({"title": "Lab 1", "category": "Quizzes", "max_points": "10"}))).await);
+    let lab2 = uid(&t.insert(&teacher, "LmsGradeItem", item(json!({"title": "Lab 2", "category": "Quizzes", "max_points": "10", "released": false}))).await);
+    t.insert(
+        &teacher,
+        "LmsGradeItem",
+        item(json!({"title": "Essay", "category": "Work", "source": "Assignment", "assignment": assignment.to_string(),
+        "max_points": "100", "late_penalty_percent": "10", "late_penalty_max": "50"})),
+    )
+    .await;
+    let ids = enrol(&t, &teacher, course, &["asha@grades.test", "ben@grades.test"]).await;
+    let (ae, be) = (ids["asha@grades.test"], ids["ben@grades.test"]);
+    let entry = |e: Uuid, it: Uuid, v: Value| {
+        let mut v = v;
+        v["enrollment"] = json!(e.to_string());
+        v["item"] = json!(it.to_string());
+        v
+    };
+
+    // Asha: the quiz right (10 of 10), labs 4 and 8 (the second hidden), the essay 90 but two days late (20% off: 72).
+    t.act(&asha, "LmsEnrollment", ae, "complete_lesson", json!({"lesson": lessons[0].to_string()})).await;
+    let a = t.act(&asha, "LmsEnrollment", ae, "start_quiz", json!({"quiz": quiz.to_string()})).await["attempt"].clone();
+    t.act(&asha, "LmsQuizAttempt", vid(&a["id"]), "submit_answers", json!({"answers": {question.to_string(): key(&a, question, "Yes")}})).await;
+    t.insert(&teacher, "LmsGradeEntry", entry(ae, lab1, json!({"points": "4"}))).await;
+    t.insert(&teacher, "LmsGradeEntry", entry(ae, lab2, json!({"points": "8"}))).await;
+    assert!(t.try_insert(&teacher, "LmsGradeEntry", entry(ae, lab2, json!({"points": "11"}))).await.is_err(), "once, and within its points");
+    let sub = uid(&t.insert(&asha, "LmsAssignmentSubmission", json!({"assignment": assignment.to_string(), "answer": "Mitosis"})).await);
+    assert_eq!(t.get("LmsEnrollment", ae).await["status"], json!("Active"), "nothing graded at Work yet");
+    t.act(&teacher, "LmsAssignmentSubmission", sub, "grade", json!({"score": "90"})).await;
+
+    let book = t.page(Some(&teacher), &format!("teaching/courses/{course}/gradebook")).await;
+    let row_of = |b: &Value, who: &str| b["learners"].as_array().unwrap().iter().find(|l| l["learner"] == json!(who)).cloned().unwrap();
+    let asha_row = row_of(&book, "asha@grades.test");
+    // Quizzes: 10, 4, 8 with the lowest dropped = 18 of 20 = 90%; Work 72%; 0.4·90 + 0.6·72 = 79.2.
+    assert_eq!((dec(&asha_row["total_percent"]), asha_row["grade"].clone()), (n("79.2"), json!("B")));
+    assert_eq!((asha_row["marks"][3]["late_days"].clone(), dec(&asha_row["marks"][3]["points"])), (json!(2), n("72")));
+    assert_eq!(t.get("LmsEnrollment", ae).await["status"], json!("Completed"), "every lesson done and 79.2% ≥ 60%");
+    let mine = t.page(Some(&asha), "courses/biology/grades").await;
+    assert_eq!(mine["items"].as_array().unwrap().len(), 3, "the hidden lab is not hers to see");
+    assert_eq!(mine["learners"].as_array().unwrap().len(), 1);
+    // Quizzes she sees: 10 and 4, the lowest dropped = 100%; 0.4·100 + 0.6·72 = 83.2.
+    assert_eq!(dec(&mine["learners"][0]["total_percent"]), n("83.2"));
+    assert!(t.call(Some(&asha), "GET", &format!("teaching/courses/{course}/gradebook")).await.is_err(), "not the book");
+    assert!(t.list(&asha, "LmsGradeEntry", json!({})).await.is_err(), "nor the entries");
+
+    // Ben: every lesson done by his instructor, but 2 of 10 in a lab is 20%: he waits until his marks reach 60%.
+    for l in &lessons {
+        t.act(&teacher, "LmsEnrollment", be, "complete_lesson", json!({"lesson": l.to_string()})).await;
+    }
+    let low = uid(&t.insert(&teacher, "LmsGradeEntry", entry(be, lab1, json!({"points": "2"}))).await);
+    t.insert(&teacher, "LmsGradeEntry", entry(be, lab2, json!({"excused": true}))).await;
+    let ben_row = row_of(&t.page(Some(&teacher), &format!("teaching/courses/{course}/gradebook")).await, "ben@grades.test");
+    assert_eq!((dec(&ben_row["total_percent"]), ben_row["marks"][2]["excused"].clone()), (n("20"), json!(true)));
+    assert_eq!(t.get("LmsEnrollment", be).await["status"], json!("Active"), "below the minimum total");
+    ferrum_app_lms::maintenance(&t.k).await.expect("upkeep");
+    assert_eq!(t.get("LmsEnrollment", be).await["status"], json!("Active"));
+    t.update(&teacher, "LmsGradeEntry", low, json!({"points": "9"})).await;
+    assert_eq!(t.get("LmsEnrollment", be).await["status"], json!("Completed"), "90% now");
+    assert_eq!(t.page(Some(&ben), "courses/biology/grades").await["learners"][0]["learner"], json!("ben@grades.test"), "his own");
+
+    // The export.
+    let r = t.call(Some(&teacher), "GET", &format!("teaching/courses/{course}/gradebook?format=csv")).await.expect("csv");
+    let text = String::from_utf8(r.body).unwrap();
+    assert!(r.content_type.starts_with("text/csv"));
+    assert!(text.starts_with("Learner,Email,Cells quiz,Lab 1,Lab 2,Essay,Total (%),Grade\n"), "{text}");
+    assert!(text.contains("Asha Rao,asha@grades.test,10,4,8,72,79.2,B"), "{text}");
+}
+
+// ───────────────────────────── discussions ─────────────────────────────
+
+#[test]
+fn course_and_lesson_discussions() {
+    run(discussions());
+}
+
+/// Threads and replies by the course's learners and instructors only; followers told of replies by
+/// the package's template; answers marked, threads pinned and closed, a post reported to the
+/// instructors and removed, kept with why, out of learners' sight.
+async fn discussions() {
+    let t = boot("talk", vec![], &[], |_| {}).await;
+    let teacher = t.user("teacher@talk.test", "Tara Teacher", "Instructor").await;
+    let asha = t.user("asha@talk.test", "Asha Rao", "Learner").await;
+    let ben = t.user("ben@talk.test", "Ben Okafor", "Learner").await;
+    let cy = t.user("cy@talk.test", "Cy Away", "Learner").await;
+    let (course, lessons) = course_of(&t, &teacher, "Chemistry", 2, json!({})).await;
+    enrol(&t, &teacher, course, &["asha@talk.test", "ben@talk.test"]).await;
+    let say = |who: &Ctx, v: Value| {
+        let t = &t;
+        let who = who.clone();
+        async move { t.try_act(&who, "LmsCourse", course, "discuss", v).await }
+    };
+    assert!(matches!(say(&cy, json!({"title": "Hi", "body": "Anyone?"})).await, Err(Error::Forbidden(_))), "not in the course");
+    assert!(t.try_insert(&asha, "LmsPost", json!({"course": course.to_string(), "body": "direct"})).await.is_err(), "only through the course");
+    let thread = vid(&say(&asha, json!({"title": "Moles?", "body": "What is a mole?"})).await.unwrap()["post"]["id"]);
+    let lesson_thread = vid(&say(&ben, json!({"title": "Lesson 2", "body": "Typo here", "lesson": lessons[1].to_string()})).await.unwrap()["post"]["id"]);
+    let reply = vid(&say(&ben, json!({"thread": thread.to_string(), "body": "6.022e23 things."})).await.unwrap()["post"]["id"]);
+    assert!(
+        t.count("select count(*) from message_send where tenant_id = $1 and record_id = $2 and template = $3", reply, "lms.discussion_reply").await > 0,
+        "Asha follows her thread"
+    );
+    assert_eq!(
+        t.count("select count(*) from message_send where tenant_id = $1 and user_id = $2 and template = $3", ben.user, "lms.discussion_reply").await,
+        0,
+        "not to its writer"
+    );
+    let answer = vid(&say(&teacher, json!({"thread": thread.to_string(), "body": "An amount of substance."})).await.unwrap()["post"]["id"]);
+    assert!(
+        t.count("select count(*) from message_send where tenant_id = $1 and user_id = $2 and template = $3", ben.user, "lms.discussion_reply").await > 0,
+        "Ben follows once he replied"
+    );
+
+    // Moderation is the instructors'.
+    assert!(t.try_act(&asha, "LmsPost", answer, "mark_answer", json!({})).await.is_err());
+    t.act(&teacher, "LmsPost", answer, "mark_answer", json!({})).await;
+    t.act(&teacher, "LmsPost", thread, "pin", json!({})).await;
+    let page = t.page(Some(&asha), "courses/chemistry/discussion").await;
+    assert_eq!(page["threads"].as_array().unwrap().len(), 1, "the course's, not the lesson's");
+    assert_eq!((page["threads"][0]["pinned"].clone(), page["threads"][0]["replies"].clone()), (json!(true), json!(2)));
+    assert_eq!(t.page(Some(&asha), &format!("courses/chemistry/discussion?lesson={}", lessons[1])).await["threads"][0]["id"], json!(lesson_thread.to_string()));
+    let one = t.page(Some(&asha), &format!("courses/chemistry/discussion?thread={thread}")).await;
+    assert_eq!((one["replies"][1]["answer"].clone(), one["following"].clone()), (json!(true), json!(true)));
+    assert!(t.call(Some(&cy), "GET", "courses/chemistry/discussion").await.is_err(), "not hers to read");
+
+    // Reported, then removed: kept with why, its text out of learners' sight.
+    t.act(&asha, "LmsCourse", course, "report_post", json!({"post": reply.to_string(), "reason": "Off topic"})).await;
+    assert!(t.count("select count(*) from message_send where tenant_id = $1 and user_id = $2 and template = $3", teacher.user, "lms.post_reported").await > 0);
+    t.act(&teacher, "LmsPost", reply, "remove", json!({"reason": "Off topic"})).await;
+    let one = t.page(Some(&asha), &format!("courses/chemistry/discussion?thread={thread}")).await;
+    assert_eq!((one["replies"][0]["removed"].clone(), one["replies"][0]["body"].clone()), (json!(true), Value::Null));
+    let kept = t.get("LmsPost", reply).await;
+    assert_eq!((kept["body"].clone(), kept["removed_by"].clone()), (json!("6.022e23 things."), json!("teacher@talk.test")));
+    assert_eq!(t.page(Some(&teacher), &format!("courses/chemistry/discussion?thread={thread}")).await["replies"][0]["body"], json!("6.022e23 things."));
+
+    // Closed: no more replies; following can stop.
+    t.act(&teacher, "LmsPost", thread, "close", json!({})).await;
+    assert!(say(&ben, json!({"thread": thread.to_string(), "body": "late"})).await.is_err());
+    t.act(&asha, "LmsCourse", course, "follow", json!({"thread": thread.to_string(), "follow": false})).await;
+    assert_eq!(t.page(Some(&asha), &format!("courses/chemistry/discussion?thread={thread}")).await["following"], json!(false));
+}
+
+// ───────────────────────────── uploaded videos ─────────────────────────────
+
+#[test]
+fn uploaded_videos_play_to_enrolled_people_only() {
+    run(own_video());
+}
+
+/// An uploaded video with captions, within the size Learn Settings allow, played by a link signed
+/// for one enrolled person that expires; the seconds watched recorded, and the lesson completed at its
+/// share (not by marking it done).
+async fn own_video() {
+    let t = boot("video", vec![], &[], |_| {}).await;
+    t.k.set_file_store(Arc::new(MemFiles(Mutex::new(HashMap::new()))));
+    let teacher = t.user("teacher@video.test", "Tara Teacher", "Instructor").await;
+    let asha = t.user("asha@video.test", "Asha Rao", "Learner").await;
+    let ben = t.user("ben@video.test", "Ben Okafor", "Learner").await;
+    t.insert(&t.admin, "LmsSettings", json!({"video_max_mb": 1})).await;
+    let (course, _) = course_of(&t, &teacher, "Optics", 1, json!({})).await;
+    let chapter = uid(&t.list(&t.admin, "LmsChapter", json!({"course": course.to_string()})).await.unwrap()[0]);
+    let store = |name: &'static str, ctype: &'static str, bytes: Vec<u8>| {
+        let t = &t;
+        let teacher = &teacher;
+        async move { vid(&t.k.store_file(teacher, None, name, ctype, &bytes).await.expect("upload")["id"]) }
+    };
+    let big = store("big.mp4", "video/mp4", vec![0u8; 2 * 1024 * 1024]).await;
+    let clip = store("clip.mp4", "video/mp4", b"\x00\x00\x00\x18ftypmp42 a tiny video".to_vec()).await;
+    let vtt = store("en.vtt", "text/vtt", b"WEBVTT\n\n00:00.000 --> 00:01.000\nHello\n".to_vec()).await;
+    let lesson = json!({"title": "Lenses", "chapter": chapter.to_string(), "lesson_type": "Video", "video_seconds": 100, "watch_percent": 80});
+    let mut too_big = lesson.clone();
+    too_big["video_file"] = json!(format!("/files/{big}"));
+    assert!(field_error(t.try_insert(&teacher, "LmsLesson", too_big).await, "video_file").contains("at most 1 MB"));
+    let mut wrong = lesson.clone();
+    wrong["video_file"] = json!(format!("/files/{vtt}"));
+    assert!(t.try_insert(&teacher, "LmsLesson", wrong).await.is_err(), "a video");
+    let mut lesson = lesson;
+    lesson["video_file"] = json!(format!("/files/{clip}"));
+    lesson["captions_file"] = json!(format!("/files/{vtt}"));
+    let lid = uid(&t.insert(&teacher, "LmsLesson", lesson).await);
+    let enrolment = enrol(&t, &teacher, course, &["asha@video.test"]).await["asha@video.test"];
+
+    let page = t.page(Some(&asha), &format!("lessons/{lid}")).await;
+    let src = page["video"]["src"].as_str().unwrap().strip_prefix("/api/app/lms/").unwrap().to_string();
+    let captions = page["video"]["captions"].as_str().unwrap().strip_prefix("/api/app/lms/").unwrap().to_string();
+    let played = served(&t.k, t.tenant, t.call(Some(&asha), "GET", &src).await.expect("her link")).await;
+    assert_eq!((played.status, played.content_type.as_str(), played.body.as_slice()), (200, "video/mp4", &b"\x00\x00\x00\x18ftypmp42 a tiny video"[..]));
+    assert!(played.headers.iter().any(|(k, v)| k == "accept-ranges" && v == "bytes"));
+    assert!(String::from_utf8(served(&t.k, t.tenant, t.call(Some(&asha), "GET", &captions).await.unwrap()).await.body).unwrap().starts_with("WEBVTT"));
+    assert!(t.call(Some(&ben), "GET", &src).await.is_err(), "not enrolled");
+    let tampered = src.replace("sig=", "sig=0");
+    assert!(t.call(Some(&asha), "GET", &tampered).await.is_err(), "a link not signed as given");
+    assert!(t.call(Some(&asha), "GET", &format!("lessons/{lid}/video")).await.is_err(), "no unsigned link");
+    assert!(t.call(None, "GET", &format!("courses/optics/lessons/{lid}/file")).await.is_err(), "no public address");
+
+    // Watching: not marked done; the page's word bounded by time; done at 80%.
+    assert!(t.try_act(&asha, "LmsEnrollment", enrolment, "complete_lesson", json!({"lesson": lid.to_string()})).await.is_err());
+    let w = t.act(&asha, "LmsEnrollment", enrolment, "video_progress", json!({"lesson": lid.to_string(), "seconds": 100})).await;
+    assert_eq!((w["seconds_watched"].clone(), w["completed"].clone()), (json!(30), json!(false)), "a whole video at once is not believed");
+    t.sql("update e_lms_package_progress set last_commit_at = now() - interval '2 minutes' where tenant_id = $1 and enrollment = $2", enrolment).await;
+    let w = t.act(&asha, "LmsEnrollment", enrolment, "video_progress", json!({"lesson": lid.to_string(), "seconds": 85})).await;
+    assert_eq!((w["seconds_watched"].clone(), w["completed"].clone()), (json!(85), json!(true)));
+    assert_eq!(dec(&t.page(Some(&asha), &format!("lessons/{lid}")).await["video"]["percent_watched"]), n("85"));
+    assert_eq!(
+        t.count("select count(*) from e_lms_lesson_progress where tenant_id = $1 and enrollment = $2 and completed_via = $3", enrolment, "Video").await,
+        1
+    );
 }

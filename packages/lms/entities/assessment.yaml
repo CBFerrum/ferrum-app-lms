@@ -5,6 +5,15 @@
     - {name: question, type: link, to: LmsQuestion, required: true, in_list: true}
     - {name: points, type: decimal, precision: 2, min: "0.01", max: "1000", in_list: true, description: "The question's own points when empty"}
 
+- name: LmsQuizDraw
+  label: Question Draw
+  kind: child
+  fields:
+    - {name: category, type: link, to: LmsQuestionCategory, required: true, in_list: true}
+    - {name: tag, type: data, max_length: 40, in_list: true, description: "Only questions with this tag; any when empty"}
+    - {name: count, type: int, required: true, default: 1, min: 1, max: 500, in_list: true, description: "Questions drawn at random for each attempt"}
+    - {name: points, type: decimal, precision: 2, min: "0.01", max: "1000", in_list: true, description: "Each drawn question's points; its own when empty"}
+
 - name: LmsQuiz
   label: Quiz
   label_plural: Quizzes
@@ -23,13 +32,18 @@
     - {name: shuffle_questions, type: check}
     - {name: shuffle_options, type: check}
     - {name: show_answers, type: select, label: Show Correct Answers, options: [After Each Attempt, After Last Attempt, Never], required: true, default: After Last Attempt, description: "When learners see the correct answers and explanations of an attempt: after each one, once they pass or use their last attempt, or never (they always see their score and which questions they got right)"}
+    - {name: partial_credit, type: check, label: Partial Credit, description: "Multiple choice, ordering, matching and fill-in questions give their share of points for the part answered right; otherwise all or nothing"}
+    - {name: negative_marking, type: percent, precision: 2, label: Negative Marking (%), default: 0, min: "0", max: "100", description: "An answered question that is not wholly right loses this share of its points (an attempt never scores below 0); 0 = none"}
+    - {name: second_marking, type: check, label: Second Grader, description: "Answers graded by a person (essays, files) need two graders; when they differ, a third person's grade settles it"}
     - {name: questions, type: table, of: LmsQuizQuestion}
+    - {name: draws, type: table, of: LmsQuizDraw, label: Questions Drawn From the Bank, description: "Besides the questions listed: so many questions of a category drawn at random for each attempt, kept with the attempt"}
     - {name: question_count, type: int, read_only: true, no_copy: true, in_list: true}
     - {name: total_points, type: decimal, precision: 2, read_only: true, no_copy: true}
   form:
     - {label: Quiz, fields: [title, course, description]}
     - {label: Rules, fields: [passing_percentage, max_attempts, time_limit_minutes, questions_per_attempt, shuffle_questions, shuffle_options, show_answers]}
-    - {label: Questions, fields: [questions, question_count, total_points]}
+    - {label: Grading, fields: [partial_credit, negative_marking, second_marking]}
+    - {label: Questions, fields: [questions, draws, question_count, total_points]}
   list: {columns: [title, course, question_count, passing_percentage, max_attempts], sort: title asc}
 
 - name: LmsQuestionOption
@@ -38,12 +52,15 @@
   fields:
     - {name: option, type: data, required: true, max_length: 500, in_list: true}
     - {name: is_correct, type: check, label: Correct, in_list: true}
+    - {name: match_text, type: data, max_length: 500, label: Matches, in_list: true, description: "Matching questions: the answer this item is matched with"}
 
 - name: LmsAcceptedAnswer
   label: Accepted Answer
   kind: child
   fields:
     - {name: answer, type: data, required: true, max_length: 500, in_list: true}
+    - {name: pattern, type: check, in_list: true, description: "A pattern: * stands for any text, ? for one character"}
+    - {name: blank, type: int, min: 0, max: 50, in_list: true, description: "Fill-in questions: the blank it answers ([[1]] is 1)"}
 
 - name: LmsQuestion
   label: Question
@@ -54,11 +71,16 @@
   fields:
     - {name: question, type: markdown, required: true, max_length: 10000, in_list: true}
     - {name: course, type: link, to: LmsCourse, required: true, in_list: true, in_filter: true}
-    - {name: question_type, type: select, label: Type, options: [Single Choice, Multiple Choice, True/False, Short Answer], required: true, default: Single Choice, in_list: true, in_filter: true}
+    - {name: question_type, type: select, label: Type, options: [Single Choice, Multiple Choice, True/False, Short Answer, Numeric, Ordering, Matching, Fill in the Blanks, Essay, File Upload], required: true, default: Single Choice, in_list: true, in_filter: true, description: "Ordering: the options in their right order. Matching: each option with what it matches. Fill in the Blanks: [[1]], [[2]] in the question, accepted answers per blank. Essays and files are graded by a person"}
+    - {name: category, type: link, to: LmsQuestionCategory, in_list: true, in_filter: true, description: "Quizzes draw questions at random by category"}
+    - {name: tags, type: data, max_length: 300, in_filter: true, description: "Comma-separated, e.g. easy, chapter-2"}
     - {name: points, type: decimal, precision: 2, default: 1, min: "0.01", max: "1000", description: "Points when added to a quiz without its own"}
     - {name: options, type: table, of: LmsQuestionOption, description: "Choices of choice questions; mark the correct ones. True/False questions get True and False automatically"}
     - {name: accepted_answers, type: table, of: LmsAcceptedAnswer, description: "Short answers that count as correct"}
-    - {name: case_sensitive, type: check, description: "Short answers: letter case must match too (extra spaces never count)"}
+    - {name: case_sensitive, type: check, description: "Short answers and blanks: letter case must match too (extra spaces never count)"}
+    - {name: numeric_answer, type: decimal, precision: 6, label: Answer, visible_if: "doc.question_type == 'Numeric'", required_if: "doc.question_type == 'Numeric'"}
+    - {name: tolerance, type: decimal, precision: 6, min: "0", default: 0, visible_if: "doc.question_type == 'Numeric'", description: "How far from the answer still counts"}
+    - {name: rubric, type: link, to: LmsRubric, visible_if: "doc.question_type == 'Essay' || doc.question_type == 'File Upload'", description: "Graded with this rubric"}
     - {name: explanation, type: markdown, max_length: 10000, description: "Shown with the correct answer when the quiz reveals answers"}
   list: {columns: [question, course, question_type], sort: created_at desc}
 
@@ -80,7 +102,50 @@
     - {name: accept_late, type: check, label: Accept Late Submissions, default: true}
     - {name: allow_resubmission, type: check, label: Allow Resubmission After Failing, default: true, description: "Submissions returned for revision may always be submitted again"}
     - {name: max_submissions, type: int, default: 0, min: 0, max: 100, description: "0 = unlimited"}
+    - {name: rubric, type: link, to: LmsRubric, description: "Graded with this rubric: the grader picks a level of each criterion, and the score is the rubric's points out of the maximum score"}
   rules:
     - {name: passing_within_max, check: "doc.passing_score <= doc.max_score", message: "The passing score cannot exceed the maximum score"}
     - {name: one_deadline, check: "doc.due_date == null || doc.due_days == 0", message: "Set either a due date or due days after enrolment, not both"}
   list: {columns: [title, course, due_date, max_score], sort: title asc}
+
+- name: LmsQuestionCategory
+  label: Question Category
+  label_plural: Question Categories
+  kind: master
+  module: learn
+  title_field: category_name
+  description: "A heading of question banks (Easy, Chapter 2): quizzes draw questions at random by category."
+  fields:
+    - {name: category_name, type: data, required: true, unique: true, max_length: 140, in_list: true}
+    - {name: description, type: text, max_length: 2000}
+  list: {columns: [category_name], sort: category_name asc}
+
+- name: LmsRubricCriterion
+  label: Rubric Criterion
+  kind: child
+  fields:
+    - {name: criterion, type: data, required: true, max_length: 200, in_list: true}
+    - {name: description, type: text, max_length: 2000}
+
+- name: LmsRubricLevel
+  label: Rubric Level
+  kind: child
+  fields:
+    - {name: criterion, type: data, required: true, max_length: 200, in_list: true, description: "The criterion it is a level of"}
+    - {name: level, type: data, required: true, max_length: 200, in_list: true}
+    - {name: points, type: decimal, precision: 2, required: true, min: "0", max: "1000", in_list: true}
+    - {name: description, type: text, max_length: 2000}
+
+- name: LmsRubric
+  label: Rubric
+  kind: master
+  module: learn
+  title_field: title
+  description: "Criteria with levels and points, attached to an assignment or an essay question: the grader picks a level of each criterion, and the learner sees the filled rubric with their result."
+  fields:
+    - {name: title, type: data, required: true, max_length: 200, in_list: true}
+    - {name: course, type: link, to: LmsCourse, required: true, in_list: true, in_filter: true}
+    - {name: criteria, type: table, of: LmsRubricCriterion, required: true}
+    - {name: levels, type: table, of: LmsRubricLevel, required: true}
+    - {name: max_points, type: decimal, precision: 2, read_only: true, no_copy: true, in_list: true, description: "The best level of each criterion, added up"}
+  list: {columns: [title, course, max_points], sort: title asc}

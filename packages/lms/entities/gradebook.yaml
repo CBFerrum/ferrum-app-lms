@@ -1,0 +1,66 @@
+- name: LmsGradeBand
+  label: Grade Band
+  kind: child
+  fields:
+    - {name: grade, type: data, required: true, max_length: 40, in_list: true, description: "A letter or band, e.g. A or Distinction"}
+    - {name: min_percent, type: percent, precision: 2, required: true, min: "0", max: "100", in_list: true, label: From (%), description: "A course total of at least this gets the grade (the highest band reached)"}
+
+- name: LmsGradingScale
+  label: Grading Scale
+  kind: master
+  module: learn
+  title_field: scale_name
+  description: "Course totals to letters or bands, as the workspace defines them."
+  fields:
+    - {name: scale_name, type: data, required: true, unique: true, max_length: 140, in_list: true}
+    - {name: bands, type: table, of: LmsGradeBand, required: true}
+  list: {columns: [scale_name], sort: scale_name asc}
+
+- name: LmsGradeCategory
+  label: Grade Category
+  kind: child
+  fields:
+    - {name: category, type: data, required: true, max_length: 100, in_list: true, description: "e.g. Quizzes, Assignments, Attendance"}
+    - {name: weight, type: percent, precision: 2, required: true, min: "0", max: "100", in_list: true, description: "Its share of the course total; categories with nothing graded yet are left out and the others weigh in proportion"}
+    - {name: drop_lowest, type: int, default: 0, min: 0, max: 50, in_list: true, label: Drop Lowest, description: "Leave out this many of a learner's lowest items in the category (one is always kept)"}
+
+- name: LmsGradeItem
+  label: Grade Item
+  kind: master
+  module: learn
+  title_field: title
+  description: "Something graded in a course's gradebook: a quiz (its best final attempt), an assignment (its latest graded submission, less any late penalty), a live session (attended: full marks), or marks an instructor enters."
+  fields:
+    - {name: title, type: data, required: true, max_length: 200, in_list: true}
+    - {name: course, type: link, to: LmsCourse, required: true, in_list: true, in_filter: true}
+    - {name: category, type: data, max_length: 100, in_list: true, description: "One of the course's grade categories (required when the course has them)"}
+    - {name: source, type: select, options: [Quiz, Assignment, Live Session, Manual], required: true, default: Manual, in_list: true}
+    - {name: quiz, type: link, to: LmsQuiz, visible_if: "doc.source == 'Quiz'", required_if: "doc.source == 'Quiz'"}
+    - {name: assignment, type: link, to: LmsAssignment, visible_if: "doc.source == 'Assignment'", required_if: "doc.source == 'Assignment'"}
+    - {name: lesson, type: link, to: LmsLesson, label: Live Lesson, visible_if: "doc.source == 'Live Session'", required_if: "doc.source == 'Live Session'"}
+    - {name: max_points, type: decimal, precision: 2, required: true, default: 100, min: "0.01", max: "100000", in_list: true}
+    - {name: due_date, type: date, description: "Assignments: late submissions are counted from this day (the assignment's own deadline when empty)"}
+    - {name: late_penalty_percent, type: percent, precision: 2, default: 0, min: "0", max: "100", label: Late Penalty per Day (%), description: "Taken off a late submission's marks for each day late"}
+    - {name: late_penalty_max, type: percent, precision: 2, default: 100, min: "0", max: "100", label: Most Late Penalty (%)}
+    - {name: released, type: check, default: 1, in_list: true, description: "Learners see their marks for it (and it counts in the total they see)"}
+  list: {columns: [title, course, category, source, max_points, released], sort: title asc}
+
+- name: LmsGradeEntry
+  label: Grade Entry
+  label_plural: Grade Entries
+  kind: master
+  module: learn
+  title_field: learner_name
+  owner_fields: [learner]
+  unique: [[item, enrollment]]
+  description: "A learner's marks for a grade item, entered by an instructor: the marks of a manual item, an override of what Learn works out, or the item excused."
+  fields:
+    - {name: item, type: link, to: LmsGradeItem, required: true, in_list: true, in_filter: true}
+    - {name: enrollment, type: link, to: LmsEnrollment, required: true, in_filter: true, on_delete: cascade}
+    - {name: course, type: link, to: LmsCourse, read_only: true, in_filter: true}
+    - {name: learner, type: email, read_only: true, in_list: true, in_filter: true}
+    - {name: learner_name, type: data, read_only: true, in_list: true}
+    - {name: points, type: decimal, precision: 2, min: "0", in_list: true, description: "Empty: what Learn works out (manual items: not graded yet)"}
+    - {name: excused, type: check, in_list: true, description: "Left out of the learner's totals"}
+    - {name: comment, type: text, max_length: 4000}
+  list: {columns: [learner_name, item, points, excused], sort: created_at desc}
