@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.1
+
+* **Erasure reaches the discussions.** Following a thread, reporting a post and removing one are declared personal data like the rest: erasing a person empties their follower rows on every thread, blanks their address as the reporter or remover of a post, and, with the posts they wrote, the thread titles they gave. Nothing else of the app held a discussion address.
+* **A learner is told when manual grading of a quiz attempt is finished.** The message template `lms.grading_done` (in-app and email, editable by the workspace) goes to the learner once, when the last answer a person grades has its final grade (with a second grader, after the third settles a disagreement), never while an answer still waits. Assignment submissions already told the learner when graded and still do.
+
 ## 0.9.0, and Paid Courses 0.2.0
 
 Learn sells to people outside the workspace, assesses like an academic LMS, keeps a gradebook, holds discussions and plays its own videos (LM-60 to LM-66, LM-30, LM-31, LM-37, LM-45, LM-80, LM-01). Package `lms` 0.5.0, `lms_payments` 0.2.0. Migrations `006` (grading notes) and `007` (video link keys).

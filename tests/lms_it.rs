@@ -3333,9 +3333,13 @@ async fn assessment() {
     grade(&manager, json!({"question": essay.to_string(), "rubric": {"Argument": "Strong", "Style": "Muddled"}, "comment": "Clear physics, untidy prose."}))
         .await
         .unwrap();
+    let told = || t.count("select count(*) from message_send where tenant_id = $1 and user_id = $2 and template = $3", asha.user, "lms.grading_done");
+    assert_eq!(told().await, 0, "not while an answer waits for its grade");
     grade(&teacher, json!({"question": file.to_string(), "points": "1.5", "comment": "Tables missing."})).await.unwrap();
     let last = grade(&tom, json!({"question": file.to_string(), "points": "1.5"})).await.unwrap();
     let a = &last["attempt"];
+    assert_eq!(told().await, 1, "told once, when the last answer was graded");
+    assert_eq!(t.notes(&asha, "Your result is ready: ").await, 1);
     // 4.75 + 2.8 (7 of 10 rubric points, out of 4) + 1.5 = 9.05 of 13.
     assert_eq!((a["status"].clone(), dec(&a["score"]), dec(&a["percentage"]), a["passed"].clone()), (json!("Submitted"), n("9.05"), n("69.62"), json!(true)));
     let essay_row = row(a, essay);
@@ -3554,6 +3558,64 @@ async fn discussions() {
     assert!(say(&ben, json!({"thread": thread.to_string(), "body": "late"})).await.is_err());
     t.act(&asha, "LmsCourse", course, "follow", json!({"thread": thread.to_string(), "follow": false})).await;
     assert_eq!(t.page(Some(&asha), &format!("courses/chemistry/discussion?thread={thread}")).await["following"], json!(false));
+}
+
+// ───────────────────────────── erasure ─────────────────────────────
+
+#[test]
+fn erasing_a_learner_reaches_the_discussions() {
+    run(forgotten());
+}
+
+/// A learner who wrote, followed and reported in discussions is erased: their address is in no table of the app.
+async fn forgotten() {
+    let t = boot("forget", vec![], &[], |_| {}).await;
+    let teacher = t.user("teacher@forget.test", "Tara Teacher", "Instructor").await;
+    let asha = t.user("asha@forget.test", "Asha Rao", "Learner").await;
+    let ben = t.user("ben@forget.test", "Ben Okafor", "Learner").await;
+    let (course, _) = course_of(&t, &teacher, "Chemistry", 1, json!({})).await;
+    enrol(&t, &teacher, course, &["asha@forget.test", "ben@forget.test"]).await;
+    let say = |who: &Ctx, v: Value| {
+        let t = &t;
+        let who = who.clone();
+        async move { t.try_act(&who, "LmsCourse", course, "discuss", v).await.unwrap() }
+    };
+    let thread = vid(&say(&asha, json!({"title": "Moles?", "body": "What is a mole?"})).await["post"]["id"]);
+    let reply = vid(&say(&ben, json!({"thread": thread.to_string(), "body": "6.022e23 things."})).await["post"]["id"]);
+    let own = vid(&say(&ben, json!({"title": "Ben's question", "body": "Why?"})).await["post"]["id"]);
+    say(&asha, json!({"thread": own.to_string(), "body": "Because."})).await;
+    // Ben's address is also on Asha's thread as a follower, and on her report of his reply.
+    t.act(&asha, "LmsCourse", course, "report_post", json!({"post": reply.to_string(), "reason": "Off topic"})).await;
+    t.act(&ben, "LmsCourse", course, "report_post", json!({"post": thread.to_string(), "reason": "Unclear"})).await;
+    let found = |email: &'static str| {
+        let t = &t;
+        async move {
+            let mut tx = t.k.db.tenant_tx(t.tenant).await.unwrap();
+            let tables: Vec<String> = sqlx::query_scalar("select tablename::text from pg_tables where schemaname = 'public' and tablename like 'e\\_lms\\_%'")
+                .fetch_all(&mut *tx)
+                .await
+                .unwrap();
+            let mut hits = vec![];
+            for table in tables {
+                let n: i64 =
+                    sqlx::query_scalar(sqlx::AssertSqlSafe(format!("select count(*) from {table} x where tenant_id = $1 and x::text ilike '%{email}%'")))
+                        .bind(t.tenant)
+                        .fetch_one(&mut *tx)
+                        .await
+                        .unwrap();
+                if n > 0 {
+                    hits.push(format!("{table}: {n}"));
+                }
+            }
+            hits
+        }
+    };
+    let before = found("ben@forget.test").await;
+    assert!(before.iter().any(|h| h.starts_with("e_lms_post")), "{before:?}");
+    t.k.erase_personal_data(&t.admin, "ben@forget.test", "his request").await.expect("erasure");
+    assert_eq!(found("ben@forget.test").await, Vec::<String>::new(), "no table of the app holds his address");
+    assert!(!found("asha@forget.test").await.is_empty(), "hers stays");
+    let _ = ben;
 }
 
 // ───────────────────────────── uploaded videos ─────────────────────────────
