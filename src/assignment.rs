@@ -6,7 +6,7 @@
 
 use crate::enrollment::{self, WITHDRAWN};
 use crate::notice::{self, Notice};
-use crate::util::{self, authored_course, b, d, doc_id, elevated, file_id, id, int, is_manager, is_new, load, s, same_email};
+use crate::util::{self, authored_course, b, d, doc_id, elevated, file_id, id, int, is_manager, is_new, load, rows, s, same_email};
 use async_trait::async_trait;
 use chrono::NaiveDate;
 use ferrum_domain::util::money;
@@ -28,6 +28,11 @@ impl DocHook for AssignmentHook {
     async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
         if let Some(course) = id(doc, "course") {
             authored_course(hc.kernel, hc.ctx, hc.tx, course).await?;
+            if let Some(rubric) = id(doc, "rubric")
+                && load(hc.kernel, hc.ctx, hc.tx, "LmsRubric", rubric).await.ok().and_then(|r| id(&r, "course")) != Some(course)
+            {
+                return Err(Error::field("rubric", "is another course's rubric"));
+            }
         }
         Ok(())
     }
@@ -37,6 +42,48 @@ impl DocHook for AssignmentHook {
             authored_course(hc.kernel, hc.ctx, hc.tx, course).await?;
         }
         Ok(())
+    }
+}
+
+/// Rubrics: kept by the course's instructors; every level names a criterion, each criterion has a
+/// level, and the most it gives is worked out.
+pub struct RubricHook;
+
+#[async_trait]
+impl DocHook for RubricHook {
+    async fn before_validate(&self, _hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
+        let criteria: Vec<String> = rows(doc, "criteria").iter().filter_map(|c| s(c, "criterion").map(str::to_string)).collect();
+        let levels: crate::grading::Levels =
+            rows(doc, "levels").iter().filter_map(|l| Some((s(l, "criterion")?.to_string(), s(l, "level")?.to_string(), d(l, "points")))).collect();
+        doc.insert("max_points".into(), money(crate::grading::rubric_max(&criteria, &levels)));
+        Ok(())
+    }
+
+    async fn validate(&self, hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
+        if let Some(course) = id(doc, "course") {
+            authored_course(hc.kernel, hc.ctx, hc.tx, course).await?;
+        }
+        let criteria: Vec<String> = rows(doc, "criteria").iter().filter_map(|c| s(c, "criterion").map(str::to_string)).collect();
+        let levels = rows(doc, "levels");
+        let mut errors = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for (i, c) in criteria.iter().enumerate() {
+            if !seen.insert(c.clone()) {
+                errors.push(ferrum_kernel::FieldError::new("criterion", "is listed twice").in_row("criteria", i));
+            } else if !levels.iter().any(|l| s(l, "criterion") == Some(c.as_str())) {
+                errors.push(ferrum_kernel::FieldError::new("criterion", "give it at least one level").in_row("criteria", i));
+            }
+        }
+        let mut pairs = std::collections::HashSet::new();
+        for (i, l) in levels.iter().enumerate() {
+            let c = s(l, "criterion").unwrap_or_default();
+            if !criteria.iter().any(|x| x == c) {
+                errors.push(ferrum_kernel::FieldError::new("criterion", "is not a criterion of this rubric").in_row("levels", i));
+            } else if !pairs.insert((c.to_string(), s(l, "level").unwrap_or_default().to_string())) {
+                errors.push(ferrum_kernel::FieldError::new("level", "is listed twice for its criterion").in_row("levels", i));
+            }
+        }
+        if errors.is_empty() { Ok(()) } else { Err(Error::Validation(errors)) }
     }
 }
 
@@ -140,6 +187,7 @@ impl DocHook for SubmissionHook {
             ("score", Value::Null),
             ("passed", json!(false)),
             ("feedback", Value::Null),
+            ("rubric_result", Value::Null),
             ("graded_by", Value::Null),
             ("graded_at", Value::Null),
         ] {
@@ -260,7 +308,18 @@ async fn grade(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, params: &Value) ->
     }
     let assignment = load(k, ctx, tx, "LmsAssignment", id(doc, "assignment").unwrap_or_default()).await?;
     let max = if d(doc, "max_score") > Decimal::ZERO { d(doc, "max_score") } else { d(&assignment, "max_score") };
-    let score = decimal_param(params, "score")?;
+    let mut score = decimal_param(params, "score")?;
+    // With a rubric, the levels chosen give the score (the rubric's points out of the maximum).
+    let mut filled = Value::Null;
+    match (id(&assignment, "rubric"), params.get("rubric").filter(|v| !v.is_null() && v.as_str() != Some(""))) {
+        (Some(rubric), Some(chosen)) => {
+            let (f, points) = crate::quiz::fill(k, ctx, tx, rubric, chosen, max).await?;
+            filled = f;
+            score = Some(points);
+        }
+        (None, Some(_)) => return Err(Error::field("rubric", "this assignment has no rubric")),
+        _ => {}
+    }
     if outcome == GRADED && score.is_none() {
         return Err(Error::field("score", "is required to grade"));
     }
@@ -282,12 +341,16 @@ async fn grade(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, params: &Value) ->
         ("max_score", money(max)),
         ("passed", json!(passed)),
         ("feedback", feedback.map_or(Value::Null, Value::String)),
+        ("rubric_result", filled),
         ("graded_by", json!(ctx.email.to_lowercase())),
         ("graded_at", json!(util::ts(util::now()))),
     ] {
         patch.insert(k_.into(), v);
     }
     let done = k.update_tx(&elevated(ctx), tx, "LmsAssignmentSubmission", me, patch, None).await?;
+    if let Some(e) = id(doc, "enrollment") {
+        crate::gradebook::changed(k, ctx, tx, e).await?;
+    }
     if passed && let Some(enrollment) = id(doc, "enrollment") {
         let lessons: Vec<Uuid> = sqlx::query_scalar("select id from e_lms_lesson where tenant_id = $1 and assignment = $2 and course = $3")
             .bind(ctx.tenant)
@@ -319,15 +382,16 @@ async fn grade(k: &Kernel, ctx: &Ctx, tx: &mut Tx, doc: &Doc, params: &Value) ->
 /// A learner's standing at an assignment, for the lesson page.
 pub async fn state(k: &Kernel, ctx: &Ctx, tx: &mut Tx, assignment_id: Uuid, enrollment: Uuid, enrolled_on: Option<NaiveDate>) -> Result<Value> {
     let assignment = load(k, ctx, tx, "LmsAssignment", assignment_id).await?;
-    let subs: Vec<(Uuid, Option<String>, i64, String, Option<Decimal>, bool, Option<chrono::DateTime<chrono::Utc>>, bool, Option<String>)> = sqlx::query_as(
-        "select id, number, submission_no, status, score, passed, submitted_at, late, feedback from e_lms_assignment_submission \
+    let subs: Vec<(Uuid, Option<String>, i64, String, Option<Decimal>, bool, Option<chrono::DateTime<chrono::Utc>>, bool, Option<String>, Option<Value>)> =
+        sqlx::query_as(
+            "select id, number, submission_no, status, score, passed, submitted_at, late, feedback, rubric_result from e_lms_assignment_submission \
          where tenant_id = $1 and assignment = $2 and enrollment = $3 order by submission_no",
-    )
-    .bind(ctx.tenant)
-    .bind(assignment_id)
-    .bind(enrollment)
-    .fetch_all(&mut **tx)
-    .await?;
+        )
+        .bind(ctx.tenant)
+        .bind(assignment_id)
+        .bind(enrollment)
+        .fetch_all(&mut **tx)
+        .await?;
     let prev: Previous = subs.iter().map(|x| (x.2, x.3.clone(), x.5)).collect();
     let due = enrollment::due_date(&assignment, enrolled_on);
     let today = ctx.today();
@@ -339,9 +403,9 @@ pub async fn state(k: &Kernel, ctx: &Ctx, tx: &mut Tx, assignment_id: Uuid, enro
         "accept_late": assignment.get("accept_late"), "allow_resubmission": assignment.get("allow_resubmission"), "max_submissions": assignment.get("max_submissions"),
         "passed": prev.iter().any(|p| p.2),
         "can_submit": why.is_none(), "reason": why,
-        "submissions": subs.iter().map(|(sid, number, no, status, score, passed, at, late, feedback)| json!({
+        "submissions": subs.iter().map(|(sid, number, no, status, score, passed, at, late, feedback, rubric)| json!({
             "id": sid, "number": number, "submission_no": no, "status": status, "score": score.map(money), "passed": passed,
-            "submitted_at": at.map(util::ts), "late": late, "feedback": feedback,
+            "submitted_at": at.map(util::ts), "late": late, "feedback": feedback, "rubric": rubric,
         })).collect::<Vec<_>>(),
     }))
 }

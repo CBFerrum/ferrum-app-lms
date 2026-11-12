@@ -93,14 +93,21 @@
   fields:
     - {name: question, type: link, to: LmsQuestion, read_only: true}
     - {name: question_text, type: markdown, read_only: true, in_list: true}
-    - {name: question_type, type: select, options: [Single Choice, Multiple Choice, True/False, Short Answer], read_only: true, in_list: true}
+    - {name: question_type, type: select, options: [Single Choice, Multiple Choice, True/False, Short Answer, Numeric, Ordering, Matching, Fill in the Blanks, Essay, File Upload], read_only: true, in_list: true}
     - {name: options, type: json, read_only: true, description: "[{key, text}] in the order shown"}
+    - {name: choices, type: json, read_only: true, description: "Matching questions: the answers to match with, [{key, text}]"}
+    - {name: blanks, type: int, read_only: true, description: "Fill-in questions: how many blanks"}
+    - {name: by_person, type: check, label: Graded by a Person, read_only: true}
     - {name: points, type: decimal, precision: 2, read_only: true, in_list: true}
     - {name: response, type: json, read_only: true, description: "The chosen option keys, or the short answer"}
     - {name: is_correct, type: check, read_only: true, in_list: true}
     - {name: points_awarded, type: decimal, precision: 2, read_only: true, in_list: true}
     - {name: correct_answer, type: json, read_only: true, description: "Shown when the quiz reveals answers"}
     - {name: explanation, type: markdown, read_only: true}
+    - {name: comment, type: markdown, read_only: true, label: Grader's Comment}
+    - {name: rubric_result, type: json, read_only: true, label: Rubric, description: "The level chosen for each criterion"}
+    - {name: graded_by, type: email, read_only: true}
+    - {name: graded_at, type: datetime, read_only: true}
 
 - name: LmsQuizAttempt
   label: Quiz Attempt
@@ -119,7 +126,8 @@
     - {name: learner, type: email, read_only: true, in_list: true, in_filter: true}
     - {name: learner_name, type: data, read_only: true}
     - {name: attempt_no, type: int, label: Attempt, read_only: true, in_list: true}
-    - {name: status, type: select, options: [In Progress, Submitted, Timed Out], read_only: true, in_list: true, in_filter: true}
+    - {name: status, type: select, options: [In Progress, Awaiting Grading, Submitted, Timed Out], read_only: true, in_list: true, in_filter: true, description: "Awaiting Grading: answers a person grades are not all graded yet, and the result is not final"}
+    - {name: closed_as, type: select, options: [Submitted, Timed Out], read_only: true, no_copy: true, description: "How an attempt awaiting grading was closed"}
     - {name: started_at, type: datetime, read_only: true}
     - {name: deadline, type: datetime, read_only: true, description: "Answers count only until then (empty = no time limit)"}
     - {name: submitted_at, type: datetime, read_only: true}
@@ -139,6 +147,14 @@
     - {name: save_answers, label: Save Answers, permission: read, condition: "doc.status == 'In Progress'", hidden: true}
     - {name: submit_answers, label: Submit, permission: read, condition: "doc.status == 'In Progress'", hidden: true}
     - {name: review, label: Review Answers, permission: write}
+    - name: grade_answers
+      label: Grade Answers
+      permission: write
+      condition: "doc.status == 'Awaiting Grading'"
+      params:
+        - {name: question, type: data, label: Question, required: true, description: "The id of the question graded"}
+        - {name: points, type: data, label: Points, description: "Out of the question's points; or choose the rubric's levels"}
+        - {name: comment, type: text, label: Comment}
   list: {columns: [number, quiz_title, learner, attempt_no, status, percentage, passed], sort: created_at desc}
 
 - name: LmsAssignmentSubmission
@@ -168,12 +184,13 @@
     - {name: max_score, type: decimal, precision: 2, read_only: true}
     - {name: passed, type: check, read_only: true, in_list: true}
     - {name: feedback, type: markdown, read_only: true}
+    - {name: rubric_result, type: json, read_only: true, label: Rubric, description: "The level the grader chose for each criterion"}
     - {name: graded_by, type: email, read_only: true}
     - {name: graded_at, type: datetime, read_only: true}
   form:
     - {label: Submission, fields: [assignment, assignment_title, learner, learner_name, submission_no, answer, attachment]}
     - {label: Timing, fields: [submitted_at, due_date, late]}
-    - {label: Grade, fields: [status, score, max_score, passed, feedback, graded_by, graded_at]}
+    - {label: Grade, fields: [status, score, max_score, passed, feedback, rubric_result, graded_by, graded_at]}
   actions:
     - name: grade
       label: Grade
@@ -182,6 +199,7 @@
         - {name: outcome, type: select, label: Outcome, options: [Graded, Needs Revision], description: "Graded when empty"}
         - {name: score, type: data, label: Score, description: "Out of the assignment's maximum; needed to grade it"}
         - {name: feedback, type: text, label: Feedback}
+        - {name: rubric, type: text, label: Rubric, description: "With a rubric: the level of each criterion, as {\"criterion\": \"level\"}"}
   list: {columns: [number, assignment_title, learner_name, status, score, passed], sort: created_at desc}
 
 - name: LmsCertificate

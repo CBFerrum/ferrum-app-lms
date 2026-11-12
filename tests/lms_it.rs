@@ -871,7 +871,7 @@ async fn scenario() {
         let actions = &teacher.schema.entity(entity).unwrap().def.actions;
         actions.iter().find(|a| a.name == name).unwrap().params.iter().map(|p| p.name.clone()).collect()
     };
-    assert_eq!(asks("LmsAssignmentSubmission", "grade"), ["outcome", "score", "feedback"]);
+    assert_eq!(asks("LmsAssignmentSubmission", "grade"), ["outcome", "score", "feedback", "rubric"]);
     assert_eq!(asks("LmsCertificate", "revoke"), ["reason"]);
     assert_eq!(asks("LmsCourse", "enroll_learners"), ["learners", "cohort"]);
     assert_eq!(asks("LmsCohort", "schedule_sessions"), ["first_date", "time", "count", "every_days", "duration_minutes", "title", "join_url"]);
@@ -3141,4 +3141,219 @@ async fn portal_sign_up() {
     drain(&t.k).await;
     assert_eq!(t.list(&ann, "LmsEnrollment", json!({})).await.unwrap().len(), 1, "still one enrolment");
     assert_eq!(dec(&t.page(Some(&ann), "dashboard").await["courses"][0]["progress_percent"]), n("50"));
+}
+
+// ───────────────────────────── questions, grading by people and rubrics ─────────────────────────────
+
+#[test]
+fn question_types_manual_grading_and_rubrics() {
+    run(assessment());
+}
+
+/// Every question type in one quiz with partial credit, negative marking and a second grader, one
+/// question drawn from the bank by category and kept with the attempt; the keys never reach the
+/// learner; essays and files wait for people, two graders who differ are settled by a third, and the
+/// result is final, revealed and rubric-filled only then; an assignment graded with its rubric.
+async fn assessment() {
+    let t = boot("assess", vec![], &[], |_| {}).await;
+    t.k.set_file_store(Arc::new(MemFiles(Mutex::new(HashMap::new()))));
+    let manager = t.user("manager@assess.test", "Mona Manager", "LMS Manager").await;
+    let teacher = t.user("teacher@assess.test", "Tara Teacher", "Instructor").await;
+    let tom = t.user("tom@assess.test", "Tom Tutor", "Instructor").await;
+    let asha = t.user("asha@assess.test", "Asha Rao", "Learner").await;
+    let course = uid(&t
+        .insert(&teacher, "LmsCourse", json!({"title": "Physics", "instructors": [{"instructor": "teacher@assess.test"}, {"instructor": "tom@assess.test"}]}))
+        .await);
+    let c = course.to_string();
+    let q = |v: Value| {
+        let mut v = v;
+        v["course"] = json!(c);
+        v
+    };
+    let rubric = t
+        .insert(
+            &teacher,
+            "LmsRubric",
+            q(json!({"title": "Essay", "criteria": [{"criterion": "Argument"}, {"criterion": "Style"}],
+            "levels": [{"criterion": "Argument", "level": "Strong", "points": "6"}, {"criterion": "Argument", "level": "Weak", "points": "2"},
+                       {"criterion": "Style", "level": "Clear", "points": "4"}, {"criterion": "Style", "level": "Muddled", "points": "1"}]})),
+        )
+        .await;
+    assert_eq!(dec(&rubric["max_points"]), n("10"));
+    let rubric = uid(&rubric);
+    assert!(
+        t.try_insert(
+            &teacher,
+            "LmsRubric",
+            q(json!({"title": "Bad", "criteria": [{"criterion": "A"}], "levels": [{"criterion": "B", "level": "x", "points": "1"}]}))
+        )
+        .await
+        .is_err()
+    );
+    let hard = uid(&t.insert(&teacher, "LmsQuestionCategory", json!({"category_name": "Hard"})).await);
+
+    // The bank, each type checked as it is written.
+    assert!(
+        field_error(
+            t.try_insert(
+                &teacher,
+                "LmsQuestion",
+                q(json!({"question": "No blanks here", "question_type": "Fill in the Blanks",
+        "accepted_answers": [{"answer": "x", "blank": 1}]}))
+            )
+            .await,
+            "question"
+        )
+        .contains("[[1]]")
+    );
+    assert!(
+        t.try_insert(&teacher, "LmsQuestion", q(json!({"question": "Match", "question_type": "Matching", "options": [{"option": "a"}, {"option": "b"}]})))
+            .await
+            .is_err()
+    );
+    let ins = |v: Value| {
+        let t = &t;
+        let teacher = &teacher;
+        async move { uid(&t.insert(teacher, "LmsQuestion", v).await) }
+    };
+    let short = ins(q(json!({"question": "The colour of ash?", "question_type": "Short Answer", "accepted_answers": [{"answer": "grey"}, {"answer": "gr?y", "pattern": true}]}))).await;
+    let numeric = ins(q(json!({"question": "g in m/s²?", "question_type": "Numeric", "numeric_answer": "9.81", "tolerance": "0.05"}))).await;
+    let order = ins(q(json!({"question": "Smallest first", "question_type": "Ordering",
+        "options": [{"option": "Quark"}, {"option": "Proton"}, {"option": "Atom"}, {"option": "Molecule"}]})))
+    .await;
+    let matching = ins(q(json!({"question": "Units", "question_type": "Matching",
+        "options": [{"option": "Force", "match_text": "Newton"}, {"option": "Energy", "match_text": "Joule"}, {"option": "Power", "match_text": "Watt"}]})))
+    .await;
+    let blanks = ins(q(json!({"question": "The [[1]] of France is [[2]].", "question_type": "Fill in the Blanks",
+        "accepted_answers": [{"answer": "capital", "blank": 1}, {"answer": "Paris", "blank": 2}, {"answer": "par*", "pattern": true, "blank": 2}]})))
+    .await;
+    let multi = ins(q(json!({"question": "Leptons?", "question_type": "Multiple Choice",
+        "options": [{"option": "Electron", "is_correct": true}, {"option": "Muon", "is_correct": true}, {"option": "Tau", "is_correct": true}, {"option": "Pion"}]}))).await;
+    let essay = ins(q(json!({"question": "Why is the sky blue?", "question_type": "Essay", "points": "4", "rubric": rubric.to_string()}))).await;
+    let file = ins(q(json!({"question": "Upload your lab sheet", "question_type": "File Upload", "points": "2"}))).await;
+    let hard1 =
+        ins(q(json!({"question": "Hard one", "category": hard.to_string(), "options": [{"option": "Right", "is_correct": true}, {"option": "Wrong"}]}))).await;
+    let hard2 =
+        ins(q(json!({"question": "Hard two", "category": hard.to_string(), "options": [{"option": "Right", "is_correct": true}, {"option": "Wrong"}]}))).await;
+
+    let listed: Vec<Value> = [short, numeric, order, matching, blanks, multi, essay, file].iter().map(|x| json!({"question": x.to_string()})).collect();
+    let quiz = json!({"title": "Mixed", "course": c, "passing_percentage": "50", "partial_credit": true, "negative_marking": "25", "second_marking": true,
+        "show_answers": "After Each Attempt", "questions": listed});
+    let mut too_many = quiz.clone();
+    too_many["draws"] = json!([{"category": hard.to_string(), "count": 3}]);
+    assert!(field_error(t.try_insert(&teacher, "LmsQuiz", too_many).await, "count").contains("has 2"));
+    let mut quiz = quiz;
+    quiz["draws"] = json!([{"category": hard.to_string(), "count": 1}]);
+    let quiz = t.insert(&teacher, "LmsQuiz", quiz).await;
+    assert_eq!(quiz["question_count"], json!(9));
+    let quiz = uid(&quiz);
+    let assignment = uid(&t.insert(&teacher, "LmsAssignment", json!({"title": "Report", "course": c, "max_score": "20", "rubric": rubric.to_string()})).await);
+    let (_, lessons) = t
+        .chapter(
+            &teacher,
+            course,
+            "Tests",
+            &[
+                json!({"title": "Quiz", "lesson_type": "Quiz", "quiz": quiz.to_string()}),
+                json!({"title": "Report", "lesson_type": "Assignment", "assignment": assignment.to_string()}),
+            ],
+        )
+        .await;
+    t.update(&teacher, "LmsCourse", course, json!({"status": "Published"})).await;
+    let enrolment = enrol(&t, &teacher, course, &["asha@assess.test"]).await["asha@assess.test"];
+
+    // The attempt: what it asks is kept; nothing of a key reaches the learner, in any answer she gets.
+    let started = t.act(&asha, "LmsEnrollment", enrolment, "start_quiz", json!({"quiz": quiz.to_string()})).await;
+    let attempt = started["attempt"].clone();
+    let aid = vid(&attempt["id"]);
+    let asked: BTreeSet<String> = attempt["answers"].as_array().unwrap().iter().map(|r| r["question"].as_str().unwrap().to_string()).collect();
+    assert_eq!(asked.len(), 9);
+    let drawn = if asked.contains(&hard1.to_string()) { hard1 } else { hard2 };
+    assert!(asked.contains(&drawn.to_string()) && !(asked.contains(&hard1.to_string()) && asked.contains(&hard2.to_string())), "one drawn");
+    let lesson_page = t.page(Some(&asha), &format!("lessons/{}", lessons[0])).await;
+    let own_record = Value::Object(t.k.get(&asha, "LmsQuizAttempt", aid, false).await.expect("her attempt"));
+    let listed_records = Value::Array(t.list(&asha, "LmsQuizAttempt", json!({})).await.unwrap().into_iter().map(Value::Object).collect());
+    for seen in [&started, &lesson_page, &own_record, &listed_records] {
+        let text = seen.to_string();
+        for secret in ["9.81", "Paris", "capital", "grey", "gr?y", "par*", "\"is_correct\":true"] {
+            assert!(!text.contains(secret), "the learner sees {secret}");
+        }
+    }
+    let ordered: Vec<String> = row(&attempt, order)["options"].as_array().unwrap().iter().map(|o| o["text"].as_str().unwrap().to_string()).collect();
+    assert_ne!(ordered, vec!["Quark", "Proton", "Atom", "Molecule"], "never shown in the right order");
+    assert!(t.list(&asha, "LmsRubric", json!({})).await.is_err() && t.list(&asha, "LmsQuestionCategory", json!({})).await.is_err());
+
+    // Her answers.
+    let k_ = |qid: Uuid, text: &str| key(&attempt, qid, text);
+    let choice = |list: &str, text: &str| {
+        row(&attempt, matching)[list].as_array().unwrap().iter().find(|o| o["text"] == json!(text)).unwrap()["key"].as_str().unwrap().to_string()
+    };
+    let sheet = vid(&t.k.store_file(&asha, None, "lab.pdf", "application/pdf", b"%PDF-1.4 lab").await.unwrap()["id"]);
+    let theirs = vid(&t.k.store_file(&teacher, None, "other.pdf", "application/pdf", b"%PDF-1.4 x").await.unwrap()["id"]);
+    let mut answers = Map::new();
+    answers.insert(short.to_string(), json!("Gray"));
+    answers.insert(numeric.to_string(), json!("9.8"));
+    answers.insert(order.to_string(), json!(["Quark", "Proton", "Atom", "Molecule"].iter().map(|x| k_(order, x)).collect::<Vec<_>>()));
+    answers.insert(
+        matching.to_string(),
+        json!({choice("options", "Force"): choice("choices", "Newton"), choice("options", "Energy"): choice("choices", "Watt"),
+        choice("options", "Power"): choice("choices", "Joule")}),
+    );
+    answers.insert(blanks.to_string(), json!(["Capital", "Parigi"]));
+    answers.insert(multi.to_string(), json!([k_(multi, "Electron"), k_(multi, "Muon")]));
+    answers.insert(essay.to_string(), json!("Rayleigh scattering."));
+    answers.insert(drawn.to_string(), json!(k_(drawn, "Wrong")));
+    let mut bad = answers.clone();
+    bad.insert(file.to_string(), json!(format!("/files/{theirs}")));
+    assert!(field_error(t.try_act(&asha, "LmsQuizAttempt", aid, "save_answers", json!({"answers": bad})).await, "answers").contains("you uploaded"));
+    answers.insert(file.to_string(), json!(format!("/files/{sheet}")));
+    let done = t.act(&asha, "LmsQuizAttempt", aid, "submit_answers", json!({"answers": answers})).await;
+    assert_eq!((done["status"].clone(), done["passed"].clone()), (json!("Awaiting Grading"), json!(false)), "not final while people grade");
+    // 1 + 1 + 1 + ⅓ + 1 + ⅔ - ¼ of the drawn one, before the essay and the file.
+    assert_eq!(dec(&done["score"]), n("4.75"));
+    assert!(done["attempt"]["answers"].as_array().unwrap().iter().all(|r| r["correct_answer"].is_null()), "nothing revealed yet");
+
+    // The queue, two graders who differ, a third who settles it; the learner reads nothing of it meanwhile.
+    let queue = t.page(Some(&teacher), "teaching/grading").await;
+    assert_eq!(queue["attempts"].as_array().unwrap().len(), 1);
+    assert_eq!(texts(&queue["attempts"][0]["questions"]), [essay.to_string(), file.to_string()].into_iter().collect());
+    let grade = |who: &Ctx, v: Value| {
+        let t = &t;
+        let who = who.clone();
+        async move { t.try_act(&who, "LmsQuizAttempt", aid, "grade_answers", v).await }
+    };
+    assert!(grade(&asha, json!({"question": essay.to_string(), "points": "4"})).await.is_err(), "not hers to grade");
+    let first = grade(&tom, json!({"question": essay.to_string(), "rubric": {"Argument": "Strong", "Style": "Clear"}, "comment": "Tom's note"})).await.unwrap();
+    assert_eq!(first["waiting_for"], json!("a second grader"));
+    assert!(grade(&tom, json!({"question": essay.to_string(), "points": "1"})).await.is_err(), "a grader grades once");
+    assert!(!Value::Object(t.k.get(&asha, "LmsQuizAttempt", aid, false).await.unwrap()).to_string().contains("Tom's note"), "not before it is final");
+    assert!(grade(&teacher, json!({"question": essay.to_string(), "points": "9"})).await.is_err(), "within the question's points");
+    let second = grade(&teacher, json!({"question": essay.to_string(), "rubric": {"Argument": "Weak", "Style": "Muddled"}})).await.unwrap();
+    assert_eq!(second["waiting_for"], json!("a third grader to settle it"));
+    grade(&manager, json!({"question": essay.to_string(), "rubric": {"Argument": "Strong", "Style": "Muddled"}, "comment": "Clear physics, untidy prose."}))
+        .await
+        .unwrap();
+    grade(&teacher, json!({"question": file.to_string(), "points": "1.5", "comment": "Tables missing."})).await.unwrap();
+    let last = grade(&tom, json!({"question": file.to_string(), "points": "1.5"})).await.unwrap();
+    let a = &last["attempt"];
+    // 4.75 + 2.8 (7 of 10 rubric points, out of 4) + 1.5 = 9.05 of 13.
+    assert_eq!((a["status"].clone(), dec(&a["score"]), dec(&a["percentage"]), a["passed"].clone()), (json!("Submitted"), n("9.05"), n("69.62"), json!(true)));
+    let essay_row = row(a, essay);
+    assert_eq!((essay_row["comment"].clone(), dec(&essay_row["points_awarded"])), (json!("Clear physics, untidy prose."), n("2.8")));
+    assert_eq!(essay_row["rubric_result"]["criteria"][1]["level"], json!("Muddled"));
+    assert_eq!(row(a, file)["comment"], json!("Tables missing."), "the agreeing second grader keeps the first's comment");
+    assert_eq!(row(a, numeric)["correct_answer"], json!({"answer": "9.81", "tolerance": "0.05"}), "revealed now");
+    assert!(t.page(Some(&teacher), "teaching/grading").await["attempts"].as_array().unwrap().is_empty());
+    let review = t.act(&teacher, "LmsQuizAttempt", aid, "review", json!({})).await;
+    assert!(review["answers"].as_array().unwrap().iter().any(|r| r["question"] == json!(drawn.to_string())), "the review shows what was drawn");
+    assert_eq!(t.count("select count(*) from lms_grading_note where tenant_id = $1 and attempt = $2 and $3 <> ''", aid, "x").await, 0);
+    assert!(t.page(Some(&asha), "courses/physics").await["course"]["chapters"][0]["lessons"][0]["completed"] == json!(true), "the quiz lesson is done");
+
+    // An assignment graded with its rubric: the score is the rubric's share of the maximum, and she sees the rubric.
+    let sub = uid(&t.insert(&asha, "LmsAssignmentSubmission", json!({"assignment": assignment.to_string(), "answer": "My report"})).await);
+    assert!(t.try_act(&teacher, "LmsAssignmentSubmission", sub, "grade", json!({"rubric": {"Argument": "Strong"}})).await.is_err(), "every criterion");
+    let graded = t.act(&teacher, "LmsAssignmentSubmission", sub, "grade", json!({"rubric": "{\"Argument\": \"Strong\", \"Style\": \"Clear\"}"})).await;
+    assert_eq!(dec(&graded["submission"]["score"]), n("20"));
+    let page = t.page(Some(&asha), &format!("lessons/{}", lessons[1])).await;
+    assert_eq!(page["assignment"]["submissions"][0]["rubric"]["criteria"][0]["level"], json!("Strong"));
 }
