@@ -9,9 +9,8 @@
 //! course, and read through Learn's page `courses/{slug}/discussion`. A removed post keeps its text,
 //! who removed it and why (and the audit trail keeps every change); learners no longer read it.
 
-use crate::util::{self, authored_course, authors, b, doc_id, elevated, id, int, load, load_locked, rows, s, same_email, sys};
+use crate::util::{self, authored_course, authors, b, doc_id, elevated, id, int, load, load_locked, rows, s, same_email};
 use async_trait::async_trait;
-use ferrum_kernel::messages::{Message, Recipient};
 use ferrum_kernel::{Ctx, Doc, DocHook, Error, HookCtx, Kernel, Result, Tx};
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
@@ -176,20 +175,7 @@ impl DocHook for CourseHook {
 
 /// A package template sent to these people (their user, for the in-app channel, when they have one).
 async fn notify(k: &Kernel, ctx: &Ctx, tx: &mut Tx, template: &str, post: Uuid, to: &[String], values: Map<String, Value>) -> Result<()> {
-    if to.is_empty() {
-        return Ok(());
-    }
-    let found = util::users(tx, ctx.tenant, to).await?;
-    let people: Vec<Recipient> = to
-        .iter()
-        .map(|e| match found.iter().find(|u| same_email(&u.email, e)) {
-            Some(u) => Recipient { user: Some(u.id), email: Some(u.email.clone()), ..Default::default() },
-            None => Recipient::address(e),
-        })
-        .collect();
-    let m = Message { template: template.into(), entity: Some("LmsPost".into()), record: Some(post), to: people, values, ..Default::default() };
-    ferrum_kernel::messages::send(k, tx, &sys(ctx), &m).await?;
-    Ok(())
+    util::tell(k, ctx, tx, template, "LmsPost", post, to, values).await
 }
 
 /// On posts: written only by the course's actions; moderated by its instructors.

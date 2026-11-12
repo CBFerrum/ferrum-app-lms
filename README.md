@@ -295,6 +295,7 @@ CHANGELOG.md  what changed in each version
 
 | Version | Highlights |
 |---|---|
+| **0.9.1** | Erasing a person empties their discussion follower rows and reports; a learner is told when a quiz attempt's manual grading is finished. |
 | **0.9.0** | Outside people sign up on a course page and are enrolled or buy (the Online Learner portal role); promotion codes, bundles and store refunds; six more question types, partial credit, negative marking, bank draws by category, grading by people with a second grader, rubrics; a gradebook; course and lesson discussions; uploaded videos with captions and watched-to-complete. |
 | **0.8.1** | Screens for live sessions (join, attendance) and compliance training (due dates, overdue, recertification, rule preview, report links, expired and replaced certificates). |
 | **0.8.0** | Compliance training: enrolment due dates with reminders, certificates that expire and recertification, enrolment rules (by role, group or HR employee fields), training programmes and a status report, and a manager's team report. |
