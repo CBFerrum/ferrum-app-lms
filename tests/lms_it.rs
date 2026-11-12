@@ -77,6 +77,21 @@ fn texts(v: &Value) -> BTreeSet<String> {
     v.as_array().unwrap_or_else(|| panic!("not a list: {v}")).iter().map(|x| x.as_str().unwrap().to_string()).collect()
 }
 
+/// An empty schema. Dropping it whole takes a lock for every table at once, more than the database
+/// allows when Comms and ERP are installed beside Learn: tables go in batches.
+async fn reset(db: &Db) {
+    loop {
+        let names: Vec<String> =
+            sqlx::query_scalar("select quote_ident(tablename) from pg_tables where schemaname = 'public' limit 40").fetch_all(&db.pool).await.expect("tables");
+        if names.is_empty() {
+            break;
+        }
+        let drop = format!("drop table if exists {} cascade", names.join(", "));
+        sqlx::raw_sql(sqlx::AssertSqlSafe(drop)).execute(&db.pool).await.expect("drop tables");
+    }
+    sqlx::raw_sql("drop schema if exists public cascade; create schema public;").execute(&db.pool).await.expect("reset");
+}
+
 /// Uploaded files in memory (the server gives the kernel S3 or a disk).
 struct MemFiles(Mutex<HashMap<String, Vec<u8>>>);
 
@@ -264,7 +279,7 @@ fn learn_end_to_end() {
 async fn scenario() {
     let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
     let db = Db::connect(DbConfig { url, max_connections: 16, ..Default::default() }).await.expect("connect");
-    sqlx::raw_sql("drop schema if exists public cascade; create schema public;").execute(&db.pool).await.expect("reset");
+    reset(&db).await;
     let mut packages = ferrum_domain::packages().expect("platform packages");
     // Learn without its Commerce connector, which paid_courses_end_to_end tests.
     packages.extend(ferrum_app_lms::packages().expect("app packages").into_iter().filter(|p| p.name() != "lms_payments"));
@@ -1178,7 +1193,7 @@ fn paid_courses_end_to_end() {
 async fn paid() {
     let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
     let db = Db::connect(DbConfig { url, max_connections: 24, ..Default::default() }).await.expect("connect");
-    sqlx::raw_sql("drop schema if exists public cascade; create schema public;").execute(&db.pool).await.expect("reset");
+    reset(&db).await;
     let mut packages = ferrum_domain::packages().expect("platform packages");
     packages.extend(ferrum_app_erp::packages().expect("ERP's packages"));
     // Commerce's own packages (its Store Subscriptions connector needs Finance, which this test leaves out).
@@ -1410,7 +1425,7 @@ const MANIFEST_2004: &str = r#"<?xml version="1.0"?>
 async fn scorm() {
     let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
     let db = Db::connect(DbConfig { url, max_connections: 16, ..Default::default() }).await.expect("connect");
-    sqlx::raw_sql("drop schema if exists public cascade; create schema public;").execute(&db.pool).await.expect("reset");
+    reset(&db).await;
     let mut packages = ferrum_domain::packages().expect("platform packages");
     packages.extend(ferrum_app_lms::packages().expect("app packages").into_iter().filter(|p| p.name() != "lms_payments"));
     let catalog = Catalog::from_packages(packages).expect("catalog");
@@ -1843,4 +1858,344 @@ async fn lti(t: &T, manager: &Ctx, teacher: &Ctx, asha: &Ctx, ben: &Ctx, course:
     );
     let marked = t.act(asha, "LmsEnrollment", enrolment, "complete_lesson", json!({"lesson": read.to_string()})).await;
     assert_eq!(dec(&marked["progress_percent"]), n("83.33"), "five of six");
+}
+
+/// LiveKit's room service as a stand-in: `ListParticipants` answers with `here`, `DeleteRoom` with `{}`.
+async fn room_service(here: Arc<Mutex<Vec<Value>>>) -> String {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        loop {
+            let Ok((sock, _)) = listener.accept().await else { return };
+            let here = here.clone();
+            tokio::spawn(async move {
+                let mut reader = BufReader::new(sock);
+                let mut line = String::new();
+                reader.read_line(&mut line).await.unwrap();
+                let path = line.split(' ').nth(1).unwrap_or_default().to_string();
+                let mut length = 0usize;
+                loop {
+                    let mut h = String::new();
+                    reader.read_line(&mut h).await.unwrap();
+                    let h = h.trim_end();
+                    if h.is_empty() {
+                        break;
+                    }
+                    if let Some((name, value)) = h.split_once(':')
+                        && name.eq_ignore_ascii_case("content-length")
+                    {
+                        length = value.trim().parse().unwrap_or(0);
+                    }
+                }
+                let mut body = vec![0u8; length];
+                reader.read_exact(&mut body).await.unwrap();
+                let answer = match path.as_str() {
+                    "/twirp/livekit.RoomService/ListParticipants" => json!({"participants": here.lock().unwrap().clone()}),
+                    _ => json!({}),
+                };
+                let text = answer.to_string();
+                let mut sock = reader.into_inner();
+                let head = format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", text.len());
+                sock.write_all(head.as_bytes()).await.unwrap();
+                sock.write_all(text.as_bytes()).await.unwrap();
+            });
+        }
+    });
+    url
+}
+
+#[test]
+fn live_sessions_end_to_end() {
+    let _db = DB.lock().unwrap_or_else(|e| e.into_inner());
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(16 << 20).build().unwrap();
+    rt.block_on(async { tokio::spawn(live_sessions()).await.unwrap() });
+}
+
+/// A cohort's live session without a link gets a meeting (moved with the session), members get their
+/// join link on the lesson page and in the reminder, attendance is read from the meeting once it is
+/// over and credits the Live lesson by the session's rule, and an instructor can mark it by hand. A
+/// session with a link of its own, or a workspace without Comms, keeps the typed link and manual marks.
+async fn live_sessions() {
+    use chrono::{Duration, Utc};
+    use ferrum_app_comms::meetings;
+    let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
+    let db = Db::connect(DbConfig { url, max_connections: 16, ..Default::default() }).await.expect("connect");
+    reset(&db).await;
+    let mut packages = ferrum_domain::packages().expect("platform packages");
+    packages.extend(ferrum_app_erp::packages().expect("ERP's packages"));
+    packages.extend(ferrum_app_lms::packages().expect("app packages").into_iter().filter(|p| p.name() != "lms_payments"));
+    packages.extend(ferrum_app_comms::packages().expect("Comms' packages"));
+    let catalog = Catalog::from_packages(packages).expect("catalog");
+    let mut hooks = HookRegistry::default();
+    ferrum_domain::register(&mut hooks);
+    ferrum_app_lms::register(&mut hooks);
+    ferrum_app_comms::register(&mut hooks);
+    let k = Kernel::boot(db, catalog, hooks, KernelSettings::default(), None).await.expect("boot");
+    ferrum_domain::maintenance(&k).await.expect("domain maintenance");
+    let here: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let api = room_service(here.clone()).await;
+    // SAFETY: the tests of this file run one at a time (`DB`).
+    let meeting_server = |on: bool| unsafe {
+        for (var, value) in [
+            ("FERRUM_MEET_URL", "wss://meet.live.test"),
+            ("FERRUM_MEET_KEY", "APIlive"),
+            ("FERRUM_MEET_SECRET", "live-secret"),
+            ("FERRUM_MEET_API_URL", api.as_str()),
+        ] {
+            if on {
+                std::env::set_var(var, value);
+            } else {
+                std::env::remove_var(var);
+            }
+        }
+    };
+    meeting_server(true);
+    let setup = |slug: &'static str, packages: &'static [&'static str]| {
+        let k = k.clone();
+        async move {
+            let tenant = k
+                .create_tenant(NewTenant {
+                    slug: slug.into(),
+                    name: slug.into(),
+                    admin_email: format!("admin@{slug}.test"),
+                    admin_password: PW.into(),
+                    admin_name: None,
+                    packages: packages.iter().map(|p| p.to_string()).collect(),
+                    settings: Some(json!({"timezone": "Europe/Berlin"})),
+                })
+                .await
+                .expect("tenant");
+            let session = k.login(slug, &format!("admin@{slug}.test"), PW).await.expect("login");
+            let admin = k.load_ctx(tenant, session.user, Some(session.token_version), "it".into()).await.expect("ctx");
+            T { k: k.clone(), tenant, admin, site: k.hooks.site("lms").cloned().expect("site") }
+        }
+    };
+    let t = setup("live", &["lms", "comms"]).await;
+    let (teacher, stranger) = (t.user("teacher@live.test", "Tara Teacher", "Instructor").await, t.user("other@live.test", "Omar Other", "Instructor").await);
+    let (asha, ben, cy) = (
+        t.user("asha@live.test", "Asha Rao", "Learner").await,
+        t.user("ben@live.test", "Ben Okafor", "Learner").await,
+        t.user("cy@live.test", "Cy Cole", "Learner").await,
+    );
+    t.insert(&t.admin, "CommsSettings", json!({"public_url": "https://live.test"})).await;
+    let course = uid(&t
+        .insert(&teacher, "LmsCourse", json!({"title": "Live Basics", "visibility": "Public", "instructors": [{"instructor": "teacher@live.test"}]}))
+        .await);
+    let (_, lessons) = t.chapter(&teacher, course, "Week one", &[json!({"title": "Q&A", "lesson_type": "Live"}), json!({"title": "Reading"})]).await;
+    let (live_lesson, reading) = (lessons[0], lessons[1]);
+    t.update(&teacher, "LmsCourse", course, json!({"status": "Published"})).await;
+    let today = teacher.today();
+    let cohort = uid(&t
+        .insert(
+            &teacher,
+            "LmsCohort",
+            json!({"course": course, "title": "Spring", "start_date": today.to_string(), "end_date": (today + Duration::days(60)).to_string(),
+                   "instructors": [{"instructor": "teacher@live.test"}]}),
+        )
+        .await);
+    let mut enrolments = vec![];
+    for who in [&asha, &ben, &cy] {
+        enrolments.push(uid(&t.insert(who, "LmsEnrollment", json!({"course": course, "cohort": cohort.to_string()})).await));
+    }
+    // A lesson that is not Live cannot be credited by a session.
+    let soon = Utc::now() + Duration::minutes(30);
+    let wrong =
+        t.try_update(&teacher, "LmsCohort", cohort, json!({"sessions": [{"title": "X", "starts_at": soon.to_rfc3339(), "lesson": reading.to_string()}]})).await;
+    assert!(field_error(wrong, "lesson").contains("Live"));
+    t.update(
+        &teacher,
+        "LmsCohort",
+        cohort,
+        json!({"sessions": [
+            {"title": "Q&A", "starts_at": soon.to_rfc3339(), "duration_minutes": 60, "lesson": live_lesson.to_string()},
+            {"title": "Office hours", "starts_at": (soon + Duration::days(1)).to_rfc3339(), "duration_minutes": 30, "join_url": "https://meet.live.test/office"},
+        ]}),
+    )
+    .await;
+    let sessions = t.get("LmsCohort", cohort).await["sessions"].as_array().unwrap().clone();
+    let (qa, office) = (vid(&sessions[0]["id"]), vid(&sessions[1]["id"]));
+    let made = meetings::find(&t.k, t.tenant, "LmsCohortSession", qa).await.unwrap().expect("a meeting for the session");
+    assert_eq!((made.starts_at.timestamp(), (made.ends_at - made.starts_at).num_minutes()), (soon.timestamp(), 60));
+    assert!(meetings::find(&t.k, t.tenant, "LmsCohortSession", office).await.unwrap().is_none(), "a session with a link of its own keeps it");
+    // Members get their own link on the lesson page, the dashboard and in the reminder.
+    let room = format!("https://live.test/meet/room/{}", made.id);
+    let page = t.page(Some(&asha), &format!("/lessons/{live_lesson}")).await;
+    assert_eq!(
+        (page["live"][0]["join_url"].clone(), page["live"][0]["has_meeting"].clone(), page["live"][0]["attended"].clone()),
+        (json!(room), json!(true), Value::Null)
+    );
+    let on_dash = t.page(Some(&asha), "/dashboard").await["upcoming_sessions"].clone();
+    let by_title = |title: &str| on_dash.as_array().unwrap().iter().find(|s| s["title"] == json!(title)).cloned().unwrap();
+    assert_eq!((by_title("Q&A")["join_url"].clone(), by_title("Office hours")["join_url"].clone()), (json!(room), json!("https://meet.live.test/office")));
+    ferrum_app_lms::maintenance(&t.k).await.expect("maintenance");
+    let told: i64 =
+        t.count("select count(*) from notification where tenant_id = $1 and user_id = $2 and body like $3", asha.user, &format!("%Join: {room}%")).await;
+    assert_eq!(told, 1, "the reminder carries the meeting's link");
+    // Moved with the session.
+    let later = soon + Duration::minutes(15);
+    let mut moved = t.get("LmsCohort", cohort).await["sessions"].as_array().unwrap().clone();
+    moved[0]["starts_at"] = json!(later.to_rfc3339());
+    moved[0]["duration_minutes"] = json!(45);
+    t.update(&teacher, "LmsCohort", cohort, json!({"sessions": moved})).await;
+    let after = meetings::get(&t.k, t.tenant, made.id).await.unwrap();
+    assert_eq!((after.starts_at.timestamp(), (after.ends_at - after.starts_at).num_minutes()), (later.timestamp(), 45));
+    // Nothing is read before it is over.
+    assert_eq!(t.count("select count(*) from lms_session_attendance where tenant_id = $1 and $2::uuid is not null and $3 = $3", Uuid::nil(), "").await, 0);
+
+    // It is over: Asha was there the whole time, Ben for ten minutes, Cy not at all.
+    let began = Utc::now() - Duration::minutes(80);
+    t.sql(
+        &format!(
+            "update e_lms_cohort__sessions set starts_at = '{}', duration_minutes = 60 where tenant_id = $1 and id = '{qa}' and $2::uuid is not null",
+            began.to_rfc3339()
+        ),
+        Uuid::nil(),
+    )
+    .await;
+    t.sql(
+        &format!(
+            "update comms_meeting set starts_at = '{}', ends_at = '{}' where tenant_id = $1 and id = '{}' and $2::uuid is not null",
+            began.to_rfc3339(),
+            (began + Duration::minutes(60)).to_rfc3339(),
+            made.id
+        ),
+        Uuid::nil(),
+    )
+    .await;
+    let now = Utc::now().timestamp();
+    let identity = |who: &Ctx, n: &str| format!("{}.{n}", who.user.simple());
+    *here.lock().unwrap() = vec![
+        json!({"identity": identity(&asha, "a1b2c3d4"), "name": "Asha Rao", "joined_at": (now - 3500).to_string()}),
+        json!({"identity": identity(&ben, "e5f6a7b8"), "name": "Ben Okafor", "joined_at": (now - 600).to_string()}),
+        json!({"identity": "guest.6578616d706c65.11223344", "name": "Outsider (guest)", "joined_at": now - 3000}),
+    ];
+    ferrum_app_lms::maintenance(&t.k).await.expect("maintenance");
+    let report = t.act(&teacher, "LmsCohort", cohort, "session_attendance", json!({"session": qa.to_string()})).await;
+    let rows: Vec<(String, bool, i64, String)> = report["learners"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (
+                r["learner"].as_str().unwrap().to_string(),
+                r["attended"].as_bool().unwrap(),
+                r["minutes"].as_i64().unwrap(),
+                r["source"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(rows.len(), 3, "every learner of the cohort, and nobody else: {rows:?}");
+    let row = |who: &str| rows.iter().find(|r| r.0 == who).unwrap().clone();
+    let (a, b, c) = (row("asha@live.test"), row("ben@live.test"), row("cy@live.test"));
+    assert!(a.1 && (57..=59).contains(&a.2) && a.3 == "Meeting", "{a:?}");
+    assert!(!b.1 && (9..=11).contains(&b.2), "ten of sixty minutes is under half: {b:?}");
+    assert!(!c.1 && c.2 == 0, "{c:?}");
+    let credited = |enrolment: Uuid| {
+        let t = &t;
+        async move {
+            t.count("select count(*) from e_lms_lesson_progress where tenant_id = $1 and enrollment = $2 and completed_via = $3", enrolment, "Live Session")
+                .await
+        }
+    };
+    assert_eq!((credited(enrolments[0]).await, credited(enrolments[1]).await, credited(enrolments[2]).await), (1, 0, 0), "attending credits the lesson");
+    assert!(meetings::get(&t.k, t.tenant, made.id).await.unwrap().ended_at.is_some(), "the meeting was closed");
+    let page = t.page(Some(&asha), &format!("/lessons/{live_lesson}")).await;
+    assert_eq!((page["completed"].clone(), page["live"][0]["attended"].clone()), (json!(true), json!(true)));
+    ferrum_app_lms::maintenance(&t.k).await.expect("maintenance");
+    assert_eq!(credited(enrolments[0]).await, 1, "read once");
+
+    // An instructor marks Ben present by hand: it credits the lesson, and only instructors of the course may.
+    assert!(matches!(
+        err(t.try_act(&stranger, "LmsCohort", cohort, "mark_attendance", json!({"session": qa.to_string(), "learner": "ben@live.test"})).await),
+        Error::Forbidden(_)
+    ));
+    assert!(matches!(
+        err(t.try_act(&ben, "LmsCohort", cohort, "mark_attendance", json!({"session": qa.to_string(), "learner": "ben@live.test"})).await),
+        Error::Forbidden(_) | Error::NotFound(_)
+    ));
+    assert!(
+        field_error(
+            t.try_act(&teacher, "LmsCohort", cohort, "mark_attendance", json!({"session": qa.to_string(), "learner": "nobody@live.test"})).await,
+            "learner"
+        )
+        .contains("not a learner")
+    );
+    assert!(
+        field_error(
+            t.try_act(&teacher, "LmsCohort", cohort, "mark_attendance", json!({"session": Uuid::new_v4().to_string(), "learner": "ben@live.test"})).await,
+            "session"
+        )
+        .contains("not a live session")
+    );
+    let marked = t.act(&teacher, "LmsCohort", cohort, "mark_attendance", json!({"session": qa.to_string(), "learner": "ben@live.test", "minutes": 50})).await;
+    assert_eq!((marked["attended"].clone(), marked["minutes"].clone(), marked["source"].clone()), (json!(true), json!(50), json!("Instructor")));
+    assert_eq!(credited(enrolments[1]).await, 0, "the lesson says who credited it");
+    assert_eq!(
+        t.count("select count(*) from e_lms_lesson_progress where tenant_id = $1 and enrollment = $2 and completed_via = $3", enrolments[1], "Instructor")
+            .await,
+        1
+    );
+
+    // A session may be taken away: its meeting ends.
+    let (extra,) = {
+        let mut all = t.get("LmsCohort", cohort).await["sessions"].as_array().unwrap().clone();
+        all.push(json!({"title": "Spare", "starts_at": (Utc::now() + Duration::days(3)).to_rfc3339()}));
+        t.update(&teacher, "LmsCohort", cohort, json!({"sessions": all})).await;
+        let spare = vid(&t.get("LmsCohort", cohort).await["sessions"].as_array().unwrap().iter().find(|s| s["title"] == json!("Spare")).unwrap()["id"]);
+        (spare,)
+    };
+    assert!(meetings::find(&t.k, t.tenant, "LmsCohortSession", extra).await.unwrap().is_some_and(|m| m.ended_at.is_none()));
+    let mut kept = t.get("LmsCohort", cohort).await["sessions"].as_array().unwrap().clone();
+    kept.retain(|s| s["title"] != json!("Spare"));
+    t.update(&teacher, "LmsCohort", cohort, json!({"sessions": kept})).await;
+    assert!(meetings::find(&t.k, t.tenant, "LmsCohortSession", extra).await.unwrap().is_some_and(|m| m.ended_at.is_some()));
+
+    // Without a meeting server: the typed link and the instructor's marks, as before.
+    meeting_server(false);
+    let mut plain = t.get("LmsCohort", cohort).await["sessions"].as_array().unwrap().clone();
+    plain.push(json!({"title": "No server", "starts_at": (Utc::now() + Duration::days(4)).to_rfc3339(), "join_url": "https://typed.test/class"}));
+    plain.push(json!({"title": "No link", "starts_at": (Utc::now() + Duration::days(5)).to_rfc3339(), "lesson": live_lesson.to_string()}));
+    t.update(&teacher, "LmsCohort", cohort, json!({"sessions": plain})).await;
+    let bare = t.get("LmsCohort", cohort).await["sessions"].as_array().unwrap().iter().find(|s| s["title"] == json!("No link")).unwrap().clone();
+    assert!(meetings::find(&t.k, t.tenant, "LmsCohortSession", vid(&bare["id"])).await.unwrap().is_none());
+    ferrum_app_lms::maintenance(&t.k).await.expect("maintenance");
+    t.act(&teacher, "LmsCohort", cohort, "mark_attendance", json!({"session": bare["id"], "learner": "cy@live.test"})).await;
+    assert_eq!(
+        t.count("select count(*) from e_lms_lesson_progress where tenant_id = $1 and enrollment = $2 and completed_via = $3", enrolments[2], "Instructor")
+            .await,
+        1
+    );
+
+    // A workspace without Comms at all.
+    let plain_t = setup("plainco", &["lms"]).await;
+    meeting_server(true);
+    let tutor = plain_t.user("tutor@plainco.test", "Tess Tutor", "Instructor").await;
+    let pupil = plain_t.user("pupil@plainco.test", "Pat Pupil", "Learner").await;
+    let course = uid(&plain_t
+        .insert(&tutor, "LmsCourse", json!({"title": "Plain", "visibility": "Public", "instructors": [{"instructor": "tutor@plainco.test"}]}))
+        .await);
+    let (_, lessons) = plain_t.chapter(&tutor, course, "One", &[json!({"title": "Class", "lesson_type": "Live"})]).await;
+    plain_t.update(&tutor, "LmsCourse", course, json!({"status": "Published"})).await;
+    let cohort = uid(&plain_t
+        .insert(
+            &tutor,
+            "LmsCohort",
+            json!({"course": course, "title": "Only", "start_date": today.to_string(), "end_date": (today + Duration::days(9)).to_string(),
+                   "instructors": [{"instructor": "tutor@plainco.test"}],
+                   "sessions": [{"title": "Class", "starts_at": (Utc::now() + Duration::days(1)).to_rfc3339(), "join_url": "https://typed.test/plain", "lesson": lessons[0].to_string()}]}),
+        )
+        .await);
+    let enrolment = uid(&plain_t.insert(&pupil, "LmsEnrollment", json!({"course": course, "cohort": cohort.to_string()})).await);
+    let class = vid(&plain_t.get("LmsCohort", cohort).await["sessions"][0]["id"]);
+    assert!(meetings::find(&plain_t.k, plain_t.tenant, "LmsCohortSession", class).await.unwrap().is_none());
+    assert_eq!(plain_t.page(Some(&pupil), &format!("/lessons/{}", lessons[0])).await["live"][0]["join_url"], json!("https://typed.test/plain"));
+    plain_t.act(&tutor, "LmsCohort", cohort, "mark_attendance", json!({"session": class.to_string(), "learner": "pupil@plainco.test"})).await;
+    assert_eq!(
+        plain_t
+            .count("select count(*) from e_lms_lesson_progress where tenant_id = $1 and enrollment = $2 and completed_via = $3", enrolment, "Instructor")
+            .await,
+        1
+    );
+    meeting_server(false);
 }

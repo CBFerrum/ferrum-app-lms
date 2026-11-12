@@ -21,6 +21,7 @@ mod certificate;
 mod cohort;
 mod enrollment;
 mod grading;
+mod live;
 mod lti;
 mod notice;
 mod payments;
@@ -107,6 +108,7 @@ pub async fn maintenance(k: &Kernel) -> Result<()> {
         let steps = [
             ("attempt deadlines", quiz::expire_attempts(k, &ctx).await),
             ("session reminders", cohort::send_reminders(k, &ctx).await),
+            ("live attendance", live::close_ended(k, &ctx).await),
             ("completions", enrollment::complete_ready(k, &ctx).await),
             ("lapsed purchases", payments::cancel_lapsed(k, &ctx).await),
             ("purge", purge(k, tenant).await),

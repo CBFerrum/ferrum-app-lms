@@ -1,6 +1,6 @@
 id: lms
 name: Learn
-version: 0.6.15
+version: 0.7.0
 publisher: cbferrum
 summary: "Learning management: courses, lessons, quizzes, enrollments, progress, certificates and a public course catalog"
 description: README.md

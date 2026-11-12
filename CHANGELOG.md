@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+Live classes run in the product, with attendance (LM-20, LM-21). A cohort's live session without a link of its own gets a meeting in the Mail, Chat and Calendar app (Comms 0.14.0 and a meeting server) when it is saved, hosted by the session's new Host or the cohort's first instructor; moving or shortening the session moves the meeting, removing it ends it. Members get their own join link where they see the session: the lesson page's data (`live`), the dashboard and the reminder. A session with a typed link, or a workspace without Comms or a meeting server, is as before.
+
+A new lesson type, **Live**, is credited by a session that names it (**Lesson Credited**). Ten minutes after a session was due to end, Learn reads its meeting, records for every learner of the cohort whether they attended and for how many minutes, and marks the lesson done for those who were in the meeting for at least the session's **Attendance Needed (%)** (50 by default). Instructors mark attendance by hand with **Mark Attendance** (which also corrects the meeting's record and credits the lesson) and read it with **Session Attendance**; this is all a workspace without a meeting server has. Nothing is taken back once credited. The time in the meeting is accurate to about a minute (see Comms 0.14.0).
+
 ## 0.6.15
 
 The interface follows the upgraded design system, rebuilt with Ferrum-Frontend 0a47157. Text uses the kit's type roles (nothing under 12px) and controls its height tokens; loading shows skeletons shaped like what is coming; empty, no matches, denied, offline and failed are told apart; status colours come from stored state ids. The interface check now runs the UI lint against an empty baseline. Progress lines, class bands and the teaching figures use the kit's Progress and Stat; the learners page has the kit's page head.

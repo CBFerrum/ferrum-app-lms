@@ -496,7 +496,7 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
                 page["next_lesson"] = outline["next_lesson"].clone();
                 page["chapters"] = outline["chapters"].clone();
                 let sessions = match id(e, "cohort") {
-                    Some(c) if s(e, "status") != Some(WITHDRAWN) => cohort::upcoming(&mut tx, user, &[c], 50).await?,
+                    Some(c) if s(e, "status") != Some(WITHDRAWN) => cohort::upcoming(k, &mut tx, user, &[c], 50).await?,
                     _ => vec![],
                 };
                 page["upcoming_sessions"] = json!(sessions);
@@ -659,7 +659,7 @@ async fn dashboard(k: &Kernel, user: &Ctx, tx: &mut Tx) -> Result<Value> {
         key(a).cmp(&key(b))
     });
     let cohorts: Vec<Uuid> = mine.iter().filter_map(|m| m.cohort).collect();
-    let sessions = cohort::upcoming(tx, user, &cohorts, 20).await?;
+    let sessions = cohort::upcoming(k, tx, user, &cohorts, 20).await?;
     let certificates: Vec<Value> = mine
         .iter()
         .filter_map(|m| {

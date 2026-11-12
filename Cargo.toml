@@ -14,6 +14,8 @@ ferrum-domain = { git = "https://github.com/CBFerrum/Ferrum", branch = "main" }
 ferrum-calc = { git = "https://github.com/CBFerrum/Ferrum", branch = "main" }
 # Paid Courses take and refund payments through the store's payment requests.
 ferrum-app-commerce = { git = "https://github.com/CBFerrum/ferrum-app-commerce", branch = "main" }
+# A live session's meeting and its attendance, when the Mail, Chat and Calendar app is installed.
+ferrum-app-comms = { git = "https://github.com/CBFerrum/ferrum-app-comms", branch = "main" }
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1.43", features = ["serde-with-str", "maths"] }
@@ -42,7 +44,7 @@ base64 = "0.22"
 # Paid Courses are tested on ERP's records (customers, invoices, the ledger).
 ferrum-app-erp = { git = "https://github.com/CBFerrum/ferrum-app-erp", branch = "main" }
 ferrum-apps = { git = "https://github.com/CBFerrum/Ferrum", branch = "main" }
-tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "io-util"] }
 
 [lints.clippy]
 type_complexity = "allow"
