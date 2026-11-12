@@ -91,6 +91,30 @@
       params:
         - {name: learners, type: text, label: Learners, required: true, description: "Their emails, one a line or separated by commas"}
         - {name: cohort, type: link, to: LmsCohort, label: Cohort, description: "Into this cohort of the course; none when empty"}
+    # The course's discussion, for its enrolled learners and instructors (Learn's pages send these).
+    - name: discuss
+      label: Post in the Discussion
+      permission: read
+      hidden: true
+      params:
+        - {name: thread, type: data, label: Thread, description: "The thread to reply in; empty: a new thread"}
+        - {name: lesson, type: data, label: Lesson, description: "A new thread in this lesson's discussion"}
+        - {name: title, type: data, label: Title, description: "A new thread's title"}
+        - {name: body, type: text, label: Post, required: true}
+    - name: follow
+      label: Follow a Thread
+      permission: read
+      hidden: true
+      params:
+        - {name: thread, type: data, label: Thread, required: true}
+        - {name: follow, type: check, label: Follow, description: "Unticked: stop following"}
+    - name: report_post
+      label: Report a Post
+      permission: read
+      hidden: true
+      params:
+        - {name: post, type: data, label: Post, required: true}
+        - {name: reason, type: text, label: Reason, required: true}
   list: {columns: [title, status, visibility, category, lesson_count], sort: title asc}
 
 - name: LmsChapter

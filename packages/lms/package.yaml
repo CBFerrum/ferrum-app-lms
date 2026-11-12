@@ -10,7 +10,7 @@ modules:
     icon: graduation-cap
     order: 55
     items: [LmsCourse, LmsChapter, LmsLesson, LmsQuiz, LmsQuestion, LmsQuestionCategory, LmsRubric, LmsAssignment, LmsLearningPath, LmsCohort, LmsEnrollment, LmsLessonProgress, LmsPackageProgress,
-            LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsLtiTool, LmsSettings, LmsEnrollmentRule, LmsProgramme, LmsGradeItem, LmsGradeEntry, LmsGradingScale,
+            LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsLtiTool, LmsSettings, LmsEnrollmentRule, LmsProgramme, LmsGradeItem, LmsGradeEntry, LmsGradingScale, LmsPost,
             report:lms_course_completion, report:lms_quiz_scores, report:lms_learner_progress, report:lms_overdue_assignments, report:lms_training_status, report:lms_programme_status, report:lms_team_training]
 
 roles:
@@ -41,6 +41,7 @@ roles:
       - {entity: LmsGradingScale, read: true, write: true, create: true, delete: true}
       - {entity: LmsGradeItem, read: true, write: true, create: true, delete: true, export: true}
       - {entity: LmsGradeEntry, read: true, write: true, create: true, delete: true, export: true}
+      - {entity: LmsPost, read: true, write: true, export: true}
   - name: Instructor
     description: Builds the courses they teach (chapters, lessons, question banks, quizzes, assignments, cohorts), enrols learners in them, grades submissions and follows progress. Give the user LmsCourse scopes to limit what they see to some courses.
     permissions:
@@ -68,6 +69,7 @@ roles:
       - {entity: LmsGradingScale, read: true}
       - {entity: LmsGradeItem, read: true, write: true, create: true, delete: true, export: true}
       - {entity: LmsGradeEntry, read: true, write: true, create: true, delete: true, export: true}
+      - {entity: LmsPost, read: true, write: true}
   - name: Learner
     description: Takes courses — enrols in published courses, works through lessons, attempts quizzes, submits assignments and earns certificates — and sees only their own enrolments, progress, attempts, submissions and certificates.
     permissions:
@@ -111,6 +113,28 @@ personal_data:
   - {entity: LmsAssignmentSubmission, match: learner, erase: [learner, learner_name, answer, feedback]}
   - {entity: LmsCertificate, match: learner, erase: [learner, learner_name]}
   - {entity: LmsGradeEntry, match: learner, erase: [learner, learner_name, comment]}
+  - {entity: LmsPost, match: author, erase: [author, author_name, body, report_reason]}
+messages:
+  - key: lms.discussion_reply
+    label: A reply in a discussion you follow
+    entity: LmsPost
+    category: operational
+    channels: [inapp, email]
+    values: [thread_title, course_title]
+    languages:
+      en:
+        email: {subject: "New reply: {{ values.thread_title }}", body: "<p>{{ doc.author_name }} replied in {{ values.thread_title }} ({{ values.course_title }}).</p>"}
+        inapp: {title: "New reply: {{ values.thread_title }}", text: "{{ doc.author_name }} replied in {{ values.course_title }}"}
+  - key: lms.post_reported
+    label: A discussion post was reported
+    entity: LmsPost
+    category: operational
+    channels: [inapp, email]
+    values: [course_title, reason]
+    languages:
+      en:
+        email: {subject: "Post reported in {{ values.course_title }}", body: "<p>A post by {{ doc.author_name }} was reported: {{ values.reason }}</p>"}
+        inapp: {title: "Post reported in {{ values.course_title }}", text: "{{ values.reason }}"}
 handover:
   - {entity: LmsCourse, field: instructors.instructor, where: {status: [Draft, Published]}}
   - {entity: LmsCohort, field: instructors.instructor}
