@@ -110,7 +110,7 @@ impl DocHook for EnrollmentHook {
                 let by_learner = self_paced(s(&l, "lesson_type").unwrap_or_default())
                     || (s(&l, "lesson_type") == Some("LTI") && crate::lti::learner_marks_done(hc.tx, ctx.tenant, &l).await?);
                 if !author && !by_learner {
-                    return Err(Error::invalid("quiz lessons are completed by passing the quiz, assignment lessons by a passing submission".to_string()));
+                    return Err(Error::invalid("quiz lessons are completed by passing the quiz, assignment lessons by a passing submission, live lessons by attending the live session".to_string()));
                 }
                 let via = if own && !author { "Learner" } else { "Instructor" };
                 record_completion(k, ctx, hc.tx, me, lesson, via).await?
@@ -663,6 +663,7 @@ pub async fn open_lesson(k: &Kernel, ctx: &Ctx, tx: &mut Tx, enrollment: Option<
         Some("SCORM") => out["scorm"] = crate::scorm::player(ctx, tx, &l, enrollment).await?,
         Some("xAPI") => out["xapi"] = crate::xapi::player(ctx, tx, &l, enrollment).await?,
         Some("LTI") => out["lti"] = crate::lti::player(k, ctx, tx, &l).await?,
+        Some("Live") => out["live"] = crate::live::for_lesson(k, ctx, tx, lesson, enrollment).await?,
         _ => {}
     }
     let Some(e) = enrollment else { return Ok(out) };

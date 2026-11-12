@@ -98,13 +98,13 @@
   module: learn
   title_field: title
   unique: [[quiz], [assignment]]
-  description: "A step of a course. Articles, videos and documents are completed by marking them done; quiz lessons when the quiz is passed; assignment lessons when the submission passes; SCORM and xAPI lessons when their package says completed or passed; LTI lessons when their tool sends a completed score (or the learner marks them done, when it sends none)."
+  description: "A step of a course. Articles, videos and documents are completed by marking them done; quiz lessons when the quiz is passed; assignment lessons when the submission passes; SCORM and xAPI lessons when their package says completed or passed; LTI lessons when their tool sends a completed score (or the learner marks them done, when it sends none); live lessons when the learner attends the live session of a cohort that names the lesson."
   fields:
     - {name: title, type: data, required: true, max_length: 200, in_list: true}
     - {name: chapter, type: link, to: LmsChapter, required: true, in_list: true, in_filter: true}
     - {name: course, type: link, to: LmsCourse, read_only: true, in_filter: true, description: "The chapter's course"}
     - {name: position, type: int, min: 0, max: 100000, in_list: true, description: "Order in the chapter; the next free position when empty"}
-    - {name: lesson_type, type: select, label: Type, options: [Article, Video, Document, Quiz, Assignment, SCORM, xAPI, LTI], required: true, default: Article, in_list: true, in_filter: true}
+    - {name: lesson_type, type: select, label: Type, options: [Article, Video, Document, Quiz, Assignment, SCORM, xAPI, LTI, Live], required: true, default: Article, in_list: true, in_filter: true}
     - {name: content, type: markdown, max_length: 500000}
     - {name: video_url, type: url, label: Video URL, required_if: "doc.lesson_type == 'Video'", description: "https link on YouTube, Vimeo, Loom, Wistia, Google Drive or a host allowed in Learn Settings"}
     - {name: video_embed_url, type: url, label: Embed URL, read_only: true, no_copy: true}
@@ -169,7 +169,11 @@
     - {name: title, type: data, required: true, max_length: 200, in_list: true}
     - {name: starts_at, type: datetime, required: true, in_list: true}
     - {name: duration_minutes, type: int, required: true, default: 60, min: 5, max: 1440, in_list: true}
-    - {name: join_url, type: url, label: Join Link, max_length: 1000, in_list: true, description: "https link of the meeting; shown to cohort members only"}
+    - {name: join_url, type: url, label: Join Link, max_length: 1000, in_list: true, description: "https link of the meeting; shown to cohort members only. Empty: when the workspace has Mail, Chat and Calendar with a meeting server, the session gets a meeting of its own and members get their join link"}
+    - {name: instructor, type: email, label: Host, description: "Hosts the meeting; the cohort's first instructor when empty"}
+    - {name: lesson, type: link, to: LmsLesson, label: Lesson Credited, description: "A lesson of type Live in this cohort's course: learners who attend get it done"}
+    - {name: credit_percent, type: int, label: Attendance Needed (%), default: 50, min: 0, max: 100, description: "Share of the session a learner must be in the meeting to count as attending (meeting attendance only)"}
+    - {name: meeting, type: data, read_only: true, hidden: true, no_copy: true, max_length: 64}
     - {name: notes, type: text, max_length: 2000}
 
 - name: LmsCohort
@@ -203,6 +207,19 @@
         - {name: duration_minutes, type: int, label: Length (Minutes), description: "60 when empty"}
         - {name: title, type: data, label: Title, description: "Live session when empty; numbered when there are several"}
         - {name: join_url, type: data, label: Join Link, description: "An https:// link to the meeting"}
+    - name: mark_attendance
+      label: Mark Attendance
+      permission: write
+      params:
+        - {name: session, type: data, label: Session, required: true, description: "The id of the live session"}
+        - {name: learner, type: data, label: Learner, required: true, description: "The learner's email"}
+        - {name: attended, type: check, label: Attended, description: "Yes when not given"}
+        - {name: minutes, type: int, label: Minutes, description: "How long they were there, when known"}
+    - name: session_attendance
+      label: Session Attendance
+      permission: write
+      params:
+        - {name: session, type: data, label: Session, required: true, description: "The id of the live session"}
   list: {columns: [title, course, start_date, end_date, capacity], sort: start_date desc}
 
 - name: LmsLtiTool
