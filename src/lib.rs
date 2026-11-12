@@ -60,6 +60,7 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("LmsLearningPath", Arc::new(catalog::PathHook))
         .register("LmsCohort", Arc::new(cohort::CohortHook))
         .register("LmsEnrollmentRule", Arc::new(rules::RuleHook))
+        .register("LmsProgramme", Arc::new(rules::ProgrammeHook))
         .register("LmsQuiz", Arc::new(quiz::QuizHook))
         .register("LmsQuestion", Arc::new(quiz::QuestionHook))
         .register("LmsQuizAttempt", Arc::new(quiz::AttemptHook))

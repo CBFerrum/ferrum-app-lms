@@ -306,7 +306,7 @@ pub const STATES: [&str; 5] = ["Not Started", "In Progress", "Completed", "Overd
 fn state_totals(rows: &[Value]) -> Value {
     let count = |st: &str| rows.iter().filter(|r| r["state"] == json!(st)).count() as i64;
     let live = rows.len() as i64 - count("Withdrawn");
-    json!({"enrolments": live, "not_started": count("Not Started"), "in_progress": count("In Progress"), "completed": count("Completed"),
+    json!({"enrolments": live, "not_enrolled": count("Not Enrolled"), "not_started": count("Not Started"), "in_progress": count("In Progress"), "completed": count("Completed"),
            "overdue": count("Overdue"), "completion_rate": pct(count("Completed"), live)})
 }
 
@@ -368,6 +368,48 @@ async fn training_status(ctx: &Ctx, p: &Params<'_>, tx: &mut Tx) -> Result<Value
               "meta": {"as_of": as_of, "note": "Overdue: not completed and past its due date. Withdrawn enrolments are left out of the totals."}}))
 }
 
+/// A programme's audience against its courses: each person and course with the state and dates of the
+/// latest enrolment, and, for LMS managers, the pairs nobody has enrolled yet (the upkeep has not run, or
+/// the course is not open). The completion rate counts those among the people who owe the training.
+async fn programme_status(k: &Kernel, ctx: &Ctx, p: &Params<'_>, tx: &mut Tx) -> Result<Value> {
+    let as_of = p.date("as_of")?.unwrap_or_else(today);
+    let programme = p.uuid("programme")?.ok_or_else(|| Error::field("programme", "choose a programme"))?;
+    let doc = crate::util::load(k, ctx, tx, "LmsProgramme", programme).await?;
+    let mut qb = training_query(ctx, as_of, ", a.course", "")?;
+    qb.push(" and a.programme = ").push_bind(programme);
+    qb.push(
+        " and coalesce(a.cycle, 1) = (select max(coalesce(x.cycle, 1)) from e_lms_enrollment x \
+          where x.tenant_id = a.tenant_id and x.course = a.course and x.learner = a.learner)",
+    );
+    qb.push(" order by lower(coalesce(a.learner_name, a.learner)), co.title limit 10000");
+    let found = qb.build().fetch_all(&mut **tx).await?;
+    let mut have = std::collections::HashSet::new();
+    let mut rows = Vec::with_capacity(found.len());
+    for r in &found {
+        use sqlx::Row;
+        have.insert((r.try_get::<String, _>("learner")?.to_lowercase(), r.try_get::<Uuid, _>("course")?));
+        rows.push(training_row(r, as_of)?);
+    }
+    if crate::util::is_manager(ctx) {
+        let people = crate::rules::audience(k, ctx, tx, programme).await?;
+        let names: HashMap<String, String> = crate::util::users(tx, ctx.tenant, &people).await?.into_iter().map(|u| (u.email.clone(), u.name())).collect();
+        for person in &people {
+            for c in crate::util::rows(&doc, "courses") {
+                let Some(course) = crate::util::id(&c, "course") else { continue };
+                if have.contains(&(person.clone(), course)) {
+                    continue;
+                }
+                let title = crate::util::load(k, ctx, tx, "LmsCourse", course).await.ok().and_then(|c| crate::util::s(&c, "title").map(str::to_string));
+                rows.push(json!({"learner": person, "learner_name": names.get(person), "course_title": title, "state": "Not Enrolled"}));
+            }
+        }
+        rows.sort_by_key(|r| (r["learner_name"].as_str().or(r["learner"].as_str()).unwrap_or_default().to_lowercase(), r["course_title"].to_string()));
+    }
+    Ok(json!({"columns": training_columns(), "totals": state_totals(&rows), "rows": rows,
+              "meta": {"as_of": as_of, "programme": crate::util::s(&doc, "programme_name"),
+                       "note": "The latest enrolment of each person in each course of the programme. Completion rate: completed of all who owe the training, those not enrolled yet included."}}))
+}
+
 #[async_trait]
 impl ReportSource for LearnReports {
     fn catalog(&self) -> Vec<Value> {
@@ -407,6 +449,15 @@ impl ReportSource for LearnReports {
                 ],
             ),
             entry(
+                "lms_programme_status",
+                "Programme Status",
+                "LmsEnrollment",
+                vec![
+                    json!({"name": "programme", "label": "Programme", "type": "link", "to": "LmsProgramme", "required": true}),
+                    json!({"name": "as_of", "label": "As Of", "type": "date", "default": "today"}),
+                ],
+            ),
+            entry(
                 "lms_overdue_assignments",
                 "Overdue Assignments",
                 "LmsEnrollment",
@@ -423,6 +474,7 @@ impl ReportSource for LearnReports {
             "lms_quiz_scores" => quiz_scores(ctx, &p, &mut tx).await,
             "lms_learner_progress" => learner_progress(ctx, &p, &mut tx).await,
             "lms_training_status" => training_status(ctx, &p, &mut tx).await,
+            "lms_programme_status" => programme_status(k, ctx, &p, &mut tx).await,
             "lms_overdue_assignments" => overdue(ctx, &p, &mut tx).await,
             _ => Err(Error::NotFound(format!("report {name}"))),
         };
