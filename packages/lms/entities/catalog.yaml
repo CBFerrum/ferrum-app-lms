@@ -14,6 +14,7 @@
     - {name: due_reminder_days, type: int, label: Remind Before Due (Days), default: 3, min: 0, max: 365, description: "A learner is reminded once, this many days before an enrolment is due; 0 = never. A course can say its own"}
     - {name: overdue_reminder_days, type: int, label: Remind After Due (Days), default: 1, min: 0, max: 365, description: "A learner is reminded once, this many days after an enrolment fell due and is still not completed; 0 = never. A course can say its own"}
     - {name: recertify_before_days, type: int, label: Re-enrol Before Expiry (Days), default: 30, min: 0, max: 3650, description: "A learner whose certificate expires within this many days is enrolled again, due on the day it expires; 0 = never. A course can say its own"}
+    - {name: video_max_mb, type: int, label: Largest Video (MB), default: 2048, min: 1, max: 102400, description: "Uploaded lesson videos may be at most this large"}
     - {name: allow_packages, type: check, label: Allow SCORM and xAPI Packages, description: "Instructors may make lessons of SCORM 1.2, SCORM 2004 and xAPI packages. A package's scripts run in Learn with the learner's session, as course content does in other LMSs: allow them only when you trust your instructors' packages"}
 
 - name: LmsCategory
@@ -70,6 +71,9 @@
     - {name: due_days, type: int, label: Due (Days After Enrolment), min: 0, max: 3650, description: "An enrolment is due this many days after it is made; empty or 0 = no due date unless one is set"}
     - {name: due_reminder_days, type: int, label: Remind Before Due (Days), min: 0, max: 365, description: "Empty: as in Learn Settings; 0 = never"}
     - {name: overdue_reminder_days, type: int, label: Remind After Due (Days), min: 0, max: 365, description: "Empty: as in Learn Settings; 0 = never"}
+    - {name: grade_categories, type: table, of: LmsGradeCategory, description: "Weighted categories of the gradebook; none: the total is all points earned over all points possible"}
+    - {name: grading_scale, type: link, to: LmsGradingScale, description: "Turns the course total into a letter or band"}
+    - {name: min_grade_percent, type: percent, precision: 2, min: "0", max: "100", label: Minimum Total to Complete (%), description: "Completing (and the certificate) also needs this course total; empty: every required lesson done is enough"}
     - {name: published_at, type: datetime, read_only: true, no_copy: true}
     - {name: lesson_count, type: int, label: Lessons, read_only: true, no_copy: true, in_list: true}
     - {name: total_minutes, type: int, label: Duration (Minutes), read_only: true, no_copy: true}
@@ -78,6 +82,7 @@
     - {label: Description, fields: [description]}
     - {label: Teaching, fields: [instructors, prerequisites, estimated_hours, self_enrollment, issue_certificate]}
     - {label: Deadlines, fields: [due_days, due_reminder_days, overdue_reminder_days, certificate_valid_days, recertify_before_days]}
+    - {label: Grades, collapsible: true, fields: [grade_categories, grading_scale, min_grade_percent]}
     - {label: Statistics, collapsible: true, fields: [published_at, lesson_count, total_minutes]}
   actions:
     - name: enroll_learners
@@ -87,6 +92,30 @@
       params:
         - {name: learners, type: text, label: Learners, required: true, description: "Their emails, one a line or separated by commas"}
         - {name: cohort, type: link, to: LmsCohort, label: Cohort, description: "Into this cohort of the course; none when empty"}
+    # The course's discussion, for its enrolled learners and instructors (Learn's pages send these).
+    - name: discuss
+      label: Post in the Discussion
+      permission: read
+      hidden: true
+      params:
+        - {name: thread, type: data, label: Thread, description: "The thread to reply in; empty: a new thread"}
+        - {name: lesson, type: data, label: Lesson, description: "A new thread in this lesson's discussion"}
+        - {name: title, type: data, label: Title, description: "A new thread's title"}
+        - {name: body, type: text, label: Post, required: true}
+    - name: follow
+      label: Follow a Thread
+      permission: read
+      hidden: true
+      params:
+        - {name: thread, type: data, label: Thread, required: true}
+        - {name: follow, type: check, label: Follow, description: "Unticked: stop following"}
+    - name: report_post
+      label: Report a Post
+      permission: read
+      hidden: true
+      params:
+        - {name: post, type: data, label: Post, required: true}
+        - {name: reason, type: text, label: Reason, required: true}
   list: {columns: [title, status, visibility, category, lesson_count], sort: title asc}
 
 - name: LmsChapter
@@ -115,7 +144,11 @@
     - {name: position, type: int, min: 0, max: 100000, in_list: true, description: "Order in the chapter; the next free position when empty"}
     - {name: lesson_type, type: select, label: Type, options: [Article, Video, Document, Quiz, Assignment, SCORM, xAPI, LTI, Live], required: true, default: Article, in_list: true, in_filter: true}
     - {name: content, type: markdown, max_length: 500000}
-    - {name: video_url, type: url, label: Video URL, required_if: "doc.lesson_type == 'Video'", description: "https link on YouTube, Vimeo, Loom, Wistia, Google Drive or a host allowed in Learn Settings"}
+    - {name: video_url, type: url, label: Video URL, required_if: "doc.lesson_type == 'Video' && doc.video_file == null", description: "https link on YouTube, Vimeo, Loom, Wistia, Google Drive or a host allowed in Learn Settings; or upload the video"}
+    - {name: video_file, type: attach, label: Video File, visible_if: "doc.lesson_type == 'Video'", description: "A video uploaded with /api/files, played from the workspace's storage to enrolled learners only (up to the size in Learn Settings)"}
+    - {name: captions_file, type: attach, label: Captions, visible_if: "doc.video_file != null", description: "A WebVTT (.vtt) text track for the video"}
+    - {name: video_seconds, type: int, label: Video Length (Seconds), min: 1, max: 86400, visible_if: "doc.video_file != null", description: "How long the video runs; the lesson's minutes when empty"}
+    - {name: watch_percent, type: int, label: Watched to Complete (%), min: 1, max: 100, visible_if: "doc.video_file != null", description: "The lesson completes once the learner has watched this share of it; empty: they mark it done"}
     - {name: video_embed_url, type: url, label: Embed URL, read_only: true, no_copy: true}
     - {name: attachment, type: attach, label: File, required_if: "doc.lesson_type == 'Document'", description: "A PDF or other file uploaded with /api/files"}
     - {name: quiz, type: link, to: LmsQuiz, required_if: "doc.lesson_type == 'Quiz'", visible_if: "doc.lesson_type == 'Quiz'"}
@@ -138,7 +171,7 @@
     - {name: package_lessons_only, check: "doc.lesson_type == 'SCORM' || doc.lesson_type == 'xAPI' || doc.package_file == null", message: "Only SCORM and xAPI lessons hold a package"}
   form:
     - {label: Lesson, fields: [title, chapter, course, position, lesson_type, duration_minutes, is_preview, required]}
-    - {label: Content, fields: [content, video_url, video_embed_url, attachment, quiz, assignment, package_file, package_standard, package_launch, package_activity, package_mastery_score, lti_tool, lti_target_url, lti_custom]}
+    - {label: Content, fields: [content, video_url, video_embed_url, video_file, captions_file, video_seconds, watch_percent, attachment, quiz, assignment, package_file, package_standard, package_launch, package_activity, package_mastery_score, lti_tool, lti_target_url, lti_custom]}
   list: {columns: [title, chapter, lesson_type, position, required], sort: position asc}
 
 - name: LmsLearningPathCourse

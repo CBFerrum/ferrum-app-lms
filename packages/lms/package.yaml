@@ -1,5 +1,5 @@
 package: lms
-version: 0.4.0
+version: 0.5.0
 label: Learn
 description: Learning management — courses with chapters and lessons, learning paths, cohorts with live sessions, question banks and timed quizzes, graded assignments, enrolments with server-computed progress, certificates that can expire and be recertified, due dates, enrolment rules, training programmes and a manager's team report, with public verification and a public course catalog.
 depends: [core]
@@ -9,8 +9,8 @@ modules:
     label: Learn
     icon: graduation-cap
     order: 55
-    items: [LmsCourse, LmsChapter, LmsLesson, LmsQuiz, LmsQuestion, LmsAssignment, LmsLearningPath, LmsCohort, LmsEnrollment, LmsLessonProgress, LmsPackageProgress,
-            LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsLtiTool, LmsSettings, LmsEnrollmentRule, LmsProgramme,
+    items: [LmsCourse, LmsChapter, LmsLesson, LmsQuiz, LmsQuestion, LmsQuestionCategory, LmsRubric, LmsAssignment, LmsLearningPath, LmsCohort, LmsEnrollment, LmsLessonProgress, LmsPackageProgress,
+            LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsLtiTool, LmsSettings, LmsEnrollmentRule, LmsProgramme, LmsGradeItem, LmsGradeEntry, LmsGradingScale, LmsPost,
             report:lms_course_completion, report:lms_quiz_scores, report:lms_learner_progress, report:lms_overdue_assignments, report:lms_training_status, report:lms_programme_status, report:lms_team_training]
 
 roles:
@@ -27,6 +27,8 @@ roles:
       - {entity: LmsLesson, read: true, write: true, create: true, delete: true, export: true, import: true}
       - {entity: LmsQuiz, read: true, write: true, create: true, delete: true, export: true}
       - {entity: LmsQuestion, read: true, write: true, create: true, delete: true, export: true, import: true}
+      - {entity: LmsQuestionCategory, read: true, write: true, create: true, delete: true, export: true, import: true}
+      - {entity: LmsRubric, read: true, write: true, create: true, delete: true, export: true}
       - {entity: LmsAssignment, read: true, write: true, create: true, delete: true, export: true}
       - {entity: LmsLearningPath, read: true, write: true, create: true, delete: true}
       - {entity: LmsCohort, read: true, write: true, create: true, delete: true, export: true}
@@ -36,6 +38,10 @@ roles:
       - {entity: LmsQuizAttempt, read: true, write: true, delete: true, export: true}
       - {entity: LmsAssignmentSubmission, read: true, write: true, delete: true, export: true}
       - {entity: LmsCertificate, read: true, write: true, export: true}
+      - {entity: LmsGradingScale, read: true, write: true, create: true, delete: true}
+      - {entity: LmsGradeItem, read: true, write: true, create: true, delete: true, export: true}
+      - {entity: LmsGradeEntry, read: true, write: true, create: true, delete: true, export: true}
+      - {entity: LmsPost, read: true, write: true, export: true}
   - name: Instructor
     description: Builds the courses they teach (chapters, lessons, question banks, quizzes, assignments, cohorts), enrols learners in them, grades submissions and follows progress. Give the user LmsCourse scopes to limit what they see to some courses.
     permissions:
@@ -48,6 +54,8 @@ roles:
       - {entity: LmsLesson, read: true, write: true, create: true, delete: true}
       - {entity: LmsQuiz, read: true, write: true, create: true, delete: true}
       - {entity: LmsQuestion, read: true, write: true, create: true, delete: true, import: true}
+      - {entity: LmsQuestionCategory, read: true, write: true, create: true}
+      - {entity: LmsRubric, read: true, write: true, create: true, delete: true}
       - {entity: LmsAssignment, read: true, write: true, create: true, delete: true}
       - {entity: LmsLearningPath, read: true, create: true}
       - {entity: LmsLearningPath, write: true, delete: true, if_owner: true}
@@ -58,12 +66,33 @@ roles:
       - {entity: LmsQuizAttempt, read: true, write: true, export: true}
       - {entity: LmsAssignmentSubmission, read: true, write: true, export: true}
       - {entity: LmsCertificate, read: true}
+      - {entity: LmsGradingScale, read: true}
+      - {entity: LmsGradeItem, read: true, write: true, create: true, delete: true, export: true}
+      - {entity: LmsGradeEntry, read: true, write: true, create: true, delete: true, export: true}
+      - {entity: LmsPost, read: true, write: true}
   - name: Learner
     description: Takes courses — enrols in published courses, works through lessons, attempts quizzes, submits assignments and earns certificates — and sees only their own enrolments, progress, attempts, submissions and certificates.
     permissions:
       - {entity: LmsCategory, read: true}
       - {entity: LmsCourse, read: true}
       - {entity: LmsLearningPath, read: true}
+      - {entity: LmsEnrollment, read: true, create: true, if_owner: true}
+      - {entity: LmsLessonProgress, read: true, if_owner: true}
+      - {entity: LmsPackageProgress, read: true, if_owner: true}
+      - {entity: LmsQuizAttempt, read: true, if_owner: true}
+      - {entity: LmsAssignmentSubmission, read: true, create: true, write: true, if_owner: true}
+      - {entity: LmsCertificate, read: true, if_owner: true}
+  # People outside the workspace who signed themselves up on a course page (docs/builder/portal.md):
+  # their own enrolments, progress, attempts, submissions and certificates, the published catalog,
+  # nothing of other learners and nothing of course administration. Lessons, quizzes and assignments
+  # reach them only through Learn's own pages, which check their enrolment.
+  - name: Online Learner
+    portal: true
+    description: Someone outside the workspace who signed up on a course page to take courses - sees only their own enrolments, progress, attempts, submissions and certificates.
+    permissions:
+      - {entity: LmsCategory, read: true}
+      - {entity: LmsCourse, read: true, where: {status: [Published, Archived], visibility: Public}}
+      - {entity: LmsLearningPath, read: true, where: {status: Published}}
       - {entity: LmsEnrollment, read: true, create: true, if_owner: true}
       - {entity: LmsLessonProgress, read: true, if_owner: true}
       - {entity: LmsPackageProgress, read: true, if_owner: true}
@@ -83,6 +112,29 @@ personal_data:
   - {entity: LmsQuizAttempt, match: learner, erase: [learner, learner_name]}
   - {entity: LmsAssignmentSubmission, match: learner, erase: [learner, learner_name, answer, feedback]}
   - {entity: LmsCertificate, match: learner, erase: [learner, learner_name]}
+  - {entity: LmsGradeEntry, match: learner, erase: [learner, learner_name, comment]}
+  - {entity: LmsPost, match: author, erase: [author, author_name, body, report_reason]}
+messages:
+  - key: lms.discussion_reply
+    label: A reply in a discussion you follow
+    entity: LmsPost
+    category: operational
+    channels: [inapp, email]
+    values: [thread_title, course_title]
+    languages:
+      en:
+        email: {subject: "New reply: {{ values.thread_title }}", body: "<p>{{ doc.author_name }} replied in {{ values.thread_title }} ({{ values.course_title }}).</p>"}
+        inapp: {title: "New reply: {{ values.thread_title }}", text: "{{ doc.author_name }} replied in {{ values.course_title }}"}
+  - key: lms.post_reported
+    label: A discussion post was reported
+    entity: LmsPost
+    category: operational
+    channels: [inapp, email]
+    values: [course_title, reason]
+    languages:
+      en:
+        email: {subject: "Post reported in {{ values.course_title }}", body: "<p>A post by {{ doc.author_name }} was reported: {{ values.reason }}</p>"}
+        inapp: {title: "Post reported in {{ values.course_title }}", text: "{{ values.reason }}"}
 handover:
   - {entity: LmsCourse, field: instructors.instructor, where: {status: [Draft, Published]}}
   - {entity: LmsCohort, field: instructors.instructor}
