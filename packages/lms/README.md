@@ -32,7 +32,7 @@ an LMS manager).
 
 | Field | Meaning |
 |---|---|
-| `public_url` | Address the server is reached at from the internet (e.g. `https://erp.example.com`); certificates print `{public_url}/api/site/{tenant}/lms/certificates/{code}` as their verification link |
+| `public_url` | Address the server is reached at from the internet (e.g. `https://erp.example.com`); certificates print `{public_url}/api/site/{tenant}/lms/certificates/{code}` as their verification link. Empty: the platform's addresses, each from what calls it: the verification link (people follow it) and LTI's authorization endpoint (the learner's browser comes to it) through the operator's link host when there is one (`FERRUM_LINK_HOST`, `/go/{tenant}/p/…`), so they keep working when the workspace's address changes; LTI's issuer, keys, token endpoint and grade service, which a tool's server keeps and calls, at the hooks host (`FERRUM_HOOKS_HOST`, else the server's public address). With no address at all, there is none, as before |
 | `email_notifications` | Default on: also email people when the Mail app is installed |
 | `session_reminder_minutes` | Default 60 (5–10080): how long before a live session its reminder goes out |
 | `certificate_issuer` | Organization named on certificates (the workspace name when empty) |
@@ -119,7 +119,8 @@ an LMS manager).
   (`name=value` lines), `share_identity` (send names and emails), `sends_grades`, and its key for
   grades: `public_key` (RSA, PEM) or `jwks_url`. Learn sets `client_id`, `deployment_id` and the
   addresses to give the tool: `platform_issuer`, `platform_auth_url`, `platform_jwks_url`,
-  `platform_token_url` (from Learn Settings' public URL, which must be set first). LMS managers
+  `platform_token_url` (from Learn Settings' public URL, else the platform's addresses; a tool cannot be registered
+  with neither). LMS managers
   register tools; instructors read them to make LTI lessons.
 - **LmsPackageProgress** — a learner's run of a SCORM, xAPI or LTI lesson, one per enrolment and lesson:
   `status` (`Not Attempted`, `Browsed`, `Incomplete`, `Completed`, `Passed`, `Failed`),

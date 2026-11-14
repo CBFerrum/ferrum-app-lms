@@ -117,7 +117,13 @@ pub async fn issue(k: &Kernel, ctx: &Ctx, tx: &mut Tx, enrollment: &Doc, course:
     let settings = util::settings(tx, ctx.tenant).await?;
     let (slug, workspace) = util::workspace(tx, ctx.tenant).await?;
     let code = new_code();
-    let url = settings.public_url.as_ref().map(|base| format!("{base}/api/site/{slug}/{}/certificates/{code}", util::PACKAGE));
+    // Whoever the learner shows it to checks it there. Without Learn's own public URL, the platform's address for people
+    // outside, through the operator's link host when there is one, so it keeps working when the workspace's address changes.
+    let path = format!("/api/site/{slug}/{}/certificates/{code}", util::PACKAGE);
+    let url = match &settings.public_url {
+        Some(base) => Some(format!("{base}{path}")),
+        None => k.person_link(ctx.tenant, ferrum_kernel::notify::Audience::Outside, &path).await,
+    };
     let learner = s(enrollment, "learner").unwrap_or_default();
     let mut doc = Map::new();
     for (k_, v) in [

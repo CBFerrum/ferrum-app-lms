@@ -42,7 +42,7 @@ const TOKEN_SECONDS: i64 = 300;
 /// How long a tool's access token lasts.
 const ACCESS_SECONDS: i64 = 3600;
 
-/// The addresses a tool is registered with, from Learn Settings' public URL (`None` without one).
+/// The addresses a tool is registered with: under Learn Settings' public URL, or the platform's (`None` without either).
 pub struct Platform {
     pub issuer: String,
     pub auth_url: String,
@@ -50,16 +50,28 @@ pub struct Platform {
     pub token_url: String,
 }
 
-pub async fn platform(tx: &mut Tx, tenant: Uuid) -> Result<Option<Platform>> {
-    let Some(base) = util::settings(tx, tenant).await?.public_url else { return Ok(None) };
+/// Without Learn's own public URL, each address comes from what calls it. The tool's server fetches Learn's keys and
+/// posts for its tokens: those start where other services call back (`callback_base`, the hooks host when there is one),
+/// which takes posts and never moves with a workspace's address; the issuer, which nothing calls and a tool keeps for
+/// good, is that address too. The learner's browser comes to the authorization endpoint (a redirect, by GET) with the
+/// session it signed in with: a person's link (`person_link`), through the operator's link host when there is one, to
+/// the portal's host for people outside (where Learn's learners are), else the workspace's main host.
+pub async fn platform(k: &Kernel, tx: &mut Tx, tenant: Uuid) -> Result<Option<Platform>> {
     let (slug, _) = util::workspace(tx, tenant).await?;
-    let site = format!("{base}/api/site/{slug}/{}/lti", util::PACKAGE);
-    Ok(Some(Platform {
-        issuer: base.clone(),
-        auth_url: format!("{base}/api/app/{}/lti/auth", util::PACKAGE),
-        jwks_url: format!("{site}/jwks"),
-        token_url: format!("{site}/token"),
-    }))
+    let site = format!("/api/site/{slug}/{}/lti", util::PACKAGE);
+    let auth = format!("/api/app/{}/lti/auth", util::PACKAGE);
+    if let Some(base) = util::settings(tx, tenant).await?.public_url {
+        return Ok(Some(Platform {
+            issuer: base.clone(),
+            auth_url: format!("{base}{auth}"),
+            jwks_url: format!("{base}{site}/jwks"),
+            token_url: format!("{base}{site}/token"),
+        }));
+    }
+    let (Some(called), Some(auth_url)) = (k.settings.callback_base(), k.person_link(tenant, ferrum_kernel::notify::Audience::Outside, &auth).await) else {
+        return Ok(None);
+    };
+    Ok(Some(Platform { auth_url, jwks_url: format!("{called}{site}/jwks"), token_url: format!("{called}{site}/token"), issuer: called }))
 }
 
 /// Learn's signing key and its id: the settings' secret field, made on first use.
@@ -113,7 +125,7 @@ impl DocHook for ToolHook {
                 doc.insert(f.into(), json!(Uuid::now_v7().to_string()));
             }
         }
-        let p = platform(hc.tx, hc.ctx.tenant).await?;
+        let p = platform(hc.kernel, hc.tx, hc.ctx.tenant).await?;
         for (f, v) in [
             ("platform_issuer", p.as_ref().map(|p| p.issuer.clone())),
             ("platform_auth_url", p.as_ref().map(|p| p.auth_url.clone())),
@@ -142,7 +154,7 @@ impl DocHook for ToolHook {
         if util::b(doc, "sends_grades") && s(doc, "public_key").is_none() && s(doc, "jwks_url").is_none() {
             return Err(Error::field("public_key", "a tool that sends grades needs its public key or the address of its keys"));
         }
-        if platform(hc.tx, hc.ctx.tenant).await?.is_none() {
+        if platform(hc.kernel, hc.tx, hc.ctx.tenant).await?.is_none() {
             return Err(Error::field("tool_name", "set the Public URL in Learn Settings first: it is Learn's issuer to tools"));
         }
         Ok(())
@@ -211,7 +223,7 @@ fn target(l: &Launch) -> String {
 pub async fn start(k: &Kernel, ctx: &Ctx, lesson: Uuid) -> Result<SiteResponse> {
     let mut tx = k.db.tenant_tx(ctx.tenant).await?;
     let l = launch_of(k, ctx, &mut tx, lesson).await?;
-    let p = platform(&mut tx, ctx.tenant).await?.ok_or_else(|| Error::invalid("set the Public URL in Learn Settings to launch tools"))?;
+    let p = platform(k, &mut tx, ctx.tenant).await?.ok_or_else(|| Error::invalid("set the Public URL in Learn Settings to launch tools"))?;
     tx.commit().await?;
     let login = s(&l.tool, "login_url").ok_or_else(|| Error::invalid("this tool has no login address"))?;
     let mut url = url::Url::parse(login).map_err(|_| Error::invalid("this tool's login address is not a URL"))?;
@@ -281,7 +293,7 @@ pub async fn authorize(k: &Kernel, ctx: &Ctx, req: &SiteRequest) -> Result<SiteR
     if !allowed.iter().any(|u| u == redirect_uri) {
         return Err(invalid("the redirect_uri is not one of the tool's addresses"));
     }
-    let p = platform(&mut tx, ctx.tenant).await?.ok_or_else(|| Error::invalid("set the Public URL in Learn Settings to launch tools"))?;
+    let p = platform(k, &mut tx, ctx.tenant).await?.ok_or_else(|| Error::invalid("set the Public URL in Learn Settings to launch tools"))?;
     let (key, kid) = signing_key(k, ctx, &mut tx).await?;
     let claims = id_token_claims(&p, &l, ctx, nonce, &target(&l), &workspace_name(&mut tx, ctx.tenant).await?)?;
     tx.commit().await?;
@@ -366,7 +378,7 @@ pub async fn token(k: &Kernel, req: &SiteRequest) -> Result<SiteResponse> {
         .await?;
     let Some(tool) = tool else { return Ok(fail("invalid_client", "no tool here sends grades with this client id")) };
     let tool = load(k, &ctx, &mut tx, "LmsLtiTool", tool).await?;
-    let p = platform(&mut tx, req.tenant).await?.ok_or_else(|| Error::invalid("Learn has no public URL"))?;
+    let p = platform(k, &mut tx, req.tenant).await?.ok_or_else(|| Error::invalid("Learn has no public URL"))?;
     let key = match tool_key(k, &tool, unverified.header.kid.as_deref()).await {
         Ok(key) => key,
         Err(e) => return Ok(fail("invalid_client", &e.to_string())),
@@ -474,7 +486,7 @@ pub async fn ags(k: &Kernel, ctx: &Ctx, req: &SiteRequest, lesson: Uuid, rest: &
     if !util::b(&t, "sends_grades") {
         return Err(Error::Forbidden("this tool is not one that sends grades".into()));
     }
-    let p = platform(&mut tx, ctx.tenant).await?.ok_or_else(|| Error::invalid("Learn has no public URL"))?;
+    let p = platform(k, &mut tx, ctx.tenant).await?.ok_or_else(|| Error::invalid("Learn has no public URL"))?;
     let out = match (req.method.as_str(), rest) {
         ("GET", []) => {
             let mut r = SiteResponse::json(
