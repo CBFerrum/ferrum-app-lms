@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.2
+
+* **Addresses without a public URL of Learn's.** With Learn Settings' public URL empty, a certificate had no verification link and an LTI tool could not be registered. Each address now comes from the platform, by what calls it. A certificate's verification link, which people follow, and LTI's authorization endpoint, which the learner's browser is sent to by GET with the session it signed in with, go through the operator's link host when there is one (`FERRUM_LINK_HOST`, `https://{it}/go/{workspace}/p/…`), so they keep working when the workspace's address changes, and lead to the workspace's portal host when it has one (where Learn's learners sign in), else its main host. LTI's issuer, keys (`jwks`), token endpoint and grade service, which a tool's server keeps or calls (the token endpoint by POST, which the link host does not take), start where other services call back (`FERRUM_HOOKS_HOST`, else the server's public address), which never moves with a workspace's address. With the public URL set, nothing changes; with no address at all, there is none, as before. A tool registered before keeps the addresses it was given. No database change, no interface change.
+
 ## 0.9.1
 
 * **Erasure reaches the discussions.** Following a thread, reporting a post and removing one are declared personal data like the rest: erasing a person empties their follower rows on every thread, blanks their address as the reporter or remover of a post, and, with the posts they wrote, the thread titles they gave. Nothing else of the app held a discussion address.

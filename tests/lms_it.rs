@@ -3684,3 +3684,95 @@ async fn own_video() {
         1
     );
 }
+
+#[test]
+fn addresses_from_the_platform() {
+    let _db = DB.lock().unwrap_or_else(|e| e.into_inner());
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(16 << 20).build().unwrap();
+    rt.block_on(async { tokio::spawn(platform_addresses()).await.unwrap() });
+}
+
+/// With no public URL of Learn's, its addresses are the platform's, each from what calls it: a certificate's link, which
+/// people follow, and the authorization endpoint, which the learner's browser comes to, through the operator's link host;
+/// the issuer, keys and token endpoint a tool's server keeps and calls, at the hooks host. With Learn's own, as before.
+async fn platform_addresses() {
+    let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
+    let db = Db::connect(DbConfig { url, max_connections: 8, ..Default::default() }).await.expect("connect");
+    reset(&db).await;
+    let mut packages = ferrum_domain::packages().expect("platform packages");
+    packages.extend(ferrum_app_lms::packages().expect("app packages").into_iter().filter(|p| p.name() != "lms_payments"));
+    packages.push(mail_double());
+    let mut hooks = HookRegistry::default();
+    ferrum_domain::register(&mut hooks);
+    ferrum_app_lms::register(&mut hooks);
+    let named = KernelSettings {
+        public_url: Some("https://erp.learn.test".into()),
+        link_host: Some("go.learn.test".into()),
+        hooks_url: Some("https://hooks.learn.test".into()),
+        ..Default::default()
+    };
+    let k = Kernel::boot(db, Catalog::from_packages(packages).expect("catalog"), hooks, named, None).await.expect("boot");
+    k.set_file_store(Arc::new(MemFiles(Mutex::new(HashMap::new()))));
+    let tenant = k
+        .create_tenant(NewTenant {
+            slug: "learn".into(),
+            name: "Acme Academy".into(),
+            admin_email: "admin@learn.test".into(),
+            admin_password: PW.into(),
+            admin_name: None,
+            packages: vec!["lms".into()],
+            settings: None,
+        })
+        .await
+        .expect("tenant");
+    let session = k.login("learn", "admin@learn.test", PW).await.expect("login");
+    let admin = k.load_ctx(tenant, session.user, Some(session.token_version), "it".into()).await.expect("ctx");
+    let t = T { k: k.clone(), tenant, admin, site: k.hooks.site("lms").cloned().expect("site registered") };
+    let manager = t.user("manager@learn.test", "Mona Manager", "LMS Manager").await;
+    let teacher = t.user("teacher@learn.test", "Tara Teacher", "Instructor").await;
+    let asha = t.user("asha@learn.test", "Asha Rao", "Learner").await;
+
+    // A tool is given addresses by what calls them.
+    let lab = json!({"tool_name": "Rust Lab", "login_url": "https://lab.test/login", "launch_url": "https://lab.test/launch"});
+    let tool = t.insert(&manager, "LmsLtiTool", lab).await;
+    assert_eq!(
+        (tool["platform_issuer"].clone(), tool["platform_auth_url"].clone(), tool["platform_jwks_url"].clone(), tool["platform_token_url"].clone()),
+        (
+            json!("https://hooks.learn.test"),
+            json!("https://go.learn.test/go/learn/p/api/app/lms/lti/auth"),
+            json!("https://hooks.learn.test/api/site/learn/lms/lti/jwks"),
+            json!("https://hooks.learn.test/api/site/learn/lms/lti/token")
+        )
+    );
+
+    // A certificate's link goes through the link host.
+    let course = uid(&t
+        .insert(
+            &teacher,
+            "LmsCourse",
+            json!({"title": "Rust Basics", "visibility": "Public", "issue_certificate": true, "instructors": [{"instructor": "teacher@learn.test"}]}),
+        )
+        .await);
+    let chapter = uid(&t.insert(&teacher, "LmsChapter", json!({"course": course, "title": "Getting Started"})).await);
+    let lesson = uid(&t.insert(&teacher, "LmsLesson", json!({"chapter": chapter, "title": "Welcome", "content": "What we will build."})).await);
+    t.update(&teacher, "LmsCourse", course, json!({"status": "Published"})).await;
+    let enrolment = uid(&t.insert(&asha, "LmsEnrollment", json!({"course": course})).await);
+    t.act(&asha, "LmsEnrollment", enrolment, "complete_lesson", json!({"lesson": lesson})).await;
+    let certificate = t.get("LmsCertificate", vid(&t.get("LmsEnrollment", enrolment).await["certificate"])).await;
+    let code = certificate["verification_code"].as_str().unwrap();
+    assert_eq!(certificate["verification_url"], json!(format!("https://go.learn.test/go/learn/p/api/site/learn/lms/certificates/{code}")));
+
+    // With Learn's own address, as before.
+    let own = json!({"public_url": "https://academy.example"});
+    match t.list(&manager, "LmsSettings", json!({})).await.unwrap().first() {
+        Some(settings) => drop(t.update(&manager, "LmsSettings", uid(settings), own).await),
+        None => drop(t.insert(&manager, "LmsSettings", own).await),
+    }
+    let other = t
+        .insert(&manager, "LmsLtiTool", json!({"tool_name": "Reader", "login_url": "https://reader.test/login", "launch_url": "https://reader.test/launch"}))
+        .await;
+    assert_eq!(
+        (other["platform_issuer"].clone(), other["platform_auth_url"].clone()),
+        (json!("https://academy.example"), json!("https://academy.example/api/app/lms/lti/auth"))
+    );
+}

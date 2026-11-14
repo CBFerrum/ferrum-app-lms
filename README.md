@@ -7,7 +7,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.9.1-4f46e5?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.9.2-4f46e5?style=flat-square)](CHANGELOG.md)
 [![CI](https://github.com/CBFerrum/ferrum-app-lms/actions/workflows/ci.yml/badge.svg)](https://github.com/CBFerrum/ferrum-app-lms/actions/workflows/ci.yml)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
@@ -48,7 +48,7 @@ compliance training with due dates, and courses can be sold to people outside th
 
 | | |
 |---|---|
-| **Version** | 0.9.1 (Paid Courses connector 0.2.0) |
+| **Version** | 0.9.2 (Paid Courses connector 0.2.0) |
 | **Kind** | Its own interface at `/lms/`: course player, quiz player, catalog, teaching dashboards and a course builder; public catalog and certificate check; "My learning" on the portal. Other records use Ferrum's lists and forms |
 | **What it adds** | 45 record definitions: 27 records and 18 line tables, in 2 packages (Learn 42, Paid Courses 3); 4 roles (one for the portal); 7 reports; 1 print format (the certificate); 3 message templates; 1 menu |
 | **Depends on** | Ferrum platform `>=0.3.2, <0.4`. Learn needs nothing else. Paid Courses needs Commerce `>=0.7` |
@@ -513,6 +513,7 @@ feature, or a feature the vendor reaches through an integration. Moodle's and Ca
 
 ### ✅ Recently shipped
 
+- [x] **0.9.2** Certificates' links and LTI's addresses without a public URL of Learn's: the platform's, through the operator's link host or at its hooks host.
 - [x] **0.9.1** Erasure reaches discussions; a learner is told when manual grading of an attempt is finished.
 - [x] **0.9.0** Outside people sign up and buy (Online Learner); promotion codes, bundles and store refunds; six more question types, partial credit,
   negative marking, bank draws, grading by people with a second grader, rubrics; a gradebook; discussions; uploaded video.
