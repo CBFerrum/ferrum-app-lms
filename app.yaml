@@ -1,6 +1,6 @@
 id: lms
 name: Learn
-version: 0.9.2
+version: 0.9.3
 publisher: cbferrum
 summary: "Learning management: courses, lessons, quizzes, enrollments, progress, certificates and a public course catalog"
 description: README.md
@@ -9,7 +9,7 @@ license: AGPL-3.0-only
 homepage: https://github.com/CBFerrum/ferrum-app-lms
 support: https://github.com/CBFerrum/ferrum-app-lms/issues
 runtime: native
-platform: ">=0.3.2, <0.4"
+platform: ">=0.3.8, <0.4"
 packages: [lms]
 uninstall: ask
 # Its own interface at /lms/ (Ferrum docs/plan/apps-ui.md): the learner's course player and quiz

@@ -79,7 +79,7 @@ async fn signing_key(k: &Kernel, ctx: &Ctx, tx: &mut Tx) -> Result<(RsaPrivateKe
     let settings: Option<Uuid> =
         sqlx::query_scalar("select id from e_lms_settings where tenant_id = $1 limit 1 for update").bind(ctx.tenant).fetch_optional(&mut **tx).await?;
     if let Some(sid) = settings
-        && let Some(pem) = k.secret(tx, ctx.tenant, "LmsSettings", sid, "lti_private_key").await?
+        && let Some(pem) = crate::keys::field(k, tx, ctx.tenant, "LmsSettings", sid, "lti_private_key").await?
     {
         let key = RsaPrivateKey::from_pkcs8_pem(&pem).map_err(|_| Error::internal("Learn's LTI key cannot be read"))?;
         let kid = key_id(&key.to_public_key());

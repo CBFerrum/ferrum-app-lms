@@ -278,8 +278,9 @@ fn learn_end_to_end() {
 
 async fn scenario() {
     let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
-    let db = Db::connect(DbConfig { url, max_connections: 16, ..Default::default() }).await.expect("connect");
+    let db = Db::connect(DbConfig { url: url.clone(), max_connections: 16, ..Default::default() }).await.expect("connect");
     reset(&db).await;
+    ferrum_kernel::vault::open(&db, opener(&url), false).await.expect("the vault");
     let mut packages = ferrum_domain::packages().expect("platform packages");
     // Learn without its Commerce connector, which paid_courses_end_to_end tests.
     packages.extend(ferrum_app_lms::packages().expect("app packages").into_iter().filter(|p| p.name() != "lms_payments"));
@@ -287,7 +288,9 @@ async fn scenario() {
     let catalog = Catalog::from_packages(packages).expect("catalog");
     let mut hooks = HookRegistry::default();
     ferrum_domain::register(&mut hooks);
-    ferrum_app_lms::register(&mut hooks);
+    let lms_packages: Vec<String> = ferrum_app_lms::packages().unwrap().iter().map(|p| p.name().to_string()).collect();
+    hooks.app("lms", &lms_packages, ferrum_app_lms::register);
+    hooks.own("lms", &lms_packages);
     for source in ferrum_app_lms::reports() {
         ferrum_domain::reports::add_source(source);
     }
@@ -1203,9 +1206,15 @@ async fn paid() {
     let catalog = Catalog::from_packages(packages).expect("catalog");
     let mut hooks = HookRegistry::default();
     ferrum_domain::register(&mut hooks);
-    ferrum_app_erp::register(&mut hooks);
+    let erp_packages: Vec<String> = ferrum_app_erp::packages().unwrap().iter().map(|p| p.name().to_string()).collect();
+    hooks.app("erp", &[], ferrum_app_erp::register);
+    hooks.own("erp", &erp_packages);
     hooks.app("commerce", &[], ferrum_app_commerce::register);
-    ferrum_app_lms::register(&mut hooks);
+    let commerce_packages: Vec<String> = ferrum_app_commerce::packages().unwrap().iter().map(|p| p.name().to_string()).collect();
+    hooks.own("commerce", &commerce_packages);
+    let lms_packages: Vec<String> = ferrum_app_lms::packages().unwrap().iter().map(|p| p.name().to_string()).collect();
+    hooks.app("lms", &lms_packages, ferrum_app_lms::register);
+    hooks.own("lms", &lms_packages);
     let settings = KernelSettings { secret_key: Some(SecretKey::new([7u8; 32])), ..Default::default() };
     let k = Kernel::boot(db, catalog, hooks, settings, Some(Arc::new(NoMail))).await.expect("boot");
     ferrum_domain::maintenance(&k).await.expect("partitions");
@@ -1571,14 +1580,17 @@ const MANIFEST_2004: &str = r#"<?xml version="1.0"?>
 /// only, resumed from what the package saved, completed when the package says passed.
 async fn scorm() {
     let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
-    let db = Db::connect(DbConfig { url, max_connections: 16, ..Default::default() }).await.expect("connect");
+    let db = Db::connect(DbConfig { url: url.clone(), max_connections: 16, ..Default::default() }).await.expect("connect");
     reset(&db).await;
+    ferrum_kernel::vault::open(&db, opener(&url), false).await.expect("the vault");
     let mut packages = ferrum_domain::packages().expect("platform packages");
     packages.extend(ferrum_app_lms::packages().expect("app packages").into_iter().filter(|p| p.name() != "lms_payments"));
     let catalog = Catalog::from_packages(packages).expect("catalog");
     let mut hooks = HookRegistry::default();
     ferrum_domain::register(&mut hooks);
-    ferrum_app_lms::register(&mut hooks);
+    let lms_packages: Vec<String> = ferrum_app_lms::packages().unwrap().iter().map(|p| p.name().to_string()).collect();
+    hooks.app("lms", &lms_packages, ferrum_app_lms::register);
+    hooks.own("lms", &lms_packages);
     // LTI's signing key is a secret field: secrets need the kernel's key.
     let settings = KernelSettings { secret_key: Some(SecretKey::new([9u8; 32])), ..Default::default() };
     let k = Kernel::boot(db, catalog, hooks, settings, None).await.expect("boot");
@@ -1835,6 +1847,12 @@ async fn scorm() {
     assert_eq!(t.count("select count(*) from lms_xapi_statement where tenant_id = $1 and lesson = $2 and $3 <> ''", third, "x").await, before);
 
     lti(&t, &manager, &teacher, &asha, &ben, course, chapter, enrolment).await;
+    // Learn read its LTI key with its own handle: nothing past the vault, which the platform notes (`ferrum task
+    // legacy_key`) in the background.
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let past: Vec<_> =
+        t.k.legacy_key(vec![]).await.unwrap().uses.into_iter().filter(|u| u.0.starts_with("reader:") && u.1.starts_with("src/")).map(|u| u.1).collect();
+    assert!(past.is_empty(), "read past the vault: {past:?}");
 }
 
 /// An LTI 1.3 tool: registered, launched by OIDC with a signed id_token, sending a grade back with
@@ -2077,8 +2095,12 @@ async fn live_sessions() {
     let catalog = Catalog::from_packages(packages).expect("catalog");
     let mut hooks = HookRegistry::default();
     ferrum_domain::register(&mut hooks);
-    ferrum_app_lms::register(&mut hooks);
+    let lms_packages: Vec<String> = ferrum_app_lms::packages().unwrap().iter().map(|p| p.name().to_string()).collect();
+    hooks.app("lms", &lms_packages, ferrum_app_lms::register);
+    hooks.own("lms", &lms_packages);
     hooks.app("comms", &[], ferrum_app_comms::register);
+    let comms_packages: Vec<String> = ferrum_app_comms::packages().unwrap().iter().map(|p| p.name().to_string()).collect();
+    hooks.own("comms", &comms_packages);
     let k = Kernel::boot(db, catalog, hooks, KernelSettings::default(), None).await.expect("boot");
     ferrum_domain::maintenance(&k).await.expect("domain maintenance");
     let here: Arc<Mutex<Vec<Value>>> = Arc::default();
@@ -2394,15 +2416,18 @@ async fn boot_with(
 ) -> T {
     static REPORTS: std::sync::Once = std::sync::Once::new();
     let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
-    let db = Db::connect(DbConfig { url, max_connections: 16, ..Default::default() }).await.expect("connect");
+    let db = Db::connect(DbConfig { url: url.clone(), max_connections: 16, ..Default::default() }).await.expect("connect");
     reset(&db).await;
+    ferrum_kernel::vault::open(&db, opener(&url), false).await.expect("the vault");
     let mut packages = ferrum_domain::packages().expect("platform packages");
     packages.extend(ferrum_app_lms::packages().expect("app packages").into_iter().filter(|p| p.name() != "lms_payments"));
     packages.extend(extra);
     let catalog = Catalog::from_packages(packages).expect("catalog");
     let mut hooks = HookRegistry::default();
     ferrum_domain::register(&mut hooks);
-    ferrum_app_lms::register(&mut hooks);
+    let lms_packages: Vec<String> = ferrum_app_lms::packages().unwrap().iter().map(|p| p.name().to_string()).collect();
+    hooks.app("lms", &lms_packages, ferrum_app_lms::register);
+    hooks.own("lms", &lms_packages);
     register(&mut hooks);
     REPORTS.call_once(|| {
         for source in ferrum_app_lms::reports() {
@@ -2781,7 +2806,8 @@ async fn boot_hr(slug: &str) -> (T, Uuid) {
     let mut extra = ferrum_app_erp::packages().expect("ERP's packages");
     extra.extend(ferrum_app_hr::packages().expect("HR's packages"));
     let t = boot(slug, extra, &["hr"], |h| {
-        ferrum_app_erp::register(h);
+        h.app("erp", &[], ferrum_app_erp::register);
+        h.own("erp", &ferrum_app_erp::packages().unwrap().iter().map(|p| p.name().to_string()).collect::<Vec<_>>());
         ferrum_app_hr::register(h);
     })
     .await;
@@ -3699,14 +3725,17 @@ fn addresses_from_the_platform() {
 /// the issuer, keys and token endpoint a tool's server keeps and calls, at the hooks host. With Learn's own, as before.
 async fn platform_addresses() {
     let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
-    let db = Db::connect(DbConfig { url, max_connections: 8, ..Default::default() }).await.expect("connect");
+    let db = Db::connect(DbConfig { url: url.clone(), max_connections: 8, ..Default::default() }).await.expect("connect");
     reset(&db).await;
+    ferrum_kernel::vault::open(&db, opener(&url), false).await.expect("the vault");
     let mut packages = ferrum_domain::packages().expect("platform packages");
     packages.extend(ferrum_app_lms::packages().expect("app packages").into_iter().filter(|p| p.name() != "lms_payments"));
     packages.push(mail_double());
     let mut hooks = HookRegistry::default();
     ferrum_domain::register(&mut hooks);
-    ferrum_app_lms::register(&mut hooks);
+    let lms_packages: Vec<String> = ferrum_app_lms::packages().unwrap().iter().map(|p| p.name().to_string()).collect();
+    hooks.app("lms", &lms_packages, ferrum_app_lms::register);
+    hooks.own("lms", &lms_packages);
     let named = KernelSettings {
         public_url: Some("https://erp.learn.test".into()),
         link_host: Some("go.learn.test".into()),

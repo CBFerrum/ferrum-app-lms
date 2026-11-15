@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.3
+
+Learn reads its LTI signing key (Learn Settings' sealed `lti_private_key`) with its own handle on the vault, in the same transaction as before, instead of the platform's reader that any app could use, which is deprecated. It registers as itself (`hooks.app("lms", …)`) to be given that handle. Needs a platform with the vault's field reader (0.3.8 on the platform's main from cdec881). Launches and their keys work as before; while the vault is closed a launch refuses plainly. No database or interface change.
+
 ## 0.9.2
 
 * **Addresses without a public URL of Learn's.** With Learn Settings' public URL empty, a certificate had no verification link and an LTI tool could not be registered. Each address now comes from the platform, by what calls it. A certificate's verification link, which people follow, and LTI's authorization endpoint, which the learner's browser is sent to by GET with the session it signed in with, go through the operator's link host when there is one (`FERRUM_LINK_HOST`, `https://{it}/go/{workspace}/p/…`), so they keep working when the workspace's address changes, and lead to the workspace's portal host when it has one (where Learn's learners sign in), else its main host. LTI's issuer, keys (`jwks`), token endpoint and grade service, which a tool's server keeps or calls (the token endpoint by POST, which the link host does not take), start where other services call back (`FERRUM_HOOKS_HOST`, else the server's public address), which never moves with a workspace's address. With the public URL set, nothing changes; with no address at all, there is none, as before. A tool registered before keeps the addresses it was given. No database change, no interface change.
