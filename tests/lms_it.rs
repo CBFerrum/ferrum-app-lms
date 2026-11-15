@@ -89,7 +89,7 @@ async fn reset(db: &Db) {
         let drop = format!("drop table if exists {} cascade", names.join(", "));
         sqlx::raw_sql(sqlx::AssertSqlSafe(drop)).execute(&db.pool).await.expect("drop tables");
     }
-    sqlx::raw_sql("drop schema if exists public cascade; create schema public;").execute(&db.pool).await.expect("reset");
+    sqlx::raw_sql("drop schema if exists vault cascade; drop schema if exists public cascade; create schema public;").execute(&db.pool).await.expect("reset");
 }
 
 /// Uploaded files in memory (the server gives the kernel S3 or a disk).
@@ -1192,8 +1192,9 @@ fn paid_courses_end_to_end() {
 /// within the 14 days, bought again, kept when they withdraw later; an unpaid purchase lapses.
 async fn paid() {
     let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
-    let db = Db::connect(DbConfig { url, max_connections: 24, ..Default::default() }).await.expect("connect");
+    let db = Db::connect(DbConfig { url: url.clone(), max_connections: 24, ..Default::default() }).await.expect("connect");
     reset(&db).await;
+    ferrum_kernel::vault::open(&db, opener(&url), false).await.expect("the vault");
     let mut packages = ferrum_domain::packages().expect("platform packages");
     packages.extend(ferrum_app_erp::packages().expect("ERP's packages"));
     // Commerce's own packages (its Store Subscriptions connector needs Finance, which this test leaves out).
@@ -1203,7 +1204,7 @@ async fn paid() {
     let mut hooks = HookRegistry::default();
     ferrum_domain::register(&mut hooks);
     ferrum_app_erp::register(&mut hooks);
-    ferrum_app_commerce::register(&mut hooks);
+    hooks.app("commerce", &[], ferrum_app_commerce::register);
     ferrum_app_lms::register(&mut hooks);
     let settings = KernelSettings { secret_key: Some(SecretKey::new([7u8; 32])), ..Default::default() };
     let k = Kernel::boot(db, catalog, hooks, settings, Some(Arc::new(NoMail))).await.expect("boot");
@@ -2066,8 +2067,9 @@ async fn live_sessions() {
     use chrono::{Duration, Utc};
     use ferrum_app_comms::meetings;
     let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
-    let db = Db::connect(DbConfig { url, max_connections: 16, ..Default::default() }).await.expect("connect");
+    let db = Db::connect(DbConfig { url: url.clone(), max_connections: 16, ..Default::default() }).await.expect("connect");
     reset(&db).await;
+    ferrum_kernel::vault::open(&db, opener(&url), false).await.expect("the vault");
     let mut packages = ferrum_domain::packages().expect("platform packages");
     packages.extend(ferrum_app_erp::packages().expect("ERP's packages"));
     packages.extend(ferrum_app_lms::packages().expect("app packages").into_iter().filter(|p| p.name() != "lms_payments"));
@@ -2076,7 +2078,7 @@ async fn live_sessions() {
     let mut hooks = HookRegistry::default();
     ferrum_domain::register(&mut hooks);
     ferrum_app_lms::register(&mut hooks);
-    ferrum_app_comms::register(&mut hooks);
+    hooks.app("comms", &[], ferrum_app_comms::register);
     let k = Kernel::boot(db, catalog, hooks, KernelSettings::default(), None).await.expect("boot");
     ferrum_domain::maintenance(&k).await.expect("domain maintenance");
     let here: Arc<Mutex<Vec<Value>>> = Arc::default();
@@ -3775,4 +3777,14 @@ async fn platform_addresses() {
         (other["platform_issuer"].clone(), other["platform_auth_url"].clone()),
         (json!("https://academy.example"), json!("https://academy.example/api/app/lms/lti/auth"))
     );
+}
+
+/// What opens the test's vault: the database password of `url`, with Argon2id kept cheap for tests.
+fn opener(url: &str) -> ferrum_kernel::vault::Opener {
+    ferrum_kernel::vault::Opener {
+        database_url: url.to_string(),
+        file: "/nonexistent/root.key".into(),
+        kdf: ferrum_kernel::vault::Kdf { m_kib: 64, t: 1, p: 1 },
+        ..Default::default()
+    }
 }
