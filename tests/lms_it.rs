@@ -1213,7 +1213,13 @@ async fn paid() {
     let commerce_packages: Vec<String> = ferrum_app_commerce::packages().unwrap().iter().map(|p| p.name().to_string()).collect();
     hooks.own("commerce", &commerce_packages);
     let lms_packages: Vec<String> = ferrum_app_lms::packages().unwrap().iter().map(|p| p.name().to_string()).collect();
-    hooks.app("lms", &lms_packages, ferrum_app_lms::register);
+    // Learn's own handle, as its registration is given it: what the test calls Commerce with, as Learn would.
+    let mut handle = None;
+    hooks.app("lms", &lms_packages, |h| {
+        ferrum_app_lms::register(h);
+        handle = Some(h.vault());
+    });
+    let handle = handle.expect("Learn's handle");
     hooks.own("lms", &lms_packages);
     let k = Kernel::boot(db, catalog, hooks, KernelSettings::default(), Some(Arc::new(NoMail))).await.expect("boot");
     ferrum_domain::maintenance(&k).await.expect("partitions");
@@ -1334,8 +1340,23 @@ async fn paid() {
     assert!(t.k.get(&chen, "LmsCoursePurchase", purchase, false).await.is_err(), "nobody else's purchase");
     assert_eq!(t.k.get(&asha, "LmsCoursePurchase", purchase, false).await.expect("her own")["learner"], json!("asha@academy.test"));
 
-    // ───────────── the payment arrives: Asha is enrolled ─────────────
+    // ───────────── asked for by Learn, for Asha, once ─────────────
+    // One call of Commerce's operation, by Learn and for her, keyed by the invoice and the request it replaces (none).
     let request = vid(&p["payment_request"]);
+    const ASK: &str = "commerce.sales_invoice.request_payment";
+    let asked = (Some("lms".to_string()), ASK.to_string(), format!("lms:course:{invoice}:after:none"), Some(asha.user));
+    assert_eq!(receipts_of(&t).await, [asked]);
+    // The same ask again, with Learn's key and the same input, is answered with the same request: nothing new is asked.
+    let mut tx = t.k.db.tenant_tx(tenant).await.unwrap();
+    let input = json!({"id": invoice, "params": {"gateway": "fakepay", "payer_email": "asha@academy.test"}});
+    let again = ferrum_kernel::capability::Invocation::new(ASK, input).key(format!("course:{invoice}:after:none"));
+    let again = t.k.call_tx(&handle, &asha, &mut tx, &again).await.expect("answered");
+    tx.commit().await.unwrap();
+    assert!(again.repeated && again.result["payment_request"] == json!(request.to_string()), "{again:?}");
+    assert_eq!(t.count("select count(*) from e_payment_request where tenant_id = $1 and sales_invoice = $2 and $3 <> ''", invoice, "x").await, 1);
+    assert_eq!(receipts_of(&t).await.len(), 1, "no receipt more");
+
+    // ───────────── the payment arrives: Asha is enrolled ─────────────
     t.act(&fakepay, "PaymentRequest", request, "mark_paid", json!({"amount": "1500", "currency": "INR", "gateway_reference": "pi_1"})).await;
     let p = t.get("LmsCoursePurchase", purchase).await;
     assert_eq!(p["status"], json!("Paid"));
@@ -1354,6 +1375,11 @@ async fn paid() {
     let refund = vid(&p["refund"]);
     let r = t.get("OrderRefund", refund).await;
     assert_eq!((r["kind"].clone(), dec(&r["amount"]), r["status"].clone()), (json!("Payment"), n("1500"), json!("Requested")));
+    // One refund, asked by Learn for Asha, keyed by the purchase.
+    let refunds = receipts_of(&t).await.into_iter().filter(|r| r.1 == "commerce.payment_request.refund").collect::<Vec<_>>();
+    let refunded = (Some("lms".to_string()), "commerce.payment_request.refund".to_string(), format!("lms:course-refund:{purchase}"), Some(asha.user));
+    assert_eq!(refunds, [refunded]);
+    assert_eq!(r["requested_by"], json!("asha@academy.test"), "asked for by Learn for Asha, who withdrew");
     t.act(&a, "OrderRefund", refund, "approve_refund", json!({})).await;
     t.act(&fakepay, "OrderRefund", refund, "refund_done", json!({"refund_reference": "re_1"})).await;
     let r = t.get("OrderRefund", refund).await;
@@ -1391,6 +1417,9 @@ async fn paid() {
     assert_ne!(vid(&p["payment_request"]), first_request, "a new request");
     assert_eq!(vid(&p["sales_invoice"]), chen_invoice, "for the same invoice");
     let second_request = vid(&p["payment_request"]);
+    // Asked again after the lapse: a key of its own (the request it replaces), so a new request; a double click is not.
+    let keys: Vec<String> = receipts_of(&t).await.into_iter().map(|r| r.2).filter(|k| k.contains(&chen_invoice.to_string())).collect();
+    assert_eq!(keys, [format!("lms:course:{chen_invoice}:after:none"), format!("lms:course:{chen_invoice}:after:{first_request}")]);
     t.sql("update e_payment_request set status = 'Expired', updated_at = now() - interval '2 days' where tenant_id = $1 and id = $2", second_request).await;
     ferrum_app_lms::maintenance(&t.k).await.expect("maintenance");
     assert_eq!(t.get("LmsCoursePurchase", lapsing).await["status"], json!("Cancelled"));
@@ -1573,6 +1602,46 @@ async fn paid() {
         );
     }
     assert!(t.try_act(&ben, "LmsCourseBundle", uid(&bundle), "buy", json!({})).await.is_err(), "bought: nothing more to buy");
+    assert!(receipts_of(&t).await.iter().all(|r| r.0.as_deref() == Some("lms")), "every call is Learn's");
+
+    // ───────────── a refusal inside a purchase leaves nothing of it ─────────────
+    // A payment method the store does not have: Commerce refuses, and the purchase goes with its invoice.
+    let counts = || async {
+        let mut tx = t.k.db.tenant_tx(tenant).await.unwrap();
+        let mut out = vec![];
+        for table in ["e_lms_course_purchase", "e_sales_invoice", "e_payment_request", "logic_effect"] {
+            let sql = format!("select count(*) from {table}");
+            out.push(sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql)).fetch_one(&mut *tx).await.unwrap());
+        }
+        out
+    };
+    let settings = one(t.list(&manager, "LmsSettings", json!({})).await.unwrap());
+    t.update(&manager, "LmsSettings", uid(&settings), json!({"lpay_payment_method": "nopay"})).await;
+    let before = counts().await;
+    let eli = t.user("eli@academy.test", "Eli Park", "Learner").await;
+    let refused = t.try_act(&eli, "LmsCourse", cid, "buy", json!({})).await;
+    assert!(field_error(refused, "gateway").contains("not one of the store's payment methods"), "the store's refusal");
+    assert_eq!(counts().await, before, "no purchase, no invoice, no request, no receipt");
+    t.update(&manager, "LmsSettings", uid(&settings), json!({"lpay_payment_method": "fakepay"})).await;
+
+    // ───────────── Paid Courses disabled: courses are free, and Learn may not ask for a payment ─────────────
+    t.k.disable_packages(&a, &["lms_payments".to_string()]).await.expect("disabled");
+    let eli = t.k.load_ctx(tenant, eli.user, None, "it".into()).await.unwrap();
+    assert!(t.try_act(&eli, "LmsCourse", cid, "buy", json!({})).await.is_err(), "nothing to buy");
+    t.insert(&eli, "LmsEnrollment", json!({"course": cid.to_string()})).await;
+    assert_eq!(counts().await[1..], before[1..], "enrolled, with no invoice, request or receipt");
+    let mut tx = t.k.db.tenant_tx(tenant).await.unwrap();
+    let ask = ferrum_kernel::capability::Invocation::new(ASK, json!({"id": invoice, "params": {"gateway": "fakepay"}})).key("after-disable");
+    let refused = t.k.call_tx(&handle, &eli, &mut tx, &ask).await;
+    assert_eq!(refused.as_ref().map_err(Error::code).unwrap_err(), "forbidden", "{refused:?}");
+    tx.commit().await.unwrap();
+    assert_eq!(counts().await[1..], before[1..], "the refused call wrote nothing");
+}
+
+/// The workspace's receipts of operations: (caller, capability, key, actor), oldest first.
+async fn receipts_of(t: &T) -> Vec<(Option<String>, String, String, Option<Uuid>)> {
+    let mut tx = t.k.db.tenant_tx(t.tenant).await.unwrap();
+    sqlx::query_as("select caller, capability, effect_key, actor from logic_effect order by created_at, effect_key").fetch_all(&mut *tx).await.unwrap()
 }
 
 #[test]

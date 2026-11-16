@@ -4,6 +4,10 @@ label: Paid Courses
 description: Courses with a price, bought through the store's payment methods - the learner pays on the course page, is invoiced and enrolled when the payment arrives, and is refunded when they withdraw within the refund period.
 depends: [lms, commerce]
 field_prefix: lpay_
+# Commerce's operations it calls through the platform's gate (src/payments.rs), at the versions it was built for.
+uses:
+  - {capability: commerce.sales_invoice.request_payment, version: "^0.6"}
+  - {capability: commerce.payment_request.refund, version: "^0.6"}
 
 overlays:
   - entity: LmsCourse
