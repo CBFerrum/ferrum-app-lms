@@ -1192,7 +1192,8 @@ fn paid_courses_end_to_end() {
 }
 
 /// A course of 1,500 sold through the store: bought, refunded in full when its learner withdraws
-/// within the 14 days, bought again, kept when they withdraw later; an unpaid purchase lapses.
+/// within the 14 days, bought again, kept when they withdraw later; an unpaid purchase lapses. A
+/// learner's customer is their own, never a web shop's guest, and made once when they buy twice at once.
 async fn paid() {
     let url = std::env::var("FERRUM_LMS_TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test".into());
     let db = Db::connect(DbConfig { url: url.clone(), max_connections: 24, ..Default::default() }).await.expect("connect");
@@ -1315,6 +1316,9 @@ async fn paid() {
     t.insert(&teacher, "LmsEnrollment", json!({"course": cid.to_string(), "learner": "ben@academy.test"})).await;
 
     // ───────────── Asha buys it: invoiced once, asked for through the store ─────────────
+    // A web shop's guest under her address is not her customer: anyone may type anyone's address at a guest checkout.
+    let guest = json!({"customer_name": "Asha at the shop", "customer_type": "Individual", "email": "asha@academy.test", "commerce_guest": true});
+    let guest = uid(&t.insert(&ferrum_domain::util::sys(&a), "Customer", guest).await);
     let bought = t.act(&asha, "LmsCourse", cid, "buy", json!({})).await;
     let purchase = vid(&bought["purchase"]["id"]);
     assert_eq!((bought["purchase"]["status"].clone(), dec(&bought["purchase"]["amount"])), (json!("Awaiting Payment"), n("1500")));
@@ -1326,6 +1330,7 @@ async fn paid() {
     let inv = t.get("SalesInvoice", invoice).await;
     assert_eq!((inv["docstatus"].clone(), dec(&inv["grand_total"]), dec(&inv["outstanding_amount"])), (json!(1), n("1500"), n("1500")));
     assert_eq!(t.count("select count(*) from e_sales_invoice where tenant_id = $1 and customer = $2 and $3 <> ''", vid(&inv["customer"]), "x").await, 1);
+    assert_ne!(vid(&inv["customer"]), guest, "a customer of her own, not the web shop's guest");
     let page = t.page(Some(&asha), "courses/rust-for-teams").await["course"].clone();
     assert_eq!((page["sale"]["can_buy"].clone(), page["sale"]["purchase"]["status"].clone()), (json!(false), json!("Awaiting Payment")));
     assert!(t.k.get(&chen, "LmsCoursePurchase", purchase, false).await.is_err(), "nobody else's purchase");
@@ -1491,6 +1496,36 @@ async fn paid() {
     };
     let (async_rust, async_item) = paid_course("Async Rust", "ASYNC").await;
     let (unsafe_rust, unsafe_item) = paid_course("Unsafe Rust", "UNSAFE").await;
+
+    // ───────────── two purchases for one address at once (two tabs): one customer ─────────────
+    // The second waits for the first one's lock on her address, then finds the customer it made.
+    let dana = t.user("dana@academy.test", "Dana Shah", "Learner").await;
+    let mut first = t.k.db.tenant_tx(tenant).await.unwrap();
+    t.k.run_action_tx(&dana, &mut first, "LmsCourse", async_rust, "buy", &json!({})).await.expect("bought");
+    let pid: i32 = sqlx::query_scalar("select pg_backend_pid()").fetch_one(&mut *first).await.unwrap();
+    let second = {
+        let (k, dana) = (t.k.clone(), dana.clone());
+        tokio::spawn(async move { k.run_action(&dana, "LmsCourse", unsafe_rust, "buy", json!({})).await })
+    };
+    // Until the second waits, or (without a lock) is done: either comes, however loaded the machine.
+    let mut waited = false;
+    for _ in 0..2400 {
+        let waits: bool = sqlx::query_scalar("select exists (select 1 from pg_stat_activity where $1 = any(pg_blocking_pids(pid)))")
+            .bind(pid)
+            .fetch_one(&t.k.db.pool)
+            .await
+            .unwrap();
+        if waits || second.is_finished() {
+            waited = waits;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    first.commit().await.unwrap();
+    second.await.unwrap().expect("bought as well");
+    assert_eq!(t.list(&a, "Customer", json!({"email": "dana@academy.test"})).await.unwrap().len(), 1, "two purchases at once, one customer");
+    assert!(waited, "the second purchase waited for the first one");
+
     let pair = uid(&t
         .insert(
             &a,

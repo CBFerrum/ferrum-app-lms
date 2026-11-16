@@ -246,8 +246,9 @@ async fn buy(hc: &mut HookCtx<'_>, course: &Doc, codes: &Option<String>) -> Resu
     Ok(json!({"purchase": view(hc.kernel, ctx, hc.tx, purchase).await?}))
 }
 
-/// A submitted invoice of the courses for the learner, on the Learn channel with the codes they
-/// gave: ERP's promotions price it (a code that cannot be used refuses the purchase).
+/// A submitted invoice of the courses to the learner's customer (the one ERP finds or makes for a
+/// person's address), on the Learn channel with the codes they gave: ERP's promotions price it (a
+/// code that cannot be used refuses the purchase).
 async fn invoice(hc: &mut HookCtx<'_>, t: &Terms, courses: &[Doc], learner: &str, name: &str, codes: &Option<String>) -> Result<Doc> {
     let sctx = sys(hc.ctx);
     let company = t.company.ok_or_else(|| Error::invalid("courses cannot be bought yet: set the selling company in Learn Settings"))?;
@@ -264,7 +265,7 @@ async fn invoice(hc: &mut HookCtx<'_>, t: &Terms, courses: &[Doc], learner: &str
         .await?
         .flatten()
         .ok_or_else(|| Error::invalid("the selling company in Learn Settings has no currency"))?;
-    let customer = customer_for(hc, learner, name).await?;
+    let (customer, _) = ferrum_app_erp::portal::customer_for(hc.kernel, &sctx, hc.tx, name, Some(learner), None).await?;
     let mut input = Doc::new();
     set(&mut input, "company", company.to_string());
     set(&mut input, "customer", customer.to_string());
@@ -280,24 +281,6 @@ async fn invoice(hc: &mut HookCtx<'_>, t: &Terms, courses: &[Doc], learner: &str
     let inv = doc_id(&draft)?;
     hc.kernel.submit_tx(&sctx, hc.tx, "SalesInvoice", inv, None).await?;
     get(hc.kernel, &sctx, hc.tx, "SalesInvoice", inv).await
-}
-
-/// The learner's customer: an enabled one with their email, or a new individual customer.
-async fn customer_for(hc: &mut HookCtx<'_>, email: &str, name: &str) -> Result<Uuid> {
-    let found: Option<Uuid> =
-        sqlx::query_scalar("select id from e_customer where tenant_id = $1 and lower(email) = lower($2) and not disabled order by created_at, id limit 1")
-            .bind(hc.ctx.tenant)
-            .bind(email)
-            .fetch_optional(&mut **hc.tx)
-            .await?;
-    if let Some(c) = found {
-        return Ok(c);
-    }
-    let mut input = Doc::new();
-    set(&mut input, "customer_name", name);
-    set(&mut input, "customer_type", "Individual");
-    set(&mut input, "email", email);
-    doc_id(&hc.kernel.insert_tx(&sys(hc.ctx), hc.tx, "Customer", input).await?)
 }
 
 /// Asks for what is outstanding on the purchase's invoice through the store.

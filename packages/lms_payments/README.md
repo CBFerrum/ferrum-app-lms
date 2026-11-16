@@ -21,7 +21,9 @@ self-enrolment whose prerequisites the caller has completed) answers
 `{"purchase": {id, number, status, amount, paid_at, payment: {status, payment_url}}}`:
 
 1. It makes a **Course Purchase** (`LmsCoursePurchase`, `Awaiting Payment`) and a submitted sales
-   invoice for the learner's customer (an enabled customer with their email, or a new individual).
+   invoice for the learner's customer, as ERP finds a person's (`portal::customer_for`): the oldest
+   enabled customer with their email that no web shop's guest checkout made, else a new individual.
+   Two purchases at once for one address wait for each other and make one customer.
 2. It asks for the whole invoice through the payment method (a Commerce `PaymentRequest`). The
    gateway plugin writes `payment_url`, which the course page links to.
 3. When the gateway confirms the payment (`mark_paid`), the payment entry marks the purchase `Paid`
