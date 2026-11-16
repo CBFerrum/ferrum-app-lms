@@ -2192,21 +2192,27 @@ async fn live_sessions() {
     let lms_packages: Vec<String> = ferrum_app_lms::packages().unwrap().iter().map(|p| p.name().to_string()).collect();
     hooks.app("lms", &lms_packages, ferrum_app_lms::register);
     hooks.own("lms", &lms_packages);
-    hooks.app("comms", &[], ferrum_app_comms::register);
+    let mut comms = None;
+    hooks.app("comms", &[], |h| {
+        ferrum_app_comms::register(h);
+        comms = Some(h.vault());
+    });
     let comms_packages: Vec<String> = ferrum_app_comms::packages().unwrap().iter().map(|p| p.name().to_string()).collect();
     hooks.own("comms", &comms_packages);
     let k = Kernel::boot(db, catalog, hooks, KernelSettings::default(), None).await.expect("boot");
     ferrum_domain::maintenance(&k).await.expect("domain maintenance");
+    // LiveKit's key and secret as the operator gives them to Comms' vault, bound to the meeting server's hosts.
+    let comms = comms.expect("Comms' handle");
+    for (name, value) in [("meet.key", "APIlive"), ("meet.secret", "live-secret")] {
+        use ferrum_kernel::vault::{New, Rule, Scope, Zeroizing};
+        let rule = Rule { reveal: name == "meet.key", hosts: vec!["meet.live.test".into(), "127.0.0.1".into()], ..Default::default() };
+        comms.set(&k, Scope::Installation, name, New::Value(Zeroizing::new(value.as_bytes().to_vec())), rule).await.expect("set");
+    }
     let here: Arc<Mutex<Vec<Value>>> = Arc::default();
     let api = room_service(here.clone()).await;
     // SAFETY: the tests of this file run one at a time (`DB`).
     let meeting_server = |on: bool| unsafe {
-        for (var, value) in [
-            ("FERRUM_MEET_URL", "wss://meet.live.test"),
-            ("FERRUM_MEET_KEY", "APIlive"),
-            ("FERRUM_MEET_SECRET", "live-secret"),
-            ("FERRUM_MEET_API_URL", api.as_str()),
-        ] {
+        for (var, value) in [("FERRUM_MEET_URL", "wss://meet.live.test"), ("FERRUM_MEET_API_URL", api.as_str())] {
             if on {
                 std::env::set_var(var, value);
             } else {
