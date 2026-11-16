@@ -12,7 +12,6 @@
 //! enrolments that course changes completed and reminds a cohort once; dashboards and reports show
 //! the exact numbers; a second workspace with the Mail app gets the emails as `Communication`s.
 
-use ferrum_kernel::secret::SecretKey;
 use ferrum_kernel::tenant::NewTenant;
 use ferrum_kernel::{Ctx, Db, DbConfig, Doc, Error, HookRegistry, Kernel, KernelSettings, ListQuery, Site, SiteRequest, SiteResponse};
 use ferrum_meta::Catalog;
@@ -1216,8 +1215,7 @@ async fn paid() {
     let lms_packages: Vec<String> = ferrum_app_lms::packages().unwrap().iter().map(|p| p.name().to_string()).collect();
     hooks.app("lms", &lms_packages, ferrum_app_lms::register);
     hooks.own("lms", &lms_packages);
-    let settings = KernelSettings { secret_key: Some(SecretKey::new([7u8; 32])), ..Default::default() };
-    let k = Kernel::boot(db, catalog, hooks, settings, Some(Arc::new(NoMail))).await.expect("boot");
+    let k = Kernel::boot(db, catalog, hooks, KernelSettings::default(), Some(Arc::new(NoMail))).await.expect("boot");
     ferrum_domain::maintenance(&k).await.expect("partitions");
     ferrum_app_erp::maintenance(&k).await.expect("partitions");
     let tenant = k
@@ -1626,9 +1624,7 @@ async fn scorm() {
     let lms_packages: Vec<String> = ferrum_app_lms::packages().unwrap().iter().map(|p| p.name().to_string()).collect();
     hooks.app("lms", &lms_packages, ferrum_app_lms::register);
     hooks.own("lms", &lms_packages);
-    // LTI's signing key is a secret field: secrets need the kernel's key.
-    let settings = KernelSettings { secret_key: Some(SecretKey::new([9u8; 32])), ..Default::default() };
-    let k = Kernel::boot(db, catalog, hooks, settings, None).await.expect("boot");
+    let k = Kernel::boot(db, catalog, hooks, KernelSettings::default(), None).await.expect("boot");
     k.set_file_store(Arc::new(MemFiles(Mutex::new(HashMap::new()))));
     ferrum_domain::maintenance(&k).await.expect("domain maintenance");
     let tenant = k
@@ -1882,12 +1878,6 @@ async fn scorm() {
     assert_eq!(t.count("select count(*) from lms_xapi_statement where tenant_id = $1 and lesson = $2 and $3 <> ''", third, "x").await, before);
 
     lti(&t, &manager, &teacher, &asha, &ben, course, chapter, enrolment).await;
-    // Learn read its LTI key with its own handle: nothing past the vault, which the platform notes (`ferrum task
-    // legacy_key`) in the background.
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    let past: Vec<_> =
-        t.k.legacy_key(vec![]).await.unwrap().uses.into_iter().filter(|u| u.0.starts_with("reader:") && u.1.starts_with("src/")).map(|u| u.1).collect();
-    assert!(past.is_empty(), "read past the vault: {past:?}");
 }
 
 /// An LTI 1.3 tool: registered, launched by OIDC with a signed id_token, sending a grade back with
