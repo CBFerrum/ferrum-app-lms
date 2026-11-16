@@ -5,18 +5,49 @@
 //! period, before completing the course, credits the invoice and asks for the payment to go back
 //! (a person approves the refund in the store). A purchase whose payment request lapsed unpaid is
 //! cancelled with its invoice after a day, or asked for again when the learner buys again.
+//!
+//! Commerce's requests and refunds are its operations, called through the platform's gate in the
+//! learner's transaction as Learn (the `uses` of `packages/lms_payments/package.yaml`), each once per key.
 
 use crate::enrollment::{self, ACTIVE, Outcome, WITHDRAWN};
 use crate::util::{self, b, d, doc_id, elevated, id, load, s, sys};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use ferrum_domain::util::{get, money, rows, set};
+use ferrum_kernel::capability::Invocation;
 use ferrum_kernel::{Ctx, Doc, DocHook, Error, HookCtx, Kernel, Result, Tx};
 use rust_decimal::Decimal;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
 pub(crate) const PACKAGE: &str = "lms_payments";
+
+/// Commerce's operations Paid Courses uses: each declared in its package with the versions it was built for.
+pub(crate) const REQUEST_PAYMENT: &str = "commerce.sales_invoice.request_payment";
+pub(crate) const REFUND: &str = "commerce.payment_request.refund";
+
+/// Commerce's operation `capability` on `input`, as Learn, for `ctx`'s person, in `tx`, once per `key`: the id its result
+/// names under `field`.
+async fn call(k: &Kernel, ctx: &Ctx, tx: &mut Tx, capability: &str, input: Value, key: String, field: &str) -> Result<Uuid> {
+    let done = k.call_tx(&crate::keys::handle(k)?, ctx, tx, &Invocation::new(capability, input).key(key)).await?;
+    done.result[field].as_str().and_then(|v| v.parse().ok()).ok_or_else(|| Error::internal(format!("Commerce answered without its {field}")))
+}
+
+/// A submitted request for what is owed on `invoice` through the store's method `gateway`. Key
+/// `course:{invoice}:after:{request}`: the request it replaces (`none` for the first), so asking again after a lapse is a
+/// new request and the same ask again is not.
+async fn request_payment(k: &Kernel, ctx: &Ctx, tx: &mut Tx, invoice: Uuid, after: Option<Uuid>, gateway: &str, payer: &str) -> Result<Uuid> {
+    let input = json!({"id": invoice, "params": {"gateway": gateway, "payer_email": payer}});
+    let after = after.map_or_else(|| "none".to_string(), |r| r.to_string());
+    call(k, ctx, tx, REQUEST_PAYMENT, input, format!("course:{invoice}:after:{after}"), "payment_request").await
+}
+
+/// A Requested refund of `amount` of the paid request `pr` against `credit_note`. Key `course-refund:{purchase}`: a
+/// purchase is refunded once.
+async fn refund(k: &Kernel, ctx: &Ctx, tx: &mut Tx, purchase: Uuid, pr: Uuid, amount: Decimal, credit_note: Option<Uuid>, note: &str) -> Result<Uuid> {
+    let input = json!({"id": pr, "params": {"amount": money(amount), "credit_note": credit_note, "note": note}});
+    call(k, ctx, tx, REFUND, input, format!("course-refund:{purchase}"), "refund").await
+}
 
 const AWAITING: &str = "Awaiting Payment";
 const PAID: &str = "Paid";
@@ -221,7 +252,7 @@ async fn buy(hc: &mut HookCtx<'_>, course: &Doc, codes: &Option<String>) -> Resu
                 // The request lapsed or failed: the same invoice is asked for again.
                 let invoice = id(&doc, "sales_invoice").ok_or_else(|| Error::internal("a purchase without its invoice"))?;
                 let inv = get(hc.kernel, &sctx, hc.tx, "SalesInvoice", invoice).await?;
-                ask(hc, &inv, &method, p, &learner).await?;
+                ask_for(hc, &inv, id(&doc, "payment_request"), &method, &[p], &learner).await?;
             }
             p
         }
@@ -239,7 +270,7 @@ async fn buy(hc: &mut HookCtx<'_>, course: &Doc, codes: &Option<String>) -> Resu
             set(&mut v, "sales_invoice", s(&inv, "id").unwrap_or_default());
             set(&mut v, "amount", money(d(&inv, "grand_total")));
             hc.kernel.set_values_tx(&sctx, hc.tx, "LmsCoursePurchase", p, v).await?;
-            ask(hc, &inv, &method, p, &learner).await?;
+            ask_for(hc, &inv, None, &method, &[p], &learner).await?;
             p
         }
     };
@@ -283,20 +314,18 @@ async fn invoice(hc: &mut HookCtx<'_>, t: &Terms, courses: &[Doc], learner: &str
     get(hc.kernel, &sctx, hc.tx, "SalesInvoice", inv).await
 }
 
-/// Asks for what is outstanding on the purchase's invoice through the store.
-async fn ask(hc: &mut HookCtx<'_>, inv: &Doc, method: &str, purchase: Uuid, learner: &str) -> Result<()> {
-    ask_for(hc, inv, method, &[purchase], learner).await
-}
-
-/// [`ask`] for every purchase the invoice holds (a bundle's courses).
-async fn ask_for(hc: &mut HookCtx<'_>, inv: &Doc, method: &str, purchases: &[Uuid], learner: &str) -> Result<()> {
+/// Asks for what is outstanding on the purchases' invoice through the store (a bundle's courses share one), in place of
+/// the request `after` when it lapsed.
+async fn ask_for(hc: &mut HookCtx<'_>, inv: &Doc, after: Option<Uuid>, method: &str, purchases: &[Uuid], learner: &str) -> Result<()> {
     let sctx = sys(hc.ctx);
-    let request = ferrum_app_commerce::request_invoice_payment(hc.kernel, &sctx, hc.tx, inv, method, None, Some(learner.to_string()))
-        .await?
-        .ok_or_else(|| Error::invalid("nothing is outstanding on this purchase's invoice"))?;
+    // Nothing owed on it: Commerce refuses to ask, as any other refusal; this one keeps its own words.
+    if d(inv, "outstanding_amount") <= Decimal::ZERO {
+        return Err(Error::invalid("nothing is outstanding on this purchase's invoice"));
+    }
+    let request = request_payment(hc.kernel, hc.ctx, hc.tx, doc_id(inv)?, after, method, learner).await?;
     for p in purchases {
         let mut v = Doc::new();
-        set(&mut v, "payment_request", s(&request, "id").unwrap_or_default());
+        set(&mut v, "payment_request", request.to_string());
         hc.kernel.set_values_tx(&sctx, hc.tx, "LmsCoursePurchase", *p, v).await?;
     }
     Ok(())
@@ -436,8 +465,8 @@ impl DocHook for EnrollmentHook {
         if owed_back > Decimal::ZERO {
             let who = s(doc, "learner_name").unwrap_or(learner);
             let why = format!("{who} withdrew from the course within the refund period");
-            let refund = ferrum_app_commerce::refund_payment(hc.kernel, &sctx, hc.tx, pr, owed_back, id(&note, "id"), &why).await?;
-            set(&mut v, "refund", s(&refund, "id").unwrap_or_default());
+            let refund = refund(hc.kernel, hc.ctx, hc.tx, purchase, pr, owed_back, id(&note, "id"), &why).await?;
+            set(&mut v, "refund", refund.to_string());
         }
         hc.kernel.set_values_tx(&sctx, hc.tx, "LmsCoursePurchase", purchase, v).await
     }
@@ -578,7 +607,7 @@ async fn buy_bundle(hc: &mut HookCtx<'_>, bundle: &Doc, codes: &Option<String>) 
         let ids: Vec<Uuid> = waiting.iter().map(|w| w.0).collect();
         if open.as_deref() != Some("Initiated") {
             let inv = get(hc.kernel, &sctx, hc.tx, "SalesInvoice", invoice).await?;
-            ask_for(hc, &inv, &method, &ids, &learner).await?;
+            ask_for(hc, &inv, request, &method, &ids, &learner).await?;
         }
         return bundle_view(hc.kernel, ctx, hc.tx, &ids).await;
     }
@@ -627,7 +656,7 @@ async fn buy_bundle(hc: &mut HookCtx<'_>, bundle: &Doc, codes: &Option<String>) 
         set(&mut input, "amount", money(share));
         ids.push(doc_id(&hc.kernel.insert_tx(&sctx, hc.tx, "LmsCoursePurchase", input).await?)?);
     }
-    ask_for(hc, &inv, &method, &ids, &learner).await?;
+    ask_for(hc, &inv, None, &method, &ids, &learner).await?;
     bundle_view(hc.kernel, ctx, hc.tx, &ids).await
 }
 

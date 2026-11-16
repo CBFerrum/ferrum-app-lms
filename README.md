@@ -7,7 +7,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.9.2-4f46e5?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.11.0-4f46e5?style=flat-square)](CHANGELOG.md)
 [![CI](https://github.com/CBFerrum/ferrum-app-lms/actions/workflows/ci.yml/badge.svg)](https://github.com/CBFerrum/ferrum-app-lms/actions/workflows/ci.yml)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
@@ -48,10 +48,10 @@ compliance training with due dates, and courses can be sold to people outside th
 
 | | |
 |---|---|
-| **Version** | 0.9.2 (Paid Courses connector 0.2.0) |
+| **Version** | 0.11.0 (Paid Courses connector 0.3.0) |
 | **Kind** | Its own interface at `/lms/`: course player, quiz player, catalog, teaching dashboards and a course builder; public catalog and certificate check; "My learning" on the portal. Other records use Ferrum's lists and forms |
 | **What it adds** | 45 record definitions: 27 records and 18 line tables, in 2 packages (Learn 42, Paid Courses 3); 4 roles (one for the portal); 7 reports; 1 print format (the certificate); 3 message templates; 1 menu |
-| **Depends on** | Ferrum platform `>=0.3.8, <0.4`. Learn needs nothing else. Paid Courses needs Commerce `>=0.7` |
+| **Depends on** | Ferrum platform `>=0.3.8, <0.4`. Learn needs nothing else. Paid Courses needs Commerce `>=0.13` |
 | **Works with** | Commerce and ERP (sales), Comms (live meetings), HR (enrolment rules, team reports, training records), Forms and Studio |
 | **Languages** | English, Arabic, Hindi (words and record names); right-to-left layout |
 | **Tests** | 49 Rust tests (16 of them walk the app against PostgreSQL) and 155 interface tests |
@@ -249,6 +249,8 @@ compliance training with due dates, and courses can be sold to people outside th
 - **A connector with Commerce.** Paid Courses adds a *Price* and a *Sold As* item to a course, and a selling company, a store
   payment method and a refund period (14 days by default) to Learn Settings.
 - **Buy.** A learner's Buy makes a course purchase, a submitted sales invoice and a payment request. The gateway's payment enrols them.
+  Learn asks Commerce through the platform's gate (`commerce.sales_invoice.request_payment` and `commerce.payment_request.refund`, which
+  Paid Courses declares it uses), in the learner's transaction, once per key: it does not compile against Commerce.
   A purchase is *Awaiting Payment, Paid, Cancelled* or *Refund Requested*.
 - **Promotion codes.** Buy takes codes; ERP's promotions price the invoice, which is on the *Learn* channel with the codes on it. A code
   that cannot be used refuses the purchase.
@@ -422,7 +424,7 @@ credits live attendance, enrols by rule and enrols again before certificates exp
 
 | With | How | Needs |
 |---|---|---|
-| **Commerce and ERP** | Paid Courses: purchases, invoices, payment requests, promotions, credit notes and refunds | The Paid Courses connector, Commerce `>=0.7`, a selling company and a payment method |
+| **Commerce and ERP** | Paid Courses: purchases, invoices, payment requests, promotions, credit notes and refunds | The Paid Courses connector, Commerce `>=0.13`, a selling company and a payment method |
 | **Comms** | Meetings for live sessions and attendance read from them | Comms with a meeting server (otherwise a typed link and hand-marked attendance) |
 | **HR** | Enrolment rules by employee fields; manager team reports; completed courses on the employee's training record | The HR app |
 | **Mail** | Email notices | Mail installed and *Email Notifications* on |
@@ -513,6 +515,7 @@ feature, or a feature the vendor reaches through an integration. Moodle's and Ca
 
 ### ✅ Recently shipped
 
+- [x] **0.11.0** Paid Courses asks for payments and refunds through Commerce's operations on the platform's gate, receipted as Learn's; Learn no longer compiles against Commerce.
 - [x] **0.10.0** A learner's customer as ERP finds a person's: never a web shop's guest, one for two purchases at once; the package's SQL in one file.
 - [x] **0.9.2** Certificates' links and LTI's addresses without a public URL of Learn's: the platform's, through the operator's link host or at its hooks host.
 - [x] **0.9.1** Erasure reaches discussions; a learner is told when manual grading of an attempt is finished.
@@ -622,8 +625,8 @@ cargo clippy --all-targets -- -D warnings
 FERRUM_LMS_TEST_DATABASE_URL=postgres://ferrum:ferrum@localhost:5432/ferrum_lms_test cargo test
 ```
 
-Learn also depends on the Commerce and Comms app crates (for Paid Courses and live meetings), and its tests use ERP and HR as development
-dependencies.
+Learn also depends on the ERP and Comms app crates (for invoices and live meetings). Paid Courses calls Commerce's operations through the
+platform's gate, not its code; the tests use Commerce and HR as development dependencies.
 
 The interface lives in `ui/` (React, built with Ferrum-Frontend's packages from a checkout beside this one, `../ferrum/web`). Its built files in `ui/dist` are
 committed and embedded in the crate, so a change to `ui/src` is not done until `dist` is rebuilt:

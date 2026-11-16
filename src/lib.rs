@@ -187,6 +187,10 @@ mod tests {
         assert!(selling.warnings.is_empty(), "{:?}", selling.warnings);
         assert!(selling.entity("LmsCourse").is_some_and(|c| c.field("lpay_price").is_some() && c.def.actions.iter().any(|a| a.name == "buy")));
         assert!(selling.entity("LmsCoursePurchase").is_some(), "the connector's purchases");
+        // What it calls of Commerce is what its package declares, at the versions it was built for.
+        let uses: Vec<(&str, &str)> =
+            catalog.package(super::payments::PACKAGE).unwrap().manifest.uses.iter().map(|u| (u.capability.as_str(), u.version.as_str())).collect();
+        assert_eq!(uses, [(super::payments::REQUEST_PAYMENT, "^0.6"), (super::payments::REFUND, "^0.6")]);
         assert!(super::CONNECTOR_MANIFEST.contains("packages: [lms_payments]"));
         let schema = ferrum_meta::effective::build(&catalog, &["lms".to_string()], &[], 1).unwrap_or_else(|e| panic!("{e}"));
         assert!(schema.warnings.is_empty(), "{:?}", schema.warnings);
