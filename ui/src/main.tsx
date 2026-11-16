@@ -5,21 +5,16 @@
 // Everything else in Learn stays in the records frame, with Learn's modules in the sidebar. Every
 // screen loads when it is opened, so the first script holds only the frame (apps-ui.md §12.9).
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { type ComponentType, StrictMode, useEffect } from "react";
-import { createRoot } from "react-dom/client";
-import { createBrowserRouter, Link, Outlet, RouterProvider, useRouteError } from "react-router";
-import { addCatalogs, isPublicPage, routeBase, shell, t, wordsReady } from "@ferrum/client";
-import { ConfirmHost, EmptyState, Toaster } from "@ferrum/kit";
+import { type ComponentType, useEffect } from "react";
+import { Link, Outlet, useRouteError } from "react-router";
+import { isPublicPage, shell, t } from "@ferrum/client";
+import { EmptyState } from "@ferrum/kit";
 import { Failed } from "./states";
-import { RequireAuth, setFrameMode } from "@ferrum/records/frame";
+import { mountApp, RequireAuth, setFrameMode } from "@ferrum/records/frame";
 import "./styles.css";
 
-// Its own words in the page's language (src/locales), fetched as the page starts; it is drawn once they are in.
-void addCatalogs({ ar: () => import("./locales/ar.json"), hi: () => import("./locales/hi.json") });
-
 /** A page of the records frame, loaded when first opened. */
-const page = (name: "ListView" | "ReportView" | "AppSettingsPage" | "ScreenPage") => () =>
+const page = (name: "ListView" | "ReportView") => () =>
   import("./records").then((m) => ({ Component: m[name] }));
 
 /** A screen of Learn's own, loaded when first opened. */
@@ -27,10 +22,6 @@ const screen = <K extends string>(load: () => Promise<Record<K, ComponentType>>,
 
 /** Learn's packages: the sidebar shows their modules. */
 const LMS_PACKAGES = ["lms"];
-
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false, staleTime: 30_000 } },
-});
 
 function RouteError() {
   return <Failed error={useRouteError()} onRetry={() => window.location.reload()} />;
@@ -98,8 +89,6 @@ const appRoutes = [
       { path: "e/:entity", lazy: page("ListView") },
       { path: "e/:entity/:id", lazy: screen(() => import("./Record"), "RecordRoute") },
       { path: "r/:name", lazy: page("ReportView") },
-      { path: "apps/:app/settings", lazy: page("AppSettingsPage") },
-      { path: "x/:app/:page", lazy: page("ScreenPage") },
       { path: "*", element: <NotFound /> },
     ],
   },
@@ -109,17 +98,8 @@ const appRoutes = [
 const publicPage = isPublicPage();
 if (!publicPage) setFrameMode("app", LMS_PACKAGES);
 
-const router = createBrowserRouter(publicPage ? publicRoutes : appRoutes, { basename: routeBase("lms") });
-
-// Drawn once the page's words are in (its language's catalogs, fetched as the page starts).
-void wordsReady().then(() =>
-  createRoot(document.getElementById("root")!).render(
-    <StrictMode>
-      <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-        <Toaster />
-        <ConfirmHost />
-      </QueryClientProvider>
-    </StrictMode>,
-  ),
-);
+mountApp({
+  route: "lms",
+  catalogs: { ar: () => import("./locales/ar.json"), hi: () => import("./locales/hi.json") },
+  routes: publicPage ? publicRoutes : appRoutes,
+});
