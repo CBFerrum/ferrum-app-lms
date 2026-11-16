@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.0
+
+* **A learner's customer is the one ERP finds or makes for a person** (`ferrum_app_erp::portal::customer_for`, ERP 0.28.3), in place of Paid Courses' own copy. A customer a web shop made at a guest checkout under the learner's address is no longer theirs, since anyone may type anyone's address there: they get a customer of their own, found again next time. Two purchases at once for one address (two tabs, a course and a bundle) wait for each other on ERP's lock for the address and make one customer, where they made two. ERP is a dependency of the app now, not of its tests only.
+* **The package's SQL is its final schema, in one file.** Package `lms` 0.6.0 has `sql/001_lms.sql` only: the engine tables of `002` to `004`, `006` and `007` are in it, and `005_recertification.sql` is gone; it dropped the unique keys enrolments, attempts and submissions had before recertification and filled in `cycle` on older enrolments, so on a new database it did nothing. A database that applied the old files refuses the changed one: create it again. No interface change.
+
 ## 0.9.3
 
 Learn reads its LTI signing key (Learn Settings' sealed `lti_private_key`) with its own handle on the vault, in the same transaction as before, instead of the platform's reader that any app could use, which is deprecated. It registers as itself (`hooks.app("lms", …)`) to be given that handle. Needs a platform with the vault's field reader (0.3.8 on the platform's main from cdec881). Launches and their keys work as before; while the vault is closed a launch refuses plainly. No database or interface change.

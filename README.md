@@ -513,6 +513,7 @@ feature, or a feature the vendor reaches through an integration. Moodle's and Ca
 
 ### ✅ Recently shipped
 
+- [x] **0.10.0** A learner's customer as ERP finds a person's: never a web shop's guest, one for two purchases at once; the package's SQL in one file.
 - [x] **0.9.2** Certificates' links and LTI's addresses without a public URL of Learn's: the platform's, through the operator's link host or at its hooks host.
 - [x] **0.9.1** Erasure reaches discussions; a learner is told when manual grading of an attempt is finished.
 - [x] **0.9.0** Outside people sign up and buy (Online Learner); promotion codes, bundles and store refunds; six more question types, partial credit,
@@ -642,7 +643,7 @@ CI (`.github/workflows/ci.yml`) runs the Rust job on PostgreSQL 17 and the inter
 ```text
 app.yaml                    manifest: id, roles, shell entries, public catalog, portal page, assistant notes, message templates
 connectors/payments/        the Paid Courses connector's manifest
-packages/lms/               entities, roles, reports, the certificate print format and SQL migrations
+packages/lms/               entities, roles, reports, the certificate print format and its SQL (one file)
 packages/lms_payments/      Paid Courses: purchases and bundles
 src/                        hooks, actions, endpoints and upkeep: enrollment, quiz, grading, gradebook, certificate, cohort, live,
                             rules, scorm, xapi, lti, payments, discussion, video, site
