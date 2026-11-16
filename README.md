@@ -7,7 +7,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.11.0-4f46e5?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.11.1-4f46e5?style=flat-square)](CHANGELOG.md)
 [![CI](https://github.com/CBFerrum/ferrum-app-lms/actions/workflows/ci.yml/badge.svg)](https://github.com/CBFerrum/ferrum-app-lms/actions/workflows/ci.yml)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
@@ -48,7 +48,7 @@ compliance training with due dates, and courses can be sold to people outside th
 
 | | |
 |---|---|
-| **Version** | 0.11.0 (Paid Courses connector 0.3.0) |
+| **Version** | 0.11.1 (Paid Courses connector 0.3.0) |
 | **Kind** | Its own interface at `/lms/`: course player, quiz player, catalog, teaching dashboards and a course builder; public catalog and certificate check; "My learning" on the portal. Other records use Ferrum's lists and forms |
 | **What it adds** | 45 record definitions: 27 records and 18 line tables, in 2 packages (Learn 42, Paid Courses 3); 4 roles (one for the portal); 7 reports; 1 print format (the certificate); 3 message templates; 1 menu |
 | **Depends on** | Ferrum platform `>=0.3.8, <0.4`. Learn needs nothing else. Paid Courses needs Commerce `>=0.13` |
@@ -515,6 +515,7 @@ feature, or a feature the vendor reaches through an integration. Moodle's and Ca
 
 ### ✅ Recently shipped
 
+- [x] **0.11.1** Rebuilt on Ferrum-Frontend 06bd1a2: its start through `mountApp`, and no routes to the screens apps no longer have.
 - [x] **0.11.0** Paid Courses asks for payments and refunds through Commerce's operations on the platform's gate, receipted as Learn's; Learn no longer compiles against Commerce.
 - [x] **0.10.0** A learner's customer as ERP finds a person's: never a web shop's guest, one for two purchases at once; the package's SQL in one file.
 - [x] **0.9.2** Certificates' links and LTI's addresses without a public URL of Learn's: the platform's, through the operator's link host or at its hooks host.
