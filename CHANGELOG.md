@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.11.0
+
+Paid Courses (package `lms_payments` 0.3.0, connector 0.3.0) needs Commerce 0.13 (`requires: {commerce: ">=0.13"}`) and
+the platform that lets an app call another's operation (Ferrum main 44520a63). No database change, no interface change.
+
+* **Payments and refunds go through Commerce's operations, not its code.** Paid Courses declares what it uses of
+  Commerce (`uses` in its package, each at `^0.6`): `commerce.sales_invoice.request_payment` and
+  `commerce.payment_request.refund`. Learn calls them through the platform's gate (`Kernel::call_tx`) with its own vault
+  handle, in the learner's transaction as before. The install screen lists both uses; disabling Paid Courses withdraws
+  them.
+* **Keys.** Asking for a purchase's invoice is keyed `course:{invoice}:after:{request}`, the request it replaces (`none`
+  for the first): buying again after a request lapsed or failed asks anew, while the same ask again (a double click in one
+  transaction, a retried call) is answered with the request already made. A refund is keyed `course-refund:{purchase}`:
+  a purchase is refunded once. A bundle's courses share their invoice, and so its key.
+* **Receipted as Learn's.** Each call's receipt names Learn and the learner it acted for.
+* **What changed that a person may see.** A refund a learner's withdrawal asks for names the learner as `requested_by`
+  (it named the system), and the payment request is made on the learner's behalf. A store payment method that does not
+  exist refuses the purchase on `gateway` (it was `payment_method`). An invoice owed nothing still refuses with "nothing
+  is outstanding on this purchase's invoice".
+* `ferrum-app-commerce` is a development dependency only: the suite registers Commerce to answer the calls.
+
+Tests: `paid_courses_end_to_end` keeps its outcomes and adds: one receipt for Asha's purchase, by Learn, for her, keyed
+by the invoice; the same ask again is answered `repeated` with the same request and no new receipt; her withdrawal's
+refund is one receipt keyed by the purchase; Chen's second ask after his request lapsed has a key of its own; a payment
+method the store lacks refuses a purchase with nothing kept; with Paid Courses disabled, a learner enrols in the course
+and a call as Learn is `forbidden`, writing nothing. `live_sessions_end_to_end` gives Comms LiveKit's key and secret
+through Comms' vault, as Comms 0.25 reads them.
+
 ## 0.10.0
 
 * **A learner's customer is the one ERP finds or makes for a person** (`ferrum_app_erp::portal::customer_for`, ERP 0.28.3), in place of Paid Courses' own copy. A customer a web shop made at a guest checkout under the learner's address is no longer theirs, since anyone may type anyone's address there: they get a customer of their own, found again next time. Two purchases at once for one address (two tabs, a course and a bundle) wait for each other on ERP's lock for the address and make one customer, where they made two. ERP is a dependency of the app now, not of its tests only.
