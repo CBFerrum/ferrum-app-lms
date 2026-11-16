@@ -51,7 +51,7 @@ compliance training with due dates, and courses can be sold to people outside th
 | **Version** | 0.9.2 (Paid Courses connector 0.2.0) |
 | **Kind** | Its own interface at `/lms/`: course player, quiz player, catalog, teaching dashboards and a course builder; public catalog and certificate check; "My learning" on the portal. Other records use Ferrum's lists and forms |
 | **What it adds** | 45 record definitions: 27 records and 18 line tables, in 2 packages (Learn 42, Paid Courses 3); 4 roles (one for the portal); 7 reports; 1 print format (the certificate); 3 message templates; 1 menu |
-| **Depends on** | Ferrum platform `>=0.3.2, <0.4`. Learn needs nothing else. Paid Courses needs Commerce `>=0.7` |
+| **Depends on** | Ferrum platform `>=0.3.8, <0.4`. Learn needs nothing else. Paid Courses needs Commerce `>=0.7` |
 | **Works with** | Commerce and ERP (sales), Comms (live meetings), HR (enrolment rules, team reports, training records), Forms and Studio |
 | **Languages** | English, Arabic, Hindi (words and record names); right-to-left layout |
 | **Tests** | 49 Rust tests (16 of them walk the app against PostgreSQL) and 155 interface tests |
@@ -576,7 +576,7 @@ feature, or a feature the vendor reaches through an integration. Moodle's and Ca
 ## 🚀 Install
 
 Workspace administrators install Learn from **Apps** (`/store/`) in Ferrum. It ships in the official Ferrum server image, and a
-self-hoster building their own image enables the `lms` feature of the server. It needs platform `>=0.3.2, <0.4` and nothing else.
+self-hoster building their own image enables the `lms` feature of the server. It needs platform `>=0.3.8, <0.4` and nothing else.
 
 After installing:
 

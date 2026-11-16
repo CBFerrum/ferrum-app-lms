@@ -23,6 +23,7 @@ mod discussion;
 mod enrollment;
 mod gradebook;
 mod grading;
+mod keys;
 mod live;
 mod lti;
 mod media;
@@ -55,7 +56,11 @@ pub fn packages() -> std::result::Result<Vec<ferrum_meta::Package>, ferrum_meta:
 }
 
 /// Registers this app's document hooks (and web endpoints).
+/// Call it inside the platform's registration of the app, `hooks.app("lms", …)`: it takes its own vault handle
+/// there, which reads its secret fields (`keys.rs`).
 pub fn register(hooks: &mut HookRegistry) {
+    let site: Arc<dyn ferrum_kernel::Site> = Arc::new(site::LearnSite);
+    keys::remember(&site, hooks.vault());
     hooks
         .register("LmsSettings", Arc::new(catalog::SettingsHook))
         .register("LmsCourse", Arc::new(catalog::CourseHook))
@@ -80,7 +85,7 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("LmsPackageProgress", Arc::new(scorm::ProgressHook))
         .register("LmsLtiTool", Arc::new(lti::ToolHook))
         .register("LmsCertificate", Arc::new(certificate::CertificateHook))
-        .add_site(util::PACKAGE, Arc::new(site::LearnSite))
+        .add_site(util::PACKAGE, site)
         // People who signed themselves up on a course page are enrolled in it (or it is bought for them).
         .add_event_sink(Arc::new(signup::SignupSink));
     // The connector with Commerce: only where Paid Courses is installed.
