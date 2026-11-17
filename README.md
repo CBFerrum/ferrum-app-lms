@@ -14,7 +14,7 @@
 ![Rust](https://img.shields.io/badge/Rust-server-b7410e?style=flat-square&logo=rust)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-data-336791?style=flat-square&logo=postgresql&logoColor=white)
 ![React](https://img.shields.io/badge/React%20%2B%20TypeScript-interface-087ea4?style=flat-square&logo=react&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-49%20Rust%20%2B%20155%20UI-16a34a?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-50%20Rust%20%2B%20155%20UI-16a34a?style=flat-square)
 ![MCP](https://img.shields.io/badge/AI%20agents-MCP-8b5cf6?style=flat-square)
 
 ### Courses, quizzes and certificates for your team, your customers or your students, on the same data as the rest of the business.
@@ -54,7 +54,7 @@ compliance training with due dates, and courses can be sold to people outside th
 | **Depends on** | Ferrum platform `>=0.3.8, <0.4`. Learn needs nothing else. Paid Courses needs Commerce `>=0.13` |
 | **Works with** | Commerce and ERP (sales), Comms (live meetings), HR (enrolment rules, team reports, training records), Forms and Studio |
 | **Languages** | English, Arabic, Hindi (words and record names); right-to-left layout |
-| **Tests** | 49 Rust tests (16 of them walk the app against PostgreSQL) and 155 interface tests |
+| **Tests** | 50 Rust tests (16 of them walk the app against PostgreSQL) and 155 interface tests |
 | **Licence** | AGPL-3.0-only; the vendored SCORM runtime is MIT |
 
 ## 📸 Screenshots
@@ -433,6 +433,8 @@ credits live attendance, enrols by rule and enrols again before certificates exp
 | **REST and MCP** | Every record and action | A person's permissions |
 | **Studio and Forms** | Custom reports and fields; a form linked from a lesson | Nothing |
 
+**What the tests exercise.** Commerce, ERP, HR and Comms run as the real apps in the tests. The payment gateway is a stand-in (a plugin named `fakepay`), so no payment provider is called. Live sessions run against a stand-in for LiveKit's room service: no LiveKit server runs, so joining and attendance from a real meeting are not covered by a routine check.
+
 ## 📊 How it compares
 
 Learn is compared with **Moodle** and **Canvas** (both open source), and with **TalentLMS**, **Docebo** and **Cornerstone**
@@ -516,7 +518,7 @@ feature, or a feature the vendor reaches through an integration. Moodle's and Ca
 ### ✅ Recently shipped
 
 - [x] **0.11.1** Rebuilt on Ferrum-Frontend 06bd1a2: its start through `mountApp`, and no routes to the screens apps no longer have.
-- [x] **0.11.0** Paid Courses asks for payments and refunds through Commerce's operations on the platform's gate, receipted as Learn's; Learn no longer compiles against Commerce.
+- [x] **0.11.0** Paid Courses asks for payments and refunds through Commerce's operations on the platform's gate, receipted as Learn's; Learn does not compile against Commerce.
 - [x] **0.10.0** A learner's customer as ERP finds a person's: never a web shop's guest, one for two purchases at once; the package's SQL in one file.
 - [x] **0.9.2** Certificates' links and LTI's addresses without a public URL of Learn's: the platform's, through the operator's link host or at its hooks host.
 - [x] **0.9.1** Erasure reaches discussions; a learner is told when manual grading of an attempt is finished.

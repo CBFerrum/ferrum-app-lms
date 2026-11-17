@@ -24,8 +24,9 @@ self-enrolment whose prerequisites the caller has completed) answers
    invoice for the learner's customer, as ERP finds a person's (`portal::customer_for`): the oldest
    enabled customer with their email that no web shop's guest checkout made, else a new individual.
    Two purchases at once for one address wait for each other and make one customer.
-2. It asks for the whole invoice through the payment method (a Commerce `PaymentRequest`). The
-   gateway plugin writes `payment_url`, which the course page links to.
+2. It asks for the whole invoice through the payment method (a Commerce `PaymentRequest`), by
+   Commerce's operation `commerce.sales_invoice.request_payment`, called through the platform's gate
+   with a key of its own for each ask. The gateway plugin writes `payment_url`, which the course page links to.
 3. When the gateway confirms the payment (`mark_paid`), the payment entry marks the purchase `Paid`
    and enrols the learner, or reactivates the enrolment they had left, with their progress.
 
@@ -38,7 +39,7 @@ failed or was cancelled more than a day ago, and its invoice while nothing was p
 - A learner cannot enrol themselves in a paid course without a `Paid` purchase. This applies to new
   enrolments, Enrol Again and joining a learning path. Its instructors and LMS managers enrol anyone.
 - Withdrawing within the refund period credits the invoice in full (a submitted credit note) and
-  asks for the payment back (`OrderRefund`, kind Payment, Requested). The purchase becomes
+  asks for the payment back with `commerce.payment_request.refund`, keyed by the purchase (`OrderRefund`, kind Payment, Requested, naming the learner as `requested_by`). The purchase becomes
   `Refund Requested`, and a person approves the refund in the store. After the period, the purchase
   stays `Paid` and Enrol Again needs no new purchase.
 - Learners read their own purchases. Instructors read all of them, and LMS managers read and export them.
