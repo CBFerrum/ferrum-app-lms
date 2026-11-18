@@ -107,53 +107,40 @@ pub fn reports() -> Vec<Arc<dyn ReportSource>> {
     vec![Arc::new(reports::LearnReports)]
 }
 
-/// Periodic upkeep: every minute, on one replica at a time (advisory lock); must be idempotent and cheap.
-/// Per tenant with Learn: closes quiz attempts whose time ran out, sends live-session reminders,
-/// completes enrolments that course changes finished, reminds learners of due and overdue enrolments, and purges old reminder bookkeeping. A failing
+/// Upkeep for one workspace with Learn, called by the platform as it comes due; must be idempotent and cheap:
+/// closes quiz attempts whose time ran out, sends live-session reminders, completes enrolments that course changes
+/// finished, reminds learners of due and overdue enrolments, and purges old reminder bookkeeping. A failing
 /// step is logged and does not stop the others; the first error is returned.
-pub async fn maintenance(k: &Kernel) -> Result<()> {
-    maintenance_at(k, util::now()).await
+pub async fn maintenance(k: &Kernel, tenant: Uuid) -> Result<()> {
+    maintenance_at(k, tenant, util::now()).await
 }
 
 /// [`maintenance`] as of `at`: what is due, overdue or expiring is read against that instant, so a
 /// test can step the clock. Steps that watch the database's own clock (attempt deadlines, sessions)
 /// are unaffected.
-pub async fn maintenance_at(k: &Kernel, at: chrono::DateTime<chrono::Utc>) -> Result<()> {
-    let mut tx = k.db.system_tx().await?;
-    let tenants: Vec<Uuid> = sqlx::query_scalar("select id from tenant where status = 'active' order by id").fetch_all(&mut *tx).await?;
-    tx.commit().await?;
+pub async fn maintenance_at(k: &Kernel, tenant: Uuid, at: chrono::DateTime<chrono::Utc>) -> Result<()> {
+    let ctx = Ctx::system(tenant, k.registry.schema(tenant).await?);
     let mut first_error: Option<Error> = None;
-    for tenant in tenants {
-        let schema = match k.registry.schema(tenant).await {
-            Ok(schema) if schema.packages.iter().any(|p| p == util::PACKAGE) => schema,
-            Ok(_) => continue,
+    let steps = [
+        ("attempt deadlines", quiz::expire_attempts(k, &ctx).await),
+        ("session reminders", cohort::send_reminders(k, &ctx).await),
+        ("live attendance", live::close_ended(k, &ctx).await),
+        ("completions", enrollment::complete_ready(k, &ctx).await),
+        ("due reminders", enrollment::send_due_reminders(k, &ctx, at).await),
+        ("expired certificates", certificate::expire_all(k, &ctx, at).await),
+        ("recertification", enrollment::recertify(k, &ctx, at).await),
+        ("enrolment rules", rules::apply(k, &ctx, at).await),
+        ("lapsed purchases", payments::cancel_lapsed(k, &ctx).await),
+        ("purge", purge(k, tenant).await),
+        ("lti tokens", lti::purge(k, tenant).await),
+    ];
+    for (step, outcome) in steps {
+        match outcome {
+            Ok(n) if n > 0 => tracing::info!(%tenant, step, n, "learn maintenance"),
+            Ok(_) => {}
             Err(e) => {
+                tracing::warn!(%tenant, step, "learn maintenance failed: {e}");
                 first_error.get_or_insert(e);
-                continue;
-            }
-        };
-        let ctx = Ctx::system(tenant, schema);
-        let steps = [
-            ("attempt deadlines", quiz::expire_attempts(k, &ctx).await),
-            ("session reminders", cohort::send_reminders(k, &ctx).await),
-            ("live attendance", live::close_ended(k, &ctx).await),
-            ("completions", enrollment::complete_ready(k, &ctx).await),
-            ("due reminders", enrollment::send_due_reminders(k, &ctx, at).await),
-            ("expired certificates", certificate::expire_all(k, &ctx, at).await),
-            ("recertification", enrollment::recertify(k, &ctx, at).await),
-            ("enrolment rules", rules::apply(k, &ctx, at).await),
-            ("lapsed purchases", payments::cancel_lapsed(k, &ctx).await),
-            ("purge", purge(k, tenant).await),
-            ("lti tokens", lti::purge(k, tenant).await),
-        ];
-        for (step, outcome) in steps {
-            match outcome {
-                Ok(n) if n > 0 => tracing::info!(%tenant, step, n, "learn maintenance"),
-                Ok(_) => {}
-                Err(e) => {
-                    tracing::warn!(%tenant, step, "learn maintenance failed: {e}");
-                    first_error.get_or_insert(e);
-                }
             }
         }
     }

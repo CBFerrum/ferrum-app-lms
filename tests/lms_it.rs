@@ -821,7 +821,7 @@ async fn scenario() {
     )
     .await;
     t.sql("update e_lms_quiz_attempt set deadline = now() - interval '1 minute' where tenant_id = $1 and id = $2", b1_id).await;
-    ferrum_app_lms::maintenance(&k).await.expect("maintenance");
+    ferrum_app_lms::maintenance(&k, t.tenant).await.expect("maintenance");
     let b1 = t.get("LmsQuizAttempt", b1_id).await;
     assert_eq!((b1["status"].clone(), dec(&b1["score"]), dec(&b1["percentage"]), b1["passed"].clone()), (json!("Timed Out"), n("3"), n("60"), json!(false)));
 
@@ -960,7 +960,7 @@ async fn scenario() {
     t.update(&teacher, "LmsLesson", inv_lessons[1], json!({"required": false})).await;
     let ready = t.get("LmsEnrollment", einv).await;
     assert_eq!((dec(&ready["progress_percent"]), ready["status"].clone()), (n("100"), json!("Active")));
-    ferrum_app_lms::maintenance(&k).await.expect("maintenance");
+    ferrum_app_lms::maintenance(&k, t.tenant).await.expect("maintenance");
     let finished = t.get("LmsEnrollment", einv).await;
     assert_eq!((finished["status"].clone(), finished["certificate"].clone()), (json!("Completed"), Value::Null), "this course gives no certificate");
     assert_eq!(t.notes(&ben, "Course completed: Invite Only Workshop").await, 1);
@@ -980,10 +980,10 @@ async fn scenario() {
     sessions.push(json!({"title": "Kick-off", "starts_at": soon.to_rfc3339(), "duration_minutes": 45, "join_url": "https://meet.acme.test/kickoff"}));
     sessions.push(json!({"title": "Later", "starts_at": later.to_rfc3339()}));
     t.update(&teacher, "LmsCohort", cohort, json!({"sessions": sessions})).await;
-    let (x, y) = tokio::join!(ferrum_app_lms::maintenance(&k), ferrum_app_lms::maintenance(&k));
+    let (x, y) = tokio::join!(ferrum_app_lms::maintenance(&k, t.tenant), ferrum_app_lms::maintenance(&k, t.tenant));
     x.expect("maintenance");
     y.expect("maintenance");
-    ferrum_app_lms::maintenance(&k).await.expect("maintenance");
+    ferrum_app_lms::maintenance(&k, t.tenant).await.expect("maintenance");
     for (who, expected) in [(&winner, 1), (&late_comer, 1), (&teacher, 1), (&ben, 0), (&asha, 0)] {
         assert_eq!(t.notes(who, "Live session soon: Kick-off").await, expected, "{}", who.email);
     }
@@ -1223,7 +1223,6 @@ async fn paid() {
     hooks.own("lms", &lms_packages);
     let k = Kernel::boot(db, catalog, hooks, KernelSettings::default(), Some(Arc::new(NoMail))).await.expect("boot");
     ferrum_domain::maintenance(&k).await.expect("partitions");
-    ferrum_app_erp::maintenance(&k).await.expect("partitions");
     let tenant = k
         .create_tenant(NewTenant {
             slug: "academy".into(),
@@ -1421,7 +1420,7 @@ async fn paid() {
     let keys: Vec<String> = receipts_of(&t).await.into_iter().map(|r| r.2).filter(|k| k.contains(&chen_invoice.to_string())).collect();
     assert_eq!(keys, [format!("lms:course:{chen_invoice}:after:none"), format!("lms:course:{chen_invoice}:after:{first_request}")]);
     t.sql("update e_payment_request set status = 'Expired', updated_at = now() - interval '2 days' where tenant_id = $1 and id = $2", second_request).await;
-    ferrum_app_lms::maintenance(&t.k).await.expect("maintenance");
+    ferrum_app_lms::maintenance(&t.k, t.tenant).await.expect("maintenance");
     assert_eq!(t.get("LmsCoursePurchase", lapsing).await["status"], json!("Cancelled"));
     assert_eq!(t.get("SalesInvoice", chen_invoice).await["docstatus"], json!(2), "its invoice cancelled");
     let page = t.page(Some(&chen), "courses/rust-for-teams").await["course"].clone();
@@ -2298,7 +2297,7 @@ async fn live_sessions() {
     let on_dash = t.page(Some(&asha), "/dashboard").await["upcoming_sessions"].clone();
     let by_title = |title: &str| on_dash.as_array().unwrap().iter().find(|s| s["title"] == json!(title)).cloned().unwrap();
     assert_eq!((by_title("Q&A")["join_url"].clone(), by_title("Office hours")["join_url"].clone()), (json!(room), json!("https://meet.live.test/office")));
-    ferrum_app_lms::maintenance(&t.k).await.expect("maintenance");
+    ferrum_app_lms::maintenance(&t.k, t.tenant).await.expect("maintenance");
     let told: i64 =
         t.count("select count(*) from notification where tenant_id = $1 and user_id = $2 and body like $3", asha.user, &format!("%Join: {room}%")).await;
     assert_eq!(told, 1, "the reminder carries the meeting's link");
@@ -2340,7 +2339,7 @@ async fn live_sessions() {
         json!({"identity": identity(&ben, "e5f6a7b8"), "name": "Ben Okafor", "joined_at": (now - 600).to_string()}),
         json!({"identity": "guest.6578616d706c65.11223344", "name": "Outsider (guest)", "joined_at": now - 3000}),
     ];
-    ferrum_app_lms::maintenance(&t.k).await.expect("maintenance");
+    ferrum_app_lms::maintenance(&t.k, t.tenant).await.expect("maintenance");
     let report = t.act(&teacher, "LmsCohort", cohort, "session_attendance", json!({"session": qa.to_string()})).await;
     let rows: Vec<(String, bool, i64, String)> = report["learners"]
         .as_array()
@@ -2372,7 +2371,7 @@ async fn live_sessions() {
     assert!(meetings::get(&t.k, t.tenant, made.id).await.unwrap().ended_at.is_some(), "the meeting was closed");
     let page = t.page(Some(&asha), &format!("/lessons/{live_lesson}")).await;
     assert_eq!((page["completed"].clone(), page["live"][0]["attended"].clone()), (json!(true), json!(true)));
-    ferrum_app_lms::maintenance(&t.k).await.expect("maintenance");
+    ferrum_app_lms::maintenance(&t.k, t.tenant).await.expect("maintenance");
     assert_eq!(credited(enrolments[0]).await, 1, "read once");
 
     // An instructor marks Ben present by hand: it credits the lesson, and only instructors of the course may.
@@ -2429,7 +2428,7 @@ async fn live_sessions() {
     t.update(&teacher, "LmsCohort", cohort, json!({"sessions": plain})).await;
     let bare = t.get("LmsCohort", cohort).await["sessions"].as_array().unwrap().iter().find(|s| s["title"] == json!("No link")).unwrap().clone();
     assert!(meetings::find(&t.k, t.tenant, "LmsCohortSession", vid(&bare["id"])).await.unwrap().is_none());
-    ferrum_app_lms::maintenance(&t.k).await.expect("maintenance");
+    ferrum_app_lms::maintenance(&t.k, t.tenant).await.expect("maintenance");
     t.act(&teacher, "LmsCohort", cohort, "mark_attendance", json!({"session": bare["id"], "learner": "cy@live.test"})).await;
     assert_eq!(
         t.count("select count(*) from e_lms_lesson_progress where tenant_id = $1 and enrollment = $2 and completed_via = $3", enrolments[2], "Instructor")
@@ -2649,7 +2648,7 @@ async fn due_dates() {
 
     // Nothing yet today; the 7th day opens the three-day window of the two enrolments due on the 10th, and
     // Chen's, due on the 5th, is a day overdue and past it.
-    ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(2))).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, noon(today + Duration::days(2))).await.unwrap();
     assert_eq!(
         t.notes(&who[&chen.0], "Due soon").await + t.notes(&who[&asha.0], "Due soon").await,
         1,
@@ -2658,7 +2657,7 @@ async fn due_dates() {
     let at = noon(today + Duration::days(7));
     finish(&t, &who[&asha.0], asha_e, &lessons).await;
     for _ in 0..2 {
-        ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+        ferrum_app_lms::maintenance_at(&t.k, t.tenant, at).await.unwrap();
     }
     assert_eq!(t.notes(&who[&ben.0], "Due soon").await, 1, "once, however often the upkeep runs");
     assert_eq!(t.notes(&who[&asha.0], "Due soon").await, 0, "a completed enrolment is left alone");
@@ -2666,10 +2665,10 @@ async fn due_dates() {
     assert_eq!(t.notes(&who[&dee.0], "Due soon").await + t.notes(&who[&dee.0], "Overdue").await, 0);
     // A new date earns the reminders again.
     t.update(&manager, "LmsEnrollment", chen_e, json!({"due_date": day(9)})).await;
-    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, at).await.unwrap();
     assert_eq!(t.notes(&who[&chen.0], "Due soon").await, 2, "the 9th is two days off: its window is open");
     // The 11th: the two enrolments due on the 10th are overdue.
-    ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(11))).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, noon(today + Duration::days(11))).await.unwrap();
     assert_eq!(t.notes(&who[&ben.0], "Overdue").await, 1);
     assert_eq!(t.notes(&who[&chen.0], "Overdue").await, 2);
     assert_eq!(t.notes(&who[&asha.0], "Overdue").await, 0);
@@ -2677,7 +2676,7 @@ async fn due_dates() {
     // The course's own offsets win over Learn Settings, and 0 is off.
     let (quiet, _) = course_of(&t, &manager, "Quiet", 1, json!({"due_days": 4, "due_reminder_days": 0, "overdue_reminder_days": 0})).await;
     enrol(&t, &manager, quiet, &[&ben.0]).await;
-    ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(40))).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, noon(today + Duration::days(40))).await.unwrap();
     assert_eq!(t.notes(&who[&ben.0], "Due soon: Quiet").await + t.notes(&who[&ben.0], "Overdue: Quiet").await, 0);
 }
 
@@ -2723,12 +2722,12 @@ async fn expiry() {
     assert_eq!((v["valid"].clone(), v["status"].clone(), v["expires_on"].clone()), (json!(true), json!("Valid"), json!(day(30))));
 
     // Valid and not near its end: nothing happens on the 10th.
-    ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(10))).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, noon(today + Duration::days(10))).await.unwrap();
     assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"course": course.to_string()})).await.unwrap().len(), 3);
 
     // Expiring: five days before the 30th the three holders are enrolled again, once however often it runs.
     for _ in 0..2 {
-        ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(26))).await.unwrap();
+        ferrum_app_lms::maintenance_at(&t.k, t.tenant, noon(today + Duration::days(26))).await.unwrap();
     }
     let all = t.list(&t.admin, "LmsEnrollment", json!({"course": course.to_string()})).await.unwrap();
     assert_eq!(all.len(), 6, "one new enrolment each");
@@ -2764,7 +2763,7 @@ async fn expiry() {
     let v = seen(ben_cert["verification_code"].as_str().unwrap().to_string()).await;
     assert_eq!((v["valid"].clone(), v["status"].clone()), (json!(false), json!("Expired")));
     assert_eq!(t.get("LmsCertificate", uid(&ben_cert)).await["status"], json!("Valid"), "the upkeep has not run");
-    ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(40))).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, noon(today + Duration::days(40))).await.unwrap();
     assert_eq!(t.get("LmsCertificate", uid(&ben_cert)).await["status"], json!("Expired"));
     // Late: his recertification (made on the 26th, due on the 30th) is completed after the expiry.
     let b2 = t.list(&t.admin, "LmsEnrollment", json!({"learner": email("ben"), "cycle": 2})).await.unwrap();
@@ -2777,7 +2776,7 @@ async fn expiry() {
     // Chen's recertification is withdrawn: no third enrolment appears for the same expiry.
     let c2 = uid(&again("chen"));
     t.act(&who["chen"], "LmsEnrollment", c2, "withdraw", json!({})).await;
-    ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(41))).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, noon(today + Duration::days(41))).await.unwrap();
     assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"learner": email("chen")})).await.unwrap().len(), 2);
 
     // A course that does not re-enrol (0 days) lets its certificates expire and no more.
@@ -2785,7 +2784,7 @@ async fn expiry() {
         course_of(&t, &manager, "Plain", 1, json!({"issue_certificate": true, "certificate_valid_days": 10, "recertify_before_days": 0})).await;
     let p = enrol(&t, &manager, plain, &[&email("dee")]).await;
     finish(&t, &who["dee"], p[&email("dee")], &plain_lessons).await;
-    ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(60))).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, noon(today + Duration::days(60))).await.unwrap();
     assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"course": plain.to_string()})).await.unwrap().len(), 1);
     assert_eq!(cert_of(p[&email("dee")]).await["status"], json!("Expired"));
 }
@@ -2841,11 +2840,11 @@ async fn rules_for_users() {
         "Ben is enrolled already"
     );
     // Switched off, it enrols nobody.
-    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, at).await.unwrap();
     assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"course": course.to_string()})).await.unwrap().len(), 1);
     t.update(&manager, "LmsEnrollmentRule", all, json!({"active": true})).await;
     for _ in 0..2 {
-        ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+        ferrum_app_lms::maintenance_at(&t.k, t.tenant, at).await.unwrap();
     }
     let made = t.list(&t.admin, "LmsEnrollment", json!({"rule": all.to_string()})).await.unwrap();
     assert_eq!(made.iter().map(|r| r["learner"].as_str().unwrap().to_string()).collect::<BTreeSet<_>>(), BTreeSet::from([email("asha"), email("chen")]));
@@ -2857,7 +2856,7 @@ async fn rules_for_users() {
 
     // A new joiner is enrolled at the next upkeep; the course's own due days apply when the rule has none.
     let dee = t.user("dee@rules.test", "dee", "Learner").await;
-    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, at).await.unwrap();
     assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"learner": email("dee")})).await.unwrap().len(), 1);
     assert_eq!(t.notes(&dee, "Enrolled").await, 1);
 
@@ -2867,7 +2866,7 @@ async fn rules_for_users() {
     for n in ["asha", "chen"] {
         t.sql("delete from user_role where tenant_id = $1 and user_id = $2", who[n].user).await;
     }
-    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, at).await.unwrap();
     let status = |n: &str| t.list(&t.admin, "LmsEnrollment", json!({"learner": email(n), "course": course.to_string()}));
     assert_eq!(status("asha").await.unwrap()[0]["status"], json!("Withdrawn"));
     assert_eq!(status("chen").await.unwrap()[0]["status"], json!("Active"), "started: kept");
@@ -2886,7 +2885,7 @@ async fn rules_for_users() {
     let (draft, _) = course_of(&t, &manager, "Draft", 1, json!({})).await;
     t.update(&manager, "LmsCourse", draft, json!({"status": "Draft"})).await;
     let wip = uid(&t.insert(&manager, "LmsEnrollmentRule", json!({"rule_name": "WIP", "course": draft.to_string(), "active": true, "criteria": []})).await);
-    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, at).await.unwrap();
     let night_made = t.list(&t.admin, "LmsEnrollment", json!({"course": other.to_string()})).await.unwrap();
     assert_eq!(night_made.iter().map(|r| r["learner"].clone()).collect::<Vec<_>>(), vec![json!(email("dee"))]);
     assert_eq!(night_made[0]["due_date"], Value::Null, "no due days anywhere");
@@ -2897,7 +2896,7 @@ async fn rules_for_users() {
     assert!(matches!(ferrum_domain::reports::run(&t.k, &who["ben"], "lms_team_training", &no_params).await, Err(Error::Forbidden(_))));
     assert!(ferrum_domain::reports::run(&t.k, &manager, "lms_team_training", &no_params).await.unwrap()["rows"].as_array().unwrap().len() >= 3);
     t.sql("delete from scim_group_member where tenant_id = $1 and user_id = $2", dee.user).await;
-    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, at).await.unwrap();
     assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"course": other.to_string()})).await.unwrap()[0]["status"], json!("Active"), "Keep is the default");
 }
 
@@ -2975,7 +2974,7 @@ async fn rules_for_employees() {
     assert_eq!(preview(id).await["matching"], json!(2), "Asha and Ben: Dee is inactive, Nobody has no sign-in, Chen is in Sales");
     assert_eq!(preview(north_only).await["matching"], json!(1));
     t.update(&manager, "LmsEnrollmentRule", id, json!({"active": true})).await;
-    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, at).await.unwrap();
     let who_is = || async {
         t.list(&t.admin, "LmsEnrollment", json!({"course": course.to_string(), "status": "Active"}))
             .await
@@ -2991,13 +2990,13 @@ async fn rules_for_employees() {
     staff("Eli", Some("eli"), safety, south, json!({})).await;
     let chen = t.list(&t.admin, "Employee", json!({"user": email("chen")})).await.unwrap().remove(0);
     t.update(&t.admin, "Employee", uid(&chen), json!({"department": safety.to_string()})).await;
-    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, at).await.unwrap();
     assert_eq!(who_is().await, BTreeSet::from([email("asha"), email("chen"), email("eli")]));
     let ben_e = t.list(&t.admin, "LmsEnrollment", json!({"learner": email("ben")})).await.unwrap();
     assert_eq!(ben_e[0]["status"], json!("Withdrawn"), "moved out and not started");
     // Moving back does not enrol him a second time: he is withdrawn, not forgotten.
     t.update(&t.admin, "Employee", ben, json!({"department": safety.to_string()})).await;
-    ferrum_app_lms::maintenance_at(&t.k, at).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, at).await.unwrap();
     assert_eq!(t.list(&t.admin, "LmsEnrollment", json!({"learner": email("ben")})).await.unwrap().len(), 1);
     let _ = lessons;
 }
@@ -3058,7 +3057,7 @@ async fn programme() {
         (json!(2), json!(2), json!(4), json!(2)),
         "two people, two open courses"
     );
-    ferrum_app_lms::maintenance_at(&t.k, noon(today)).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, noon(today)).await.unwrap();
     let mine = |c: Uuid, n: &str| t.list(&t.admin, "LmsEnrollment", json!({"course": c.to_string(), "learner": email(n)}));
     let (a_fire, a_data, b_fire) = (mine(fire, "asha").await.unwrap(), mine(data, "asha").await.unwrap(), mine(fire, "ben").await.unwrap());
     assert_eq!((a_fire[0]["due_date"].clone(), a_data[0]["due_date"].clone()), (json!(day(7)), json!(day(20))), "each course's own offset");
@@ -3089,7 +3088,7 @@ async fn programme() {
     assert_eq!(overdue["days_overdue"], json!(1));
 
     // Near expiry: only the course that repeats is enrolled again, in the same programme.
-    ferrum_app_lms::maintenance_at(&t.k, noon(today + Duration::days(26))).await.unwrap();
+    ferrum_app_lms::maintenance_at(&t.k, t.tenant, noon(today + Duration::days(26))).await.unwrap();
     assert_eq!(mine(data, "asha").await.unwrap().len(), 1, "Data Handling does not repeat");
     let again = mine(fire, "asha").await.unwrap();
     let c2 = again.iter().find(|r| r["cycle"] == json!(2)).expect("the repeat");
@@ -3602,7 +3601,7 @@ async fn gradebook() {
     let ben_row = row_of(&t.page(Some(&teacher), &format!("teaching/courses/{course}/gradebook")).await, "ben@grades.test");
     assert_eq!((dec(&ben_row["total_percent"]), ben_row["marks"][2]["excused"].clone()), (n("20"), json!(true)));
     assert_eq!(t.get("LmsEnrollment", be).await["status"], json!("Active"), "below the minimum total");
-    ferrum_app_lms::maintenance(&t.k).await.expect("upkeep");
+    ferrum_app_lms::maintenance(&t.k, t.tenant).await.expect("upkeep");
     assert_eq!(t.get("LmsEnrollment", be).await["status"], json!("Active"));
     t.update(&teacher, "LmsGradeEntry", low, json!({"points": "9"})).await;
     assert_eq!(t.get("LmsEnrollment", be).await["status"], json!("Completed"), "90% now");

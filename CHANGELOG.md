@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.0
+
+No database or interface change. Needs Ferrum 0.4.0 (apps' upkeep runs one workspace at a time, on whichever replica is free).
+
+- **Upkeep is one workspace's.** `maintenance(k, tenant)` and `maintenance_at(k, tenant, at)` run the same steps, in the same order, for
+  the one workspace they are given; the first failure is returned after the rest ran, as before. They no longer list workspaces or check for Learn.
+
 ## 0.11.1
 
 Needs the same platform as 0.11.0. No database change. Interface only, `ui/dist` rebuilt with Ferrum-Frontend `06bd1a2`.
