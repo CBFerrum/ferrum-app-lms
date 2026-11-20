@@ -484,3 +484,18 @@ export interface CertificateCheck {
   issuer: string | null;
   verification_code: string;
 }
+
+// ───────────────────────────── the gradebook (src/gradebook.rs:232-248) ─────────────────────────────
+
+export interface GradeMark { item: string; points: string | null; excused: boolean; late_days: number; late_penalty_percent: string; overridden: boolean; comment: string | null }
+export interface GradeLearner { enrollment: string; learner: string; learner_name: string | null; marks: GradeMark[]; total_percent: string | null; grade: string | null }
+export interface GradeItem { id: string; title: string; category: string; source: "Quiz" | "Assignment" | "Live Session" | "Manual"; max_points: string; released: boolean }
+export interface GradeBook {
+  course: { id: string; title: string; slug: string; min_grade_percent: string | null };
+  categories: { category: string; weight: string; drop_lowest: number }[];
+  items: GradeItem[];
+  learners: GradeLearner[];
+}
+
+/** The entry behind a cell of the book, when someone marked it by hand. */
+export interface GradeEntry { id: string; version: number; points: string | null; excused: boolean; comment: string | null }

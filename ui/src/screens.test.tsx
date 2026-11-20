@@ -21,8 +21,9 @@ import { PlayerRoute } from "./Player";
 import { PublicCatalog, PublicCertificate, PublicCourse, PublicLesson } from "./Public";
 import { docKey, type LessonDoc, LessonEditor } from "./LessonEditor";
 import { Intro, Result, Sitting } from "./QuizPlayer";
+import { MyGradesRoute, NotEnrolled } from "./Grades";
 import { Teaching } from "./Teaching";
-import type { LiveSession, EnrolmentDue, Attempt, AttemptAnswer, AssignmentState, CoursePage, Dashboard, LessonView, OutlineChapter, QuizState, Roster } from "./types";
+import type { GradeBook, LiveSession, EnrolmentDue, Attempt, AttemptAnswer, AssignmentState, CoursePage, Dashboard, LessonView, OutlineChapter, QuizState, Roster } from "./types";
 
 const draw = (path: string, route: string, element: React.ReactElement, fill: (qc: QueryClient) => void) => {
   const qc = new QueryClient();
@@ -631,5 +632,62 @@ describe("an enrolment rule's preview", () => {
     const p = { matching: 5, would_enrol: 3, enrolments: 3, open_courses: 1, already_enrolled: 2, switched_on: false };
     expect(previewText(p)).toBe("3 people would be enrolled at the next upkeep.");
     expect(previewText({ ...p, would_enrol: 1 })).toBe("1 person would be enrolled at the next upkeep.");
+  });
+});
+
+describe("the gradebook", () => {
+  const book = (over: Partial<GradeBook> = {}): GradeBook => ({
+    course: { id: "course-1", title: "Intro to Rust", slug: "intro-to-rust", min_grade_percent: "60.00" },
+    categories: [{ category: "Quizzes", weight: "100", drop_lowest: 0 }],
+    items: [
+      { id: "i1", title: "Ownership quiz", category: "Quizzes", source: "Quiz", max_points: "10.00", released: true },
+      { id: "i2", title: "Final project", category: "Quizzes", source: "Assignment", max_points: "50.00", released: false },
+    ],
+    learners: [
+      { enrollment: "e1", learner: "asha@school.test", learner_name: "Asha Rao", marks: [{ item: "i1", points: "8.00", excused: false, late_days: 2, late_penalty_percent: "10", overridden: true, comment: "Well done" }, { item: "i2", points: null, excused: true, late_days: 0, late_penalty_percent: "0", overridden: false, comment: null }], total_percent: "80.00", grade: "B" },
+      { enrollment: "e2", learner: "bo@school.test", learner_name: null, marks: [], total_percent: null, grade: null },
+    ],
+    ...over,
+  });
+  const teacher = (b: GradeBook) => draw("/teaching/course-1?tab=gradebook", "/teaching/:course", <CourseDashboardRoute />, (qc) => (qc.setQueryData(keys.roster("course-1"), { course: { id: "course-1", slug: "intro-to-rust", title: "Intro to Rust" }, enrolled: 0, completed: 0, completion_rate: "0", learners: [] }), qc.setQueryData(keys.gradebook("course-1"), b)));
+
+  it("an_instructor_sees_every_learner_and_item_with_totals", () => {
+    const html = teacher(book());
+    expect(html).toContain("Asha Rao");
+    expect(html).toContain("bo@school.test");
+    expect(html).toContain("Ownership quiz");
+    expect(html).toContain("Final project");
+    expect(html).toContain("Excused");
+    expect(html).toContain("80%");
+    expect(html).toContain(">B<");
+    expect(html).toContain("−10%");
+    expect(html).toContain("Download CSV");
+  });
+
+  it("an_item_not_released_says_so", () => {
+    expect(teacher(book())).toContain("Not released");
+  });
+
+  it("a_course_without_grade_items_offers_to_add_one", () => {
+    const html = teacher(book({ items: [], learners: [] }));
+    expect(html).toContain("Add a grade item");
+    expect(html).toContain("/e/LmsGradeItem/new");
+  });
+
+  it("a_learner_reads_their_own_marks_and_the_total", () => {
+    const b = book();
+    const html = draw("/course/intro-to-rust/grades", "/course/:slug/grades", <MyGradesRoute />, (qc) => qc.setQueryData(keys.grades("intro-to-rust"), { ...b, learners: [b.learners[0]] }));
+    expect(html).toContain("8 of 10");
+    expect(html).toContain("Late: −10%");
+    expect(html).toContain("Well done");
+    expect(html).toContain("80%");
+    expect(html).toContain("The course asks for a total of 60%.");
+    expect(html).not.toContain("Final project");
+  });
+
+  it("a_learner_not_enrolled_is_told_so", () => {
+    const html = draw("/x", "/x", <NotEnrolled slug="intro-to-rust" />, () => {});
+    expect(html).toContain("You are not enrolled in this course");
+    expect(html).toContain('href="/course/intro-to-rust"');
   });
 });

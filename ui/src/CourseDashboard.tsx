@@ -12,6 +12,7 @@ import { Failed } from "./states";
 import { enrolLearners, type EnrolResult, getCourse, getRoster, keys, rowsOf } from "./api";
 import { Glyph } from "./Glyph";
 import { Grading } from "./Grading";
+import { GradebookTab } from "./Grades";
 import { paths } from "./lesson";
 import { ProgressLine } from "./parts";
 import { cohortsOf, distribution, filterRoster, isQuiet, progressOf, rosterFilterFrom, type RosterFilter, rosterParams, SORTS, sortRoster, summarize } from "./roster";
@@ -324,7 +325,7 @@ export function CourseDashboardRoute() {
 function CourseDashboard({ course }: { course: string }) {
   const qc = useQueryClient();
   const [sp, setSp] = useSearchParams();
-  const tab = sp.get("tab") === "grading" ? "grading" : "learners";
+  const tab = sp.get("tab") === "grading" ? "grading" : sp.get("tab") === "gradebook" ? "gradebook" : "learners";
   const [adding, setAdding] = useState(false);
   const q = useQuery({ queryKey: keys.roster(course), queryFn: () => getRoster(course), staleTime: 0 });
   const refresh = useCallback(() => void qc.invalidateQueries({ queryKey: ["lms", "roster"] }), [qc]);
@@ -339,7 +340,7 @@ function CourseDashboard({ course }: { course: string }) {
   const sum = summarize(roster, now);
   const bands = distribution(roster.learners);
   const widest = Math.max(1, ...bands.map((b) => b.count));
-  const go = (t: "learners" | "grading") => setSp(t === "grading" ? { tab: "grading" } : {}, { replace: true });
+  const go = (t: "learners" | "grading" | "gradebook") => setSp(t === "learners" ? {} : { tab: t }, { replace: true });
 
   return (
     <PageStack className="lms-page">
@@ -378,15 +379,18 @@ function CourseDashboard({ course }: { course: string }) {
           </ul>
         </section>
       )}
-      <div className="lms-switch" role="tablist" aria-label={tr("Learners and grading")}>
+      <div className="lms-switch" role="tablist" aria-label={tr("Learners, grading and the gradebook")}>
         <button type="button" role="tab" aria-selected={tab === "learners"} onClick={() => go("learners")}>
           {tr("Learners")}
         </button>
         <button type="button" role="tab" aria-selected={tab === "grading"} onClick={() => go("grading")}>
           {tr("To grade")} {sum.toGrade > 0 && <Badge tone="amber">{sum.toGrade}</Badge>}
         </button>
+        <button type="button" role="tab" aria-selected={tab === "gradebook"} onClick={() => go("gradebook")}>
+          {tr("Gradebook")}
+        </button>
       </div>
-      {tab === "learners" ? <Learners roster={roster} now={now} /> : <Grading course={course} />}
+      {tab === "learners" ? <Learners roster={roster} now={now} /> : tab === "grading" ? <Grading course={course} /> : <GradebookTab course={course} />}
       <AddLearners course={course} open={adding} onClose={() => setAdding(false)} onDone={refresh} />
     </PageStack>
   );

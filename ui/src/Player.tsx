@@ -261,6 +261,11 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
           <Link className="lms-back" to={paths.course(slug)}>
             <Glyph name="arrowLeft" size={14} /> {isolate(data.title)}
           </Link>
+          {progress && progress.status !== "Withdrawn" && (
+            <Link className="lms-back" to={paths.grades(slug)}>
+              {t("Grades")}
+            </Link>
+          )}
           <Button size="sm" className="lms-outline-toggle" icon="list" onClick={() => setSheet(true)}>
             {t("Outline")}
           </Button>

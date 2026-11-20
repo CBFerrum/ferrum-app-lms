@@ -15,6 +15,8 @@ import type {
   ScormSaved,
   LessonView,
   EnrolmentDue,
+  GradeBook,
+  GradeEntry,
   Roster,
   RulePreview,
   SessionAttendance,
@@ -50,6 +52,8 @@ export const keys = {
   dues: ["lms", "dues"] as const,
   cohort: (id: string) => ["lms", "cohort", id] as const,
   attendance: (cohort: string, session: string) => ["lms", "attendance", cohort, session] as const,
+  gradebook: (course: string) => ["lms", "gradebook", course] as const,
+  grades: (slug: string) => ["lms", "grades", slug] as const,
 };
 
 // ───────────────────────────── signed in ─────────────────────────────
@@ -142,3 +146,15 @@ export const previewRule = (rule: string) => act<RulePreview>("LmsEnrollmentRule
 export const sessionAttendance = (cohort: string, session: string) => act<SessionAttendance>("LmsCohort", cohort, "session_attendance", { session });
 export const markAttendance = (cohort: string, session: string, learner: string, attended: boolean) =>
   act("LmsCohort", cohort, "mark_attendance", { session, learner, attended });
+
+// ───────────────────────────── the gradebook ─────────────────────────────
+
+export const getGradebook = (course: string) => api.get<GradeBook>(app(`teaching/courses/${seg(course)}/gradebook`));
+/** The address of the book as a download (the server names the file). */
+export const gradebookCsv = (course: string) => `${app(`teaching/courses/${seg(course)}/gradebook`)}?format=csv`;
+export const getMyGrades = (slug: string) => api.get<GradeBook>(app(`courses/${seg(slug)}/grades`));
+export const getGradeEntry = (item: string, enrollment: string) =>
+  rowsOf<GradeEntry>("LmsGradeEntry", { filters: JSON.stringify({ item, enrollment }), fields: "points,excused,comment", limit: 1 }).then((r) => r[0] ?? null);
+export const saveGradeEntry = (item: string, enrollment: string, body: { points: string | null; excused: boolean; comment: string | null }, existing: GradeEntry | null) =>
+  existing ? api.patch<GradeEntry>(docPath("LmsGradeEntry", existing.id), body, { ifMatch: existing.version }) : api.post<GradeEntry>(docPath("LmsGradeEntry"), { item, enrollment, ...body });
+export const clearGradeEntry = (entry: GradeEntry) => api.del(docPath("LmsGradeEntry", entry.id), { ifMatch: entry.version });
