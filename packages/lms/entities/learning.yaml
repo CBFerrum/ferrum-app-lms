@@ -155,7 +155,12 @@
       params:
         - {name: question, type: data, label: Question, required: true, description: "The id of the question graded"}
         - {name: points, type: data, label: Points, description: "Out of the question's points; or choose the rubric's levels"}
+        - {name: rubric, type: text, label: Rubric, description: "With a rubric: the level of each criterion, as {\"criterion\": \"level\"}"}
         - {name: comment, type: text, label: Comment}
+      contract:
+        effect: transactional_action
+        returns: {type: object, properties: {attempt: {type: object}, waiting_for: {type: string}}}
+        completion: "This grader's grade of the answer is kept. Without a second grader it is final. With one, it is final when two graders agree or a third has graded; until then waiting_for says who grades next. When no answer of the attempt waits, its result is final and the learner is told"
   list: {columns: [number, quiz_title, learner, attempt_no, status, percentage, passed], sort: created_at desc}
 
 - name: LmsAssignmentSubmission
@@ -201,6 +206,10 @@
         - {name: score, type: data, label: Score, description: "Out of the assignment's maximum; needed to grade it"}
         - {name: feedback, type: text, label: Feedback}
         - {name: rubric, type: text, label: Rubric, description: "With a rubric: the level of each criterion, as {\"criterion\": \"level\"}"}
+      contract:
+        effect: transactional_action
+        returns: {type: object, properties: {submission: {type: object}}}
+        completion: "The submission is Graded with its score (from the rubric's levels when the assignment has one) or sent back as Needs Revision; a passing grade completes the assignment's lesson; the learner is told"
   list: {columns: [number, assignment_title, learner_name, status, score, passed], sort: created_at desc}
 
 - name: LmsCertificate

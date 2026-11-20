@@ -3982,3 +3982,95 @@ async fn open_doors() {
         t.page(Some(who), &format!("teaching/courses/{mine}/roster")).await;
     }
 }
+
+// ───────────────────────────── lms-5: file answers, and grading through the gate ─────────────────────────────
+
+#[test]
+fn file_answers_belong_to_their_attempt() {
+    run(file_answers());
+}
+
+/// A file a learner answers with is tied to the attempt, so the course's instructors read it as they read the
+/// attempt; saving the same answer twice passes; another learner naming it in their own attempt is refused.
+async fn file_answers() {
+    let t = boot("fileans", vec![], &[], |_| {}).await;
+    t.k.set_file_store(Arc::new(MemFiles(Mutex::new(HashMap::new()))));
+    let teacher = t.user("teacher@fileans.test", "Tara Teacher", "Instructor").await;
+    let asha = t.user("asha@fileans.test", "Asha Rao", "Learner").await;
+    let ben = t.user("ben@fileans.test", "Ben Lee", "Learner").await;
+    let course = uid(&t.insert(&teacher, "LmsCourse", json!({"title": "Lab", "instructors": [{"instructor": "teacher@fileans.test"}]})).await);
+    let file_q = uid(&t.insert(&teacher, "LmsQuestion", json!({"question": "Upload your sheet", "question_type": "File Upload", "points": "2", "course": course.to_string()})).await);
+    let quiz = uid(&t.insert(&teacher, "LmsQuiz", json!({"title": "Lab quiz", "course": course.to_string(), "questions": [{"question": file_q.to_string()}]})).await);
+    t.chapter(&teacher, course, "Lab", &[json!({"title": "Quiz", "lesson_type": "Quiz", "quiz": quiz.to_string()})]).await;
+    t.update(&teacher, "LmsCourse", course, json!({"status": "Published"})).await;
+    let enrolled = enrol(&t, &teacher, course, &["asha@fileans.test", "ben@fileans.test"]).await;
+    let attempt_of = |who: &'static str| {
+        let (t, e) = (&t, enrolled[who]);
+        let q = quiz.to_string();
+        let who = if who.starts_with("asha") { asha.clone() } else { ben.clone() };
+        async move { vid(&t.act(&who, "LmsEnrollment", e, "start_quiz", json!({"quiz": q})).await["attempt"]["id"]) }
+    };
+    let (a, b) = (attempt_of("asha@fileans.test").await, attempt_of("ben@fileans.test").await);
+    let sheet = vid(&t.k.store_file(&asha, None, "lab.pdf", "application/pdf", b"%PDF-1.4 lab").await.unwrap()["id"]);
+    let mine = json!({"answers": {file_q.to_string(): format!("/files/{sheet}")}});
+    t.act(&asha, "LmsQuizAttempt", a, "save_answers", mine.clone()).await;
+    let tie = |sql: &'static str| async move {
+        let mut tx = t.k.db.tenant_tx(t.tenant).await.unwrap();
+        sqlx::query_as::<_, (Option<String>, Option<Uuid>)>(sql).bind(t.tenant).bind(sheet).fetch_one(&mut *tx).await.unwrap()
+    };
+    assert_eq!(tie("select entity, record_id from file_object where tenant_id = $1 and id = $2").await, (Some("LmsQuizAttempt".to_string()), Some(a)), "tied to her attempt");
+    t.act(&asha, "LmsQuizAttempt", a, "save_answers", mine).await;
+    let stolen = json!({"answers": {file_q.to_string(): format!("/files/{sheet}")}});
+    assert!(field_error(t.try_act(&ben, "LmsQuizAttempt", b, "save_answers", stolen).await, "answers").contains("you uploaded"), "another learner cannot use it");
+}
+
+#[test]
+fn grading_goes_through_the_gate_with_its_contract() {
+    run(grading_gate());
+}
+
+/// The grading actions say what done means and declare the rubric; an essay is graded with its rubric's levels
+/// through the gate, a repeat under the same key answers `repeated`, and a learner is refused.
+async fn grading_gate() {
+    use ferrum_kernel::capability::Invocation;
+    let t = boot("gradegate", vec![], &[], |_| {}).await;
+    let teacher = t.user("teacher@gradegate.test", "Tara Teacher", "Instructor").await;
+    let asha = t.user("asha@gradegate.test", "Asha Rao", "Learner").await;
+    let caps = t.k.catalog(&t.admin);
+    for id in ["lms.lms_quiz_attempt.grade_answers", "lms.lms_assignment_submission.grade"] {
+        let c = caps.iter().find(|c| c.id == id).unwrap_or_else(|| panic!("{id} in the catalog"));
+        assert!(!c.completion.ends_with("is done, committed with this receipt"), "{id}: {}", c.completion);
+    }
+    let grade = caps.iter().find(|c| c.id == "lms.lms_quiz_attempt.grade_answers").unwrap();
+    assert!(grade.input.to_string().contains("rubric"), "grade_answers declares rubric: {}", grade.input);
+
+    let course = uid(&t.insert(&teacher, "LmsCourse", json!({"title": "Writing", "instructors": [{"instructor": "teacher@gradegate.test"}]})).await);
+    let c = course.to_string();
+    let rubric = uid(&t
+        .insert(
+            &teacher,
+            "LmsRubric",
+            json!({"title": "Essay", "course": c, "criteria": [{"criterion": "Argument"}], "levels": [{"criterion": "Argument", "level": "Good", "points": "5"}, {"criterion": "Argument", "level": "Weak", "points": "1"}]}),
+        )
+        .await);
+    let essay = uid(&t.insert(&teacher, "LmsQuestion", json!({"question": "Argue", "question_type": "Essay", "points": "4", "course": c, "rubric": rubric.to_string()})).await);
+    let quiz = uid(&t.insert(&teacher, "LmsQuiz", json!({"title": "Essay quiz", "course": c, "questions": [{"question": essay.to_string()}]})).await);
+    t.chapter(&teacher, course, "Main", &[json!({"title": "Quiz", "lesson_type": "Quiz", "quiz": quiz.to_string()})]).await;
+    t.update(&teacher, "LmsCourse", course, json!({"status": "Published"})).await;
+    let enrolment = enrol(&t, &teacher, course, &["asha@gradegate.test"]).await["asha@gradegate.test"];
+    let started = t.act(&asha, "LmsEnrollment", enrolment, "start_quiz", json!({"quiz": quiz.to_string()})).await;
+    let aid = vid(&started["attempt"]["id"]);
+    t.act(&asha, "LmsQuizAttempt", aid, "submit_answers", json!({"answers": {essay.to_string(): "Because."}})).await;
+
+    let ask = |who: &Ctx, key: &str| {
+        let inv = Invocation::new("lms.lms_quiz_attempt.grade_answers", json!({"id": aid, "params": {"question": essay.to_string(), "rubric": "{\"Argument\":\"Good\"}"}})).key(key);
+        let (k, who) = (t.k.clone(), who.clone());
+        async move { k.invoke(&who, inv).await }
+    };
+    assert!(ask(&asha, "g0").await.is_err(), "a learner is refused");
+    let done = ask(&teacher, "g1").await.expect("graded through the gate");
+    assert!(!done.repeated);
+    assert_eq!(dec(&done.result["attempt"]["answers"].as_array().unwrap().iter().find(|r| r["question"] == json!(essay.to_string())).unwrap()["points_awarded"]), n("4"), "the rubric's points, scaled to the question");
+    let again = ask(&teacher, "g1").await.expect("a repeat");
+    assert!(again.repeated, "the same key answers repeated");
+}

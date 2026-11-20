@@ -304,16 +304,31 @@ impl DocHook for AttemptHook {
                     None | Some(Value::Null) => false,
                     Some(a) => apply_listing(&mut answers, a, &mut files)?,
                 };
-                // A file answer is one the learner uploaded themselves.
+                // A file answer is one the learner uploaded themselves (or one already tied to this attempt), and it is
+                // tied to the attempt, so the course's instructors read it as they read the attempt and nobody else does.
+                let attempt_id = doc_id(doc)?;
                 for f in files {
-                    let theirs: bool = sqlx::query_scalar("select exists(select 1 from file_object where tenant_id = $1 and id = $2 and created_by = $3)")
-                        .bind(ctx.tenant)
-                        .bind(f)
-                        .bind(ctx.user)
-                        .fetch_one(&mut **hc.tx)
-                        .await?;
-                    if !theirs {
+                    let row: Option<(Option<String>, Option<Uuid>, Option<Uuid>)> =
+                        sqlx::query_as("select entity, record_id, created_by from file_object where tenant_id = $1 and id = $2")
+                            .bind(ctx.tenant)
+                            .bind(f)
+                            .fetch_optional(&mut **hc.tx)
+                            .await?;
+                    let (ok, untied) = match row {
+                        Some((Some(e), Some(r), _)) => (e == "LmsQuizAttempt" && r == attempt_id, false),
+                        Some((None, None, by)) => (by == Some(ctx.user), true),
+                        _ => (false, false),
+                    };
+                    if !ok {
                         return Err(Error::field("answers", "send a file you uploaded with /api/files"));
+                    }
+                    if untied {
+                        sqlx::query("update file_object set entity = 'LmsQuizAttempt', record_id = $3 where tenant_id = $1 and id = $2 and entity is null and record_id is null")
+                            .bind(ctx.tenant)
+                            .bind(f)
+                            .bind(attempt_id)
+                            .execute(&mut **hc.tx)
+                            .await?;
                     }
                 }
                 let saved = if changed {
