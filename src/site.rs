@@ -603,6 +603,10 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
             let (lesson, thread) = (id_param("lesson")?, id_param("thread")?);
             json_response(&crate::discussion::page(k, user, &mut tx, &course, lesson, thread).await?, "no-store")
         }
+        ["courses", slug, "announcements"] => {
+            let course = course_by_slug(k, user, &mut tx, slug).await?.ok_or_else(|| not_found("course"))?;
+            json_response(&crate::announce::page(user, &mut tx, &course).await?, "no-store")
+        }
         ["courses", slug, "grades"] => {
             // A learner's own marks: the released items and the total of those.
             let course = course_by_slug(k, user, &mut tx, slug).await?.ok_or_else(|| not_found("course"))?;

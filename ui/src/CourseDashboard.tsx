@@ -13,6 +13,7 @@ import { enrolLearners, type EnrolResult, getCourse, getReported, getRoster, get
 import { Glyph } from "./Glyph";
 import { answersWaiting, Grading } from "./Grading";
 import { GradebookTab } from "./Grades";
+import { AnnounceDialog } from "./Announcements";
 import { Reported } from "./Discussion";
 import { paths } from "./lesson";
 import { ProgressLine } from "./parts";
@@ -328,6 +329,7 @@ function CourseDashboard({ course }: { course: string }) {
   const [sp, setSp] = useSearchParams();
   const tab = sp.get("tab") === "grading" ? "grading" : sp.get("tab") === "gradebook" ? "gradebook" : sp.get("tab") === "reported" ? "reported" : "learners";
   const [adding, setAdding] = useState(false);
+  const [announcing, setAnnouncing] = useState(false);
   const q = useQuery({ queryKey: keys.roster(course), queryFn: () => getRoster(course), staleTime: 0 });
   const reported = useQuery({ queryKey: keys.reported(course), queryFn: () => getReported(course), staleTime: 30_000, retry: false });
   const waiting = useQuery({ queryKey: keys.waiting, queryFn: getWaitingAnswers, staleTime: 30_000, retry: false });
@@ -357,6 +359,7 @@ function CourseDashboard({ course }: { course: string }) {
             <Button icon="plus" onClick={() => setAdding(true)}>
               {tr("Add learners")}
             </Button>
+            <Button onClick={() => setAnnouncing(true)}>{tr("Announce")}</Button>
             <ButtonLink to={paths.build(roster.course.id)}>{tr("Build")}</ButtonLink>
             <ButtonLink to={paths.course(roster.course.slug)}>{tr("Course page")}</ButtonLink>
           </>
@@ -398,6 +401,7 @@ function CourseDashboard({ course }: { course: string }) {
         </button>
       </div>
       {tab === "learners" ? <Learners roster={roster} now={now} /> : tab === "grading" ? <Grading course={course} /> : tab === "gradebook" ? <GradebookTab course={course} /> : <Reported course={course} slug={roster.course.slug} />}
+      <AnnounceDialog course={course} slug={roster.course.slug} open={announcing} onClose={() => setAnnouncing(false)} />
       <AddLearners course={course} open={adding} onClose={() => setAdding(false)} onDone={refresh} />
     </PageStack>
   );

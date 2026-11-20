@@ -15,6 +15,7 @@
 //!
 //! Hooks are registered per entity, so a tenant without the `lms` package never runs them.
 
+mod announce;
 mod assignment;
 mod catalog;
 mod certificate;
@@ -79,6 +80,8 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("LmsGradeEntry", Arc::new(gradebook::EntryHook))
         .register("LmsCourse", Arc::new(discussion::CourseHook))
         .register("LmsPost", Arc::new(discussion::PostHook))
+        .register("LmsCourse", Arc::new(announce::AnnounceHook))
+        .register("LmsAnnouncement", Arc::new(announce::NoticeHook))
         .register("LmsAssignmentSubmission", Arc::new(assignment::SubmissionHook))
         .register("LmsEnrollment", Arc::new(enrollment::EnrollmentHook))
         .register("LmsLessonProgress", Arc::new(enrollment::ProgressHook))

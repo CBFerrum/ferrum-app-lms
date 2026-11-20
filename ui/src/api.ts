@@ -16,6 +16,7 @@ import type {
   LessonView,
   EnrolmentDue,
   GradeBook,
+  Announcement,
   Post,
   ReviewedAttempt,
   RubricDef,
@@ -66,6 +67,7 @@ export const keys = {
   thread: (id: string) => ["lms", "thread", id] as const,
   reported: (course: string) => ["lms", "reported", course] as const,
   waiting: ["lms", "waiting"] as const,
+  announcements: (slug: string) => ["lms", "announcements", slug] as const,
   rubric: (id: string) => ["lms", "rubric", id] as const,
 };
 
@@ -218,3 +220,8 @@ export const gradeAnswer = (attempt: string, g: { question: string; points?: str
     ...(g.comment ? { comment: g.comment } : {}),
   });
 export const getRubric = (id: string) => api.get<RubricDef>(docPath("LmsRubric", id));
+
+// ───────────────────────────── announcements ─────────────────────────────
+
+export const getAnnouncements = (slug: string) => api.get<{ announcements: Announcement[]; author: boolean }>(app(`courses/${seg(slug)}/announcements`));
+export const announce = (course: string, body: { title: string; body: string }) => act<{ announcement: string; told: number }>("LmsCourse", course, "announce", body);

@@ -12,6 +12,7 @@ import { Failed } from "./states";
 import { buy, enrol, getCourse, keys, reactivate, withdraw } from "./api";
 import { CertificateActions } from "./Certificate";
 import { DueMarks, useDues } from "./Due";
+import { Announcements } from "./Announcements";
 import { CourseLayout, Prerequisites } from "./CourseLayout";
 import { priceText, sessionStart } from "./format";
 import { Glyph } from "./Glyph";
@@ -311,6 +312,7 @@ function CourseView({ slug }: { slug: string }) {
       lessonHref={(l) => paths.learn(slug, l.id)}
       visitor={!learning && !c.is_author}
       aside={<Box c={c} slug={slug} />}
+      notices={learning || c.is_author ? <Announcements slug={slug} /> : null}
     />
   );
 }

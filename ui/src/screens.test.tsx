@@ -483,6 +483,11 @@ describe("teaching", () => {
     expect(html).toContain('aria-expanded="false"');
   });
 
+  it("the_dashboard_offers_announce", () => {
+    const html = draw("/teaching/course-1", "/teaching/:course", <CourseDashboardRoute />, (qc) => qc.setQueryData(keys.roster("course-1"), roster));
+    expect(html).toContain("Announce");
+  });
+
   it("starts the builder from the data of a course", () => {
     const data: Data = {
       course: { id: "course-1", version: 3, title: "Intro to Rust", slug: "intro-to-rust", status: "Draft" },
@@ -860,5 +865,22 @@ describe("grading answers", () => {
     const html = render(<Result attempt={done} late={false} quiz={quiz} starting={false} onAgain={() => {}} onBack={() => {}} />);
     expect(html).toContain("Argument");
     expect(html).toContain("6 of 6");
+  });
+});
+
+describe("announcements", () => {
+  const notices = [{ id: "n1", title: "Lab moved", body: "The lab is on **Friday**.", author_name: "Tara", sent_at: "2026-11-02T10:00:00.000Z" }, { id: "n0", title: "Welcome", body: "Hello all.", author_name: "Tara", sent_at: "2026-11-01T10:00:00.000Z" }];
+  const page = (c: CoursePage) => draw("/course/intro-to-rust", "/course/:ref", <CourseRoute />, (qc) => (qc.setQueryData(keys.course("intro-to-rust"), c), qc.setQueryData(keys.announcements("intro-to-rust"), { announcements: notices, author: false })));
+
+  it("a_course_page_shows_its_announcements_to_someone_enrolled", () => {
+    const html = page(course({ my_enrollment: mine() }));
+    expect(html).toContain("Announcements");
+    expect(html).toContain("Lab moved");
+    expect(html).toContain("<strong>Friday</strong>");
+    expect(html).toContain("Welcome");
+  });
+
+  it("a_course_page_shows_none_to_a_visitor", () => {
+    expect(page(course({ my_enrollment: undefined }))).not.toContain("Lab moved");
   });
 });

@@ -3999,8 +3999,11 @@ async fn file_answers() {
     let asha = t.user("asha@fileans.test", "Asha Rao", "Learner").await;
     let ben = t.user("ben@fileans.test", "Ben Lee", "Learner").await;
     let course = uid(&t.insert(&teacher, "LmsCourse", json!({"title": "Lab", "instructors": [{"instructor": "teacher@fileans.test"}]})).await);
-    let file_q = uid(&t.insert(&teacher, "LmsQuestion", json!({"question": "Upload your sheet", "question_type": "File Upload", "points": "2", "course": course.to_string()})).await);
-    let quiz = uid(&t.insert(&teacher, "LmsQuiz", json!({"title": "Lab quiz", "course": course.to_string(), "questions": [{"question": file_q.to_string()}]})).await);
+    let file_q = uid(&t
+        .insert(&teacher, "LmsQuestion", json!({"question": "Upload your sheet", "question_type": "File Upload", "points": "2", "course": course.to_string()}))
+        .await);
+    let quiz =
+        uid(&t.insert(&teacher, "LmsQuiz", json!({"title": "Lab quiz", "course": course.to_string(), "questions": [{"question": file_q.to_string()}]})).await);
     t.chapter(&teacher, course, "Lab", &[json!({"title": "Quiz", "lesson_type": "Quiz", "quiz": quiz.to_string()})]).await;
     t.update(&teacher, "LmsCourse", course, json!({"status": "Published"})).await;
     let enrolled = enrol(&t, &teacher, course, &["asha@fileans.test", "ben@fileans.test"]).await;
@@ -4018,10 +4021,17 @@ async fn file_answers() {
         let mut tx = t.k.db.tenant_tx(t.tenant).await.unwrap();
         sqlx::query_as::<_, (Option<String>, Option<Uuid>)>(sql).bind(t.tenant).bind(sheet).fetch_one(&mut *tx).await.unwrap()
     };
-    assert_eq!(tie("select entity, record_id from file_object where tenant_id = $1 and id = $2").await, (Some("LmsQuizAttempt".to_string()), Some(a)), "tied to her attempt");
+    assert_eq!(
+        tie("select entity, record_id from file_object where tenant_id = $1 and id = $2").await,
+        (Some("LmsQuizAttempt".to_string()), Some(a)),
+        "tied to her attempt"
+    );
     t.act(&asha, "LmsQuizAttempt", a, "save_answers", mine).await;
     let stolen = json!({"answers": {file_q.to_string(): format!("/files/{sheet}")}});
-    assert!(field_error(t.try_act(&ben, "LmsQuizAttempt", b, "save_answers", stolen).await, "answers").contains("you uploaded"), "another learner cannot use it");
+    assert!(
+        field_error(t.try_act(&ben, "LmsQuizAttempt", b, "save_answers", stolen).await, "answers").contains("you uploaded"),
+        "another learner cannot use it"
+    );
 }
 
 #[test]
@@ -4053,7 +4063,9 @@ async fn grading_gate() {
             json!({"title": "Essay", "course": c, "criteria": [{"criterion": "Argument"}], "levels": [{"criterion": "Argument", "level": "Good", "points": "5"}, {"criterion": "Argument", "level": "Weak", "points": "1"}]}),
         )
         .await);
-    let essay = uid(&t.insert(&teacher, "LmsQuestion", json!({"question": "Argue", "question_type": "Essay", "points": "4", "course": c, "rubric": rubric.to_string()})).await);
+    let essay = uid(&t
+        .insert(&teacher, "LmsQuestion", json!({"question": "Argue", "question_type": "Essay", "points": "4", "course": c, "rubric": rubric.to_string()}))
+        .await);
     let quiz = uid(&t.insert(&teacher, "LmsQuiz", json!({"title": "Essay quiz", "course": c, "questions": [{"question": essay.to_string()}]})).await);
     t.chapter(&teacher, course, "Main", &[json!({"title": "Quiz", "lesson_type": "Quiz", "quiz": quiz.to_string()})]).await;
     t.update(&teacher, "LmsCourse", course, json!({"status": "Published"})).await;
@@ -4063,14 +4075,90 @@ async fn grading_gate() {
     t.act(&asha, "LmsQuizAttempt", aid, "submit_answers", json!({"answers": {essay.to_string(): "Because."}})).await;
 
     let ask = |who: &Ctx, key: &str| {
-        let inv = Invocation::new("lms.lms_quiz_attempt.grade_answers", json!({"id": aid, "params": {"question": essay.to_string(), "rubric": "{\"Argument\":\"Good\"}"}})).key(key);
+        let inv = Invocation::new(
+            "lms.lms_quiz_attempt.grade_answers",
+            json!({"id": aid, "params": {"question": essay.to_string(), "rubric": "{\"Argument\":\"Good\"}"}}),
+        )
+        .key(key);
         let (k, who) = (t.k.clone(), who.clone());
         async move { k.invoke(&who, inv).await }
     };
     assert!(ask(&asha, "g0").await.is_err(), "a learner is refused");
     let done = ask(&teacher, "g1").await.expect("graded through the gate");
     assert!(!done.repeated);
-    assert_eq!(dec(&done.result["attempt"]["answers"].as_array().unwrap().iter().find(|r| r["question"] == json!(essay.to_string())).unwrap()["points_awarded"]), n("4"), "the rubric's points, scaled to the question");
+    assert_eq!(
+        dec(&done.result["attempt"]["answers"].as_array().unwrap().iter().find(|r| r["question"] == json!(essay.to_string())).unwrap()["points_awarded"]),
+        n("4"),
+        "the rubric's points, scaled to the question"
+    );
     let again = ask(&teacher, "g1").await.expect("a repeat");
     assert!(again.repeated, "the same key answers repeated");
+}
+
+// ───────────────────────────── lms-6: announcements ─────────────────────────────
+
+#[test]
+fn a_course_announcement_reaches_its_learners() {
+    run(announcements());
+}
+
+async fn announcements() {
+    use ferrum_kernel::capability::Invocation;
+    let t = boot("notice", vec![], &[], |_| {}).await;
+    let teacher = t.user("teacher@notice.test", "Tara Teacher", "Instructor").await;
+    let other = t.user("other@notice.test", "Olga Other", "Instructor").await;
+    let asha = t.user("asha@notice.test", "Asha Rao", "Learner").await;
+    let ben = t.user("ben@notice.test", "Ben Lee", "Learner").await;
+    let gone = t.user("gone@notice.test", "Gil Gone", "Learner").await;
+    let late = t.user("late@notice.test", "Lea Late", "Learner").await;
+    let stranger = t.user("stranger@notice.test", "Sam Stranger", "Learner").await;
+    let (course, _) = course_of(&t, &teacher, "Optics", 1, json!({})).await;
+    let enrolled = enrol(&t, &teacher, course, &["asha@notice.test", "ben@notice.test", "gone@notice.test"]).await;
+    t.act(&gone, "LmsEnrollment", enrolled["gone@notice.test"], "withdraw", json!({})).await;
+
+    // 1. Live learners are told, the withdrawn one is not.
+    let told = t.act(&teacher, "LmsCourse", course, "announce", json!({"title": "Lab moved", "body": "The lab is on **Friday**."})).await;
+    assert_eq!(told["told"], json!(2));
+    drain(&t.k).await;
+    for who in [&asha, &ben] {
+        assert_eq!(t.notes(who, "Optics: Lab moved").await, 1, "{} is told once", who.email);
+    }
+    assert_eq!(t.notes(&gone, "Optics: Lab moved").await, 0, "withdrawn is not told");
+
+    // 2. Through the gate once: the same key again is a repeat and keeps one record.
+    let inv = |key: &str| Invocation::new("lms.lms_course.announce", json!({"id": course, "params": {"title": "Exam date", "body": "Next week."}})).key(key);
+    assert!(!t.k.invoke(&teacher, inv("a1")).await.expect("announced").repeated);
+    assert!(t.k.invoke(&teacher, inv("a1")).await.expect("repeat").repeated);
+    assert_eq!(t.count("select count(*) from e_lms_announcement where tenant_id = $1 and course = $2 and title = $3", course, "Exam date").await, 1);
+
+    // 3. Only the course's instructors announce.
+    let ask = json!({"title": "Hi", "body": "x"});
+    assert!(t.try_act(&asha, "LmsCourse", course, "announce", ask.clone()).await.is_err(), "a learner");
+    assert!(t.try_act(&other, "LmsCourse", course, "announce", ask).await.is_err(), "another course's instructor");
+    assert!(field_error(t.try_act(&teacher, "LmsCourse", course, "announce", json!({"title": "", "body": "x"})).await, "title").contains("required"));
+
+    // 4. People in the course read it; others do not; a learner enrolled afterwards reads it too.
+    let slug = "optics";
+    let list = t.page(Some(&asha), &format!("courses/{slug}/announcements")).await;
+    assert_eq!(list["announcements"].as_array().unwrap().len(), 2);
+    assert_eq!(list["announcements"][0]["title"], json!("Exam date"), "newest first");
+    assert!(t.call(Some(&stranger), "GET", &format!("courses/{slug}/announcements")).await.is_err());
+    enrol(&t, &teacher, course, &["late@notice.test"]).await;
+    assert_eq!(t.page(Some(&late), &format!("courses/{slug}/announcements")).await["announcements"].as_array().unwrap().len(), 2);
+
+    // 5. Nobody writes the record directly.
+    assert!(t.try_insert(&teacher, "LmsAnnouncement", json!({"course": course.to_string(), "title": "Forged", "body": "x"})).await.is_err());
+
+    // 6. Erasing the author blanks their name and address.
+    t.k.erase_personal_data(&t.admin, "teacher@notice.test", "her request").await.expect("erasure");
+    assert_eq!(
+        t.count(
+            "select count(*) from e_lms_announcement x where x.tenant_id = $1 and x.course = $2 and x::text ilike '%' || $3 || '%'",
+            course,
+            "teacher@notice.test"
+        )
+        .await,
+        0,
+        "her address is gone"
+    );
 }

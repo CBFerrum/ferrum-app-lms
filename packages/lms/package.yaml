@@ -10,7 +10,7 @@ modules:
     icon: graduation-cap
     order: 55
     items: [LmsCourse, LmsChapter, LmsLesson, LmsQuiz, LmsQuestion, LmsQuestionCategory, LmsRubric, LmsAssignment, LmsLearningPath, LmsCohort, LmsEnrollment, LmsLessonProgress, LmsPackageProgress,
-            LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsLtiTool, LmsSettings, LmsEnrollmentRule, LmsProgramme, LmsGradeItem, LmsGradeEntry, LmsGradingScale, LmsPost,
+            LmsQuizAttempt, LmsAssignmentSubmission, LmsCertificate, LmsCategory, LmsLtiTool, LmsSettings, LmsEnrollmentRule, LmsProgramme, LmsGradeItem, LmsGradeEntry, LmsGradingScale, LmsPost, LmsAnnouncement,
             report:lms_course_completion, report:lms_quiz_scores, report:lms_learner_progress, report:lms_overdue_assignments, report:lms_training_status, report:lms_programme_status, report:lms_team_training]
 
 roles:
@@ -42,6 +42,7 @@ roles:
       - {entity: LmsGradeItem, read: true, write: true, create: true, delete: true, export: true}
       - {entity: LmsGradeEntry, read: true, write: true, create: true, delete: true, export: true}
       - {entity: LmsPost, read: true, write: true, export: true}
+      - {entity: LmsAnnouncement, read: true, delete: true, export: true}
   - name: Instructor
     description: Builds the courses they teach (chapters, lessons, question banks, quizzes, assignments, cohorts), enrols learners in them, grades submissions and follows progress. Give the user LmsCourse scopes to limit what they see to some courses.
     permissions:
@@ -70,6 +71,7 @@ roles:
       - {entity: LmsGradeItem, read: true, write: true, create: true, delete: true, export: true}
       - {entity: LmsGradeEntry, read: true, write: true, create: true, delete: true, export: true}
       - {entity: LmsPost, read: true, write: true}
+      - {entity: LmsAnnouncement, read: true}
   - name: Learner
     description: Takes courses — enrols in published courses, works through lessons, attempts quizzes, submits assignments and earns certificates — and sees only their own enrolments, progress, attempts, submissions and certificates.
     permissions:
@@ -117,7 +119,18 @@ personal_data:
   - {entity: LmsPost, match: followers.follower, erase: [followers]}
   - {entity: LmsPost, match: reported_by, erase: [reported_by]}
   - {entity: LmsPost, match: removed_by, erase: [removed_by]}
+  - {entity: LmsAnnouncement, match: author, erase: [author, author_name]}
 messages:
+  - key: lms.course_announcement
+    label: An announcement in a course you take
+    entity: LmsAnnouncement
+    category: operational
+    channels: [inapp, email]
+    values: [course_title]
+    languages:
+      en:
+        email: {subject: "{{ values.course_title }}: {{ doc.title }}", body: "<p>{{ doc.author_name }} wrote to everyone in {{ values.course_title }}:</p><p>{{ doc.body }}</p>"}
+        inapp: {title: "{{ values.course_title }}: {{ doc.title }}", text: "{{ doc.author_name }} wrote to everyone in the course"}
   - key: lms.discussion_reply
     label: A reply in a discussion you follow
     entity: LmsPost

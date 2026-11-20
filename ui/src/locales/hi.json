@@ -686,5 +686,12 @@
   "Nothing was answered.": "कुछ भी उत्तर नहीं दिया गया।",
   "Points": "अंक",
   "Points out of {max}": "{max} में से अंक",
-  "Saved. {waiting_for} grades it next": "सहेजा गया। अगला ग्रेड {waiting_for} करेंगे"
+  "Saved. {waiting_for} grades it next": "सहेजा गया। अगला ग्रेड {waiting_for} करेंगे",
+  "Announce": "घोषणा करें",
+  "Announce to the course": "पाठ्यक्रम को घोषणा",
+  "Announcement": "घोषणा",
+  "Announcements": "घोषणाएँ",
+  "Everyone enrolled is told. Markdown works.": "सभी नामांकित लोगों को बताया जाएगा। Markdown काम करता है।",
+  "Send": "भेजें",
+  "Sent to {told} learners": "{told} शिक्षार्थियों को भेजा गया"
 }

@@ -686,5 +686,12 @@
   "Nothing was answered.": "لم تُقدَّم إجابة.",
   "Points": "النقاط",
   "Points out of {max}": "النقاط من {max}",
-  "Saved. {waiting_for} grades it next": "حُفظ. يقيّمها بعد ذلك: {waiting_for}"
+  "Saved. {waiting_for} grades it next": "حُفظ. يقيّمها بعد ذلك: {waiting_for}",
+  "Announce": "أعلن",
+  "Announce to the course": "إعلان للمقرر",
+  "Announcement": "الإعلان",
+  "Announcements": "الإعلانات",
+  "Everyone enrolled is told. Markdown works.": "يُبلَّغ كل المسجّلين. يعمل Markdown.",
+  "Send": "أرسل",
+  "Sent to {told} learners": "أُرسل إلى {told} متعلمًا"
 }

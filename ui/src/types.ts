@@ -531,3 +531,6 @@ export interface WaitingAttempt { attempt: string; number: string | null; quiz_t
 /** One answer of an attempt as a grader reads it (`LmsQuizAttempt.review`). */
 export interface ReviewedAnswer { question: string; question_text: string; question_type: QuestionType; points: string; response: unknown[]; points_awarded: string | null; rubric: RubricDef | null; by_person: boolean; comment: string | null; rubric_result: RubricResult | null }
 export interface ReviewedAttempt { attempt: string; learner_name: string | null; status: AttemptStatus; answers: ReviewedAnswer[] }
+
+/** A course announcement (src/announce.rs): what the course page shows, newest first. */
+export interface Announcement { id: string; title: string; body: string; author_name: string | null; sent_at: string | null }
