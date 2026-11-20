@@ -553,5 +553,17 @@
   "You attended for {minutes} min. This lesson is credited.": "حضرت {minutes} دقيقة. تم احتساب هذا الدرس.",
   "Your certificate is expiring: this renews it": "شهادتك توشك على الانتهاء: هذا يجدّدها",
   "{n} more people match but are already in the course.": "{n} أشخاص آخرين ينطبق عليهم الشرط لكنهم مسجّلون في الدورة بالفعل.",
-  "{n} people would be enrolled at the next upkeep.": "سيُسجَّل {n} أشخاص عند الصيانة التالية."
+  "{n} people would be enrolled at the next upkeep.": "سيُسجَّل {n} أشخاص عند الصيانة التالية.",
+  "A person grades this answer": "يصحّح هذه الإجابة شخص",
+  "Type a number": "اكتب رقمًا",
+  "The order shown is not an answer yet. Move an item to give one.": "الترتيب المعروض ليس إجابة بعد. انقل عنصرًا لتقدّم إجابة.",
+  "Move up": "انقل لأعلى",
+  "Move down": "انقل لأسفل",
+  "Blank {n}": "الفراغ {n}",
+  "Write your answer": "اكتب إجابتك",
+  "Your file": "ملفك",
+  "Remove the file": "أزل الملف",
+  "Some answers wait for a person to grade them, so this result is not final.": "بعض الإجابات تنتظر تصحيح شخص لها، لذا فهذه النتيجة ليست نهائية.",
+  "Open": "افتح",
+  "{answer} (± {tolerance})": "{answer} (± {tolerance})"
 }

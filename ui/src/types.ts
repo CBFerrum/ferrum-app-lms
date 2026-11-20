@@ -4,7 +4,7 @@
 export type LessonType = "Article" | "Video" | "Document" | "Quiz" | "Assignment" | "SCORM" | "xAPI" | "LTI" | "Live";
 export type Level = "Beginner" | "Intermediate" | "Advanced";
 export type EnrollmentStatus = "Active" | "Completed" | "Withdrawn";
-export type QuestionType = "Single Choice" | "Multiple Choice" | "True/False" | "Short Answer";
+export type QuestionType = "Single Choice" | "Multiple Choice" | "True/False" | "Short Answer" | "Numeric" | "Ordering" | "Matching" | "Fill in the Blanks" | "Essay" | "File Upload";
 
 /** A lesson as an outline lists it. `completed` and the quiz and assignment links are the
  *  signed-in outline's; the public page leaves them out. */
@@ -310,10 +310,12 @@ export interface CompletionSummary {
 
 // ───────────────────────────── quizzes ─────────────────────────────
 
-export type AttemptStatus = "In Progress" | "Submitted" | "Timed Out";
+export type AttemptStatus = "In Progress" | "Awaiting Grading" | "Submitted" | "Timed Out";
 
-/** The learner's response: option keys (in the order shown) or a short answer's text. */
-export type Response = string[] | string | null;
+/** What the server keeps for an answer (src/grading.rs:142-207): option keys, blanks, pairs, text or a file's path. */
+export type Response = string[] | (string | null)[] | Record<string, string> | string | null;
+/** What a revealed row shows (src/quiz.rs:428-447). */
+export type CorrectAnswer = string[] | string[][] | { answer: string; tolerance: string } | { item: string; matches: string }[] | null;
 
 export interface AttemptAnswer {
   question: string;
@@ -325,7 +327,14 @@ export interface AttemptAnswer {
   is_correct: boolean;
   points_awarded: string | null;
   /** Shown once the quiz reveals answers. */
-  correct_answer: string[] | null;
+  correct_answer: CorrectAnswer;
+  /** The right-hand side of a Matching question's pairs. */
+  choices?: { key: string; text: string }[] | null;
+  /** How many blanks a Fill in the Blanks question has. */
+  blanks?: number | null;
+  /** A person grades this answer (Essay, File Upload). */
+  by_person?: boolean;
+  comment?: string | null;
   explanation: string | null;
 }
 

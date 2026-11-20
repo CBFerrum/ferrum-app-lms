@@ -5,7 +5,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { ApiError, errorMessage, formatDateTime, t as tr, isolate } from "@ferrum/client";
+import { ApiError, errorMessage, formatDateTime, t as tr, isolate, uploadFile } from "@ferrum/client";
 import { Alert, Badge, Button, confirmDialog, EmptyState, Spinner, toast, placed } from "@ferrum/kit";
 import { getAttempt, getAttempts, keys, saveAnswers, startQuiz, submitAnswers } from "./api";
 import { clock, duration } from "./format";
@@ -20,8 +20,12 @@ import {
   choose,
   chosen,
   isAnswered,
-  isChoice,
+  correctText,
+  filled,
   isMultiple,
+  kind,
+  matched,
+  moved,
   milestone,
   milestoneText,
   reading,
@@ -41,16 +45,18 @@ import type { Attempt, AttemptAnswer, AttemptRow, QuizState, Response, SubmitRes
 function QuestionCard({ q, index, count, response, onChange, disabled }: { q: AttemptAnswer; index: number; count: number; response: Response | undefined; onChange: (r: Response) => void; disabled: boolean }) {
   const text = useId();
   const multi = isMultiple(q.question_type);
+  const k = kind(q.question_type);
   const points = Number(q.points);
   return (
     <div className="lms-question">
       <p className="lms-q-meta faint">
         {placed(tr("Question {p1} of {count} · {points}{p2}"), { p1: index + 1, count: count, points: (points === 1 ? tr("1 point") : tr("{n} points", { n: points })), p2: multi ? tr(" · Choose every answer that applies") : "" })}
+        {(k === "essay" || k === "file") && <> · {tr("A person grades this answer")}</>}
       </p>
       <div id={text} className="lms-q-text">
         <Md source={q.question_text} />
       </div>
-      {isChoice(q.question_type) ? (
+      {k === "choice" && (
         <div className="lms-options" role={multi ? "group" : "radiogroup"} aria-labelledby={text}>
           {(q.options ?? []).map((o) => {
             const on = chosen(response, o.key);
@@ -67,18 +73,129 @@ function QuestionCard({ q, index, count, response, onChange, disabled }: { q: At
             </button>
           )}
         </div>
-      ) : (
-        <textarea
-          className="textarea lms-short"
-          rows={3}
-          maxLength={500}
+      )}
+      {k === "short" && (
+        <textarea className="textarea lms-short" rows={3} maxLength={500} aria-labelledby={text} placeholder={tr("Type your answer")} disabled={disabled} value={typeof response === "string" ? response : ""} onChange={(e) => onChange(e.target.value)} />
+      )}
+      {k === "numeric" && (
+        <input
+          className="input lms-numeric"
+          inputMode="decimal"
           aria-labelledby={text}
-          placeholder={tr("Type your answer")}
+          placeholder={tr("Type a number")}
           disabled={disabled}
           value={typeof response === "string" ? response : ""}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => onChange(e.target.value.trim() === "" ? null : e.target.value.trim())}
         />
       )}
+      {k === "ordering" && <Ordering q={q} labelledBy={text} response={response} onChange={onChange} disabled={disabled} />}
+      {k === "matching" && (
+        <ul className="lms-matching" aria-labelledby={text}>
+          {(q.options ?? []).map((o) => {
+            const now = response && typeof response === "object" && !Array.isArray(response) ? (response[o.key] ?? "") : "";
+            return (
+              <li key={o.key} className="row">
+                <span id={`${text}-${o.key}`}>{isolate(o.text)}</span>
+                <select className="select" aria-labelledby={`${text}-${o.key}`} disabled={disabled} value={now} onChange={(e) => onChange(matched(response, o.key, e.target.value || null))}>
+                  <option value="" />
+                  {(q.choices ?? []).map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {c.text}
+                    </option>
+                  ))}
+                </select>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {k === "blanks" && (
+        <div className="lms-blanks stack" role="group" aria-labelledby={text}>
+          {Array.from({ length: q.blanks ?? 0 }, (_, i) => (
+            <label key={i} className="lms-blank">
+              <span className="faint">{tr("Blank {n}", { n: i + 1 })}</span>
+              <input className="input" maxLength={500} disabled={disabled} value={Array.isArray(response) ? (response[i] ?? "") : ""} onChange={(e) => onChange(filled(response, q.blanks ?? 0, i, e.target.value))} />
+            </label>
+          ))}
+        </div>
+      )}
+      {k === "essay" && (
+        <textarea className="textarea lms-essay" rows={10} maxLength={50000} aria-labelledby={text} placeholder={tr("Write your answer")} disabled={disabled} value={typeof response === "string" ? response : ""} onChange={(e) => onChange(e.target.value.trim() === "" ? null : e.target.value)} />
+      )}
+      {k === "file" && <FileAnswer response={response} onChange={onChange} disabled={disabled} />}
+    </div>
+  );
+}
+
+/** The options in the learner's order, each with Move up and Move down. Until the order is touched it is not an answer. */
+function Ordering({ q, labelledBy, response, onChange, disabled }: { q: AttemptAnswer; labelledBy: string; response: Response | undefined; onChange: (r: Response) => void; disabled: boolean }) {
+  const shown = q.options ?? [];
+  const keys = Array.isArray(response) && response.length === shown.length ? (response as string[]) : shown.map((o) => o.key);
+  const text = (key: string) => shown.find((o) => o.key === key)?.text ?? "";
+  return (
+    <>
+      {!isAnswered(response) && <p className="faint">{tr("The order shown is not an answer yet. Move an item to give one.")}</p>}
+      <ol className="lms-ordering" aria-labelledby={labelledBy}>
+        {keys.map((key, i) => (
+          <li key={key} className="row">
+            <span>{isolate(text(key))}</span>
+            <span className="spacer" />
+            <button type="button" className="btn btn-ghost btn-sm" disabled={disabled || i === 0} onClick={() => onChange(moved(keys, i, i - 1))}>
+              {tr("Move up")}
+              <span className="sr-only"> {isolate(text(key))}</span>
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" disabled={disabled || i === keys.length - 1} onClick={() => onChange(moved(keys, i, i + 1))}>
+              {tr("Move down")}
+              <span className="sr-only"> {isolate(text(key))}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </>
+  );
+}
+
+/** A file answer: uploaded as an assignment's file is; a failed upload leaves the earlier answer. */
+function FileAnswer({ response, onChange, disabled }: { response: Response | undefined; onChange: (r: Response) => void; disabled: boolean }) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pick = useRef<HTMLInputElement>(null);
+  const file = typeof response === "string" && response ? response : null;
+  const choosePick = async (f: File | undefined) => {
+    if (!f) return;
+    setUploading(true);
+    setError(null);
+    try {
+      onChange((await uploadFile(f)).url);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setUploading(false);
+      if (pick.current) pick.current.value = "";
+    }
+  };
+  return (
+    <div className="stack">
+      <div className="row">
+        <label className="btn btn-default btn-md" aria-busy={uploading || undefined}>
+          <input ref={pick} className="sr-only" type="file" disabled={disabled || uploading} onChange={(e) => void choosePick(e.target.files?.[0])} />
+          {uploading ? <Spinner small /> : <Glyph name="upload" />}
+          {file ? tr("Replace file") : tr("Choose a file")}
+        </label>
+        {file && (
+          <>
+            <a href={file} target="_blank" rel="noopener noreferrer">
+              {tr("Your file")}
+            </a>
+            {!disabled && (
+              <button type="button" className="lms-linklike" onClick={() => onChange(null)}>
+                {tr("Remove the file")}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      {error && <Alert tone="error">{isolate(error)}</Alert>}
     </div>
   );
 }
@@ -299,23 +416,40 @@ function Review({ attempt }: { attempt: Attempt }) {
       <ol className="lms-review">
         {attempt.answers.map((a, n) => {
           const given = responseText(a);
+          const key = correctText(a.correct_answer);
+          const waiting = !!a.by_person && a.points_awarded === null;
+          const file = typeof a.response === "string" && a.response.startsWith("/files/") ? a.response : null;
           return (
             <li key={a.question} className="lms-review-item" data-ok={a.is_correct}>
               <div className="lms-review-head">
                 <span className="lms-review-no">{n + 1}</span>
-                {a.is_correct ? <Badge tone="green">{tr("Correct")}</Badge> : <Badge tone="red">{given.length ? tr("Not correct") : tr("Not answered")}</Badge>}
+                {waiting ? <Badge tone="neutral">{tr("Waiting for a grade")}</Badge> : a.is_correct ? <Badge tone="green">{tr("Correct")}</Badge> : <Badge tone="red">{given.length ? tr("Not correct") : tr("Not answered")}</Badge>}
                 <span className="faint">
                   {tr("{value} of {value2}", { value: Number(a.points_awarded ?? 0), value2: ((Number(a.points)) === 1 ? tr("1 point") : tr("{n} points", { n: Number(a.points) })) })}
                 </span>
               </div>
               <Md source={a.question_text} />
               <p className="lms-review-line">
-                <strong>{tr("You answered:")}</strong> {given.length ? given.join(", ") : tr("nothing")}
+                <strong>{tr("You answered:")}</strong>{" "}
+                {given.length ? given.map((g, i) => <span key={i} className="lms-line">{isolate(g)}{i < given.length - 1 ? "; " : ""}</span>) : tr("nothing")}
+                {file && (
+                  <>
+                    {" "}
+                    <a href={file} target="_blank" rel="noopener noreferrer">
+                      {tr("Open")}
+                    </a>
+                  </>
+                )}
               </p>
-              {!a.is_correct && a.correct_answer && a.correct_answer.length > 0 && (
+              {!a.is_correct && key.length > 0 && (
                 <p className="lms-review-line">
-                  <strong>{tr("Correct answer:")}</strong> {isolate(a.correct_answer.join(", "))}
+                  <strong>{tr("Correct answer:")}</strong> {isolate(key.join(kind(a.question_type) === "blanks" || kind(a.question_type) === "matching" ? "; " : ", "))}
                 </p>
+              )}
+              {a.comment && (
+                <div className="lms-explain">
+                  <Md source={a.comment} />
+                </div>
               )}
               {a.explanation && (
                 <div className="lms-explain">
@@ -333,7 +467,7 @@ function Review({ attempt }: { attempt: Attempt }) {
 export function Result({ attempt, late, quiz, onAgain, onBack, starting }: { attempt: Attempt; late: boolean; quiz: QuizState; onAgain: () => void; onBack: () => void; starting: boolean }) {
   const v = verdict(attempt);
   const right = rightCount(attempt);
-  const may = canStart({ ...quiz, in_progress: null });
+  const may = canStart({ ...quiz, in_progress: null }) && v !== "waiting";
   return (
     <section className="lms-result" data-verdict={v} aria-labelledby="lms-result-h">
       <div className="lms-score">
@@ -341,7 +475,8 @@ export function Result({ attempt, late, quiz, onAgain, onBack, starting }: { att
           {isolate(percentLabel(attempt.percentage))}
         </div>
         <div>
-          <h2 id="lms-result-h">{v === "passed" ? tr("You passed") : v === "timed-out" ? tr("Time ran out") : tr("Not passed this time")}</h2>
+          <h2 id="lms-result-h">{v === "passed" ? tr("You passed") : v === "timed-out" ? tr("Time ran out") : v === "waiting" ? tr("Waiting for a grade") : tr("Not passed this time")}</h2>
+          {v === "waiting" && <p className="muted">{tr("Some answers wait for a person to grade them, so this result is not final.")}</p>}
           <p className="muted">
             {tr("{right} of {length} questions right ·", { right, length: attempt.answers.length })} {tr("{value} of {value2} points", { value: Number(attempt.score ?? 0), value2: Number(attempt.max_score) })}
           </p>
@@ -357,7 +492,7 @@ export function Result({ attempt, late, quiz, onAgain, onBack, starting }: { att
             {quiz.attempts_left !== null && <span className="faint"> {tr("({attempts_left} left)", { attempts_left: quiz.attempts_left })}</span>}
           </Button>
         )}
-        {!may && !quiz.passed && <span className="muted">{isolate(attemptsText(quiz))}.</span>}
+        {!may && !quiz.passed && v !== "waiting" && <span className="muted">{isolate(attemptsText(quiz))}.</span>}
         <Button variant="ghost" onClick={onBack}>
           {tr("Back to the quiz")}
         </Button>
@@ -369,7 +504,8 @@ export function Result({ attempt, late, quiz, onAgain, onBack, starting }: { att
 
 // ───────────────────────────── before the quiz ─────────────────────────────
 
-const STATUS_BADGE: Record<string, { tone: "green" | "red" | "amber"; text: string }> = {
+const STATUS_BADGE: Record<string, { tone: "green" | "red" | "amber" | "neutral"; text: string }> = {
+  waiting: { tone: "neutral", get text() { return tr("Waiting for a grade"); } },
   passed: { tone: "green", get text() { return tr("Passed"); } },
   failed: { tone: "red", get text() { return tr("Not passed"); } },
   "timed-out": { tone: "amber", get text() { return tr("Timed out"); } },
@@ -386,12 +522,12 @@ function History({ quiz, onReview }: { quiz: QuizState; onReview: (id: string) =
       <h3 className="lms-subhead">{tr("Your attempts")}</h3>
       <ul className="lms-history">
         {done.map((r) => {
-          const b = STATUS_BADGE[r.passed ? "passed" : r.status === "Timed Out" ? "timed-out" : "failed"];
+          const b = STATUS_BADGE[r.status === "Awaiting Grading" ? "waiting" : r.passed ? "passed" : r.status === "Timed Out" ? "timed-out" : "failed"];
           return (
             <li key={r.id}>
               <span className="lms-history-no">{tr("Attempt {attempt_no}", { attempt_no: r.attempt_no })}</span>
               <span className="faint">{r.submitted_at ? formatDateTime(r.submitted_at) : ""}</span>
-              <span className="lms-history-score">{isolate(percentLabel(r.percentage))}</span>
+              <span className="lms-history-score">{r.status === "Awaiting Grading" ? tr("Waiting for a grade") : isolate(percentLabel(r.percentage))}</span>
               <Badge tone={b.tone}>{isolate(b.text)}</Badge>
               <span className="spacer" />
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => onReview(r.id)}>

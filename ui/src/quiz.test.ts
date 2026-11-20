@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answersOf, attemptsText, canStart, choose, chosen, isAnswered, milestone, milestoneText, remaining, responseText, revealed, rightCount, timerTone, unanswered, verdict } from "./quiz";
+import { answersOf, attemptsText, canStart, choose, chosen, correctText, filled, isAnswered, kind, matched, moved, milestone, milestoneText, remaining, responseText, revealed, rightCount, timerTone, unanswered, verdict } from "./quiz";
 import type { Attempt, AttemptAnswer, QuizState } from "./types";
 
 const question = (id: string, type: AttemptAnswer["question_type"] = "Single Choice", over: Partial<AttemptAnswer> = {}): AttemptAnswer => ({
@@ -149,5 +149,58 @@ describe("before the quiz", () => {
     expect(attemptsText(state({ attempts_used: 3, attempts_left: 0 }))).toBe("All 3 attempts used");
     expect(attemptsText(state({ max_attempts: 0, attempts_used: 0, attempts_left: null }))).toBe("No limit on attempts");
     expect(attemptsText(state({ max_attempts: 0, attempts_used: 2, attempts_left: null }))).toBe("2 so far · no limit");
+  });
+});
+
+describe("the six newer question types", () => {
+  it("every_type_knows_when_it_is_answered", () => {
+    const empty: unknown[] = [null, "", "  ", [], [null, null], {}];
+    for (const e of empty) expect(isAnswered(e as never)).toBe(false);
+    const full: unknown[] = [["k1"], "3.5", ["k2", "k1"], { k1: "c1" }, [null, "x"], "An essay", "/files/f1"];
+    for (const f of full) expect(isAnswered(f as never)).toBe(true);
+    expect(kind("Numeric")).toBe("numeric");
+    expect(kind("True/False")).toBe("choice");
+    expect(["Ordering", "Matching", "Fill in the Blanks", "Essay", "File Upload", "Short Answer"].map((x) => kind(x as never))).toEqual(["ordering", "matching", "blanks", "essay", "file", "short"]);
+  });
+
+  it("an_order_is_moved_one_step_and_stays_complete", () => {
+    const keys = ["a", "b", "c"];
+    expect(moved(keys, 0, 1)).toEqual(["b", "a", "c"]);
+    expect(moved(keys, 2, 1)).toEqual(["a", "c", "b"]);
+    expect(moved(keys, 0, -1)).toEqual(keys);
+    expect([...moved(keys, 0, 2)].sort()).toEqual(keys);
+  });
+
+  it("a_match_is_set_cleared_and_empties_to_null", () => {
+    const one = matched(null, "l1", "r1");
+    expect(one).toEqual({ l1: "r1" });
+    expect(matched(one, "l2", "r2")).toEqual({ l1: "r1", l2: "r2" });
+    expect(matched(one, "l1", null)).toBeNull();
+  });
+
+  it("blanks_keep_their_places_and_empty_to_null", () => {
+    expect(filled(null, 3, 1, "x")).toEqual([null, "x", null]);
+    expect(filled([null, "x", null], 3, 1, "  ")).toBeNull();
+  });
+
+  it("answers_and_correct_answers_read_as_text_for_every_type", () => {
+    const options = [{ key: "k1", text: "Sun" }, { key: "k2", text: "Moon" }];
+    const choices = [{ key: "c1", text: "Star" }, { key: "c2", text: "Satellite" }];
+    expect(responseText({ options, choices, response: ["k2", "k1"] })).toEqual(["Moon", "Sun"]);
+    expect(responseText({ options, choices, response: { k1: "c1", k2: "c2" } })).toEqual(["Sun → Star", "Moon → Satellite"]);
+    expect(responseText({ options: null, choices: null, response: [null, "x"] })).toEqual(["x"]);
+    expect(responseText({ options: null, choices: null, response: "3.5" })).toEqual(["3.5"]);
+    expect(responseText({ options: null, choices: null, response: "/files/f1" })).toEqual(["A file"]);
+    expect(correctText({ answer: "3.5", tolerance: "0.1" })).toEqual(["3.5 (± 0.1)"]);
+    expect(correctText({ answer: "3", tolerance: "0" })).toEqual(["3"]);
+    expect(correctText([{ item: "Sun", matches: "Star" }])).toEqual(["Sun → Star"]);
+    expect(correctText([["a", "b"], ["c"]])).toEqual(["a / b", "c"]);
+    expect(correctText(["Moon", "Sun"])).toEqual(["Moon", "Sun"]);
+    expect(correctText(null)).toEqual([]);
+  });
+
+  it("an_attempt_waiting_for_a_grade_is_neither_passed_nor_failed", () => {
+    expect(verdict({ passed: false, status: "Awaiting Grading" })).toBe("waiting");
+    expect(verdict({ passed: false, status: "Submitted" })).toBe("failed");
   });
 });

@@ -22,7 +22,7 @@ import { PublicCatalog, PublicCertificate, PublicCourse, PublicLesson } from "./
 import { docKey, type LessonDoc, LessonEditor } from "./LessonEditor";
 import { Intro, Result, Sitting } from "./QuizPlayer";
 import { Teaching } from "./Teaching";
-import type { LiveSession, EnrolmentDue, Attempt, AssignmentState, CoursePage, Dashboard, LessonView, OutlineChapter, QuizState, Roster } from "./types";
+import type { LiveSession, EnrolmentDue, Attempt, AttemptAnswer, AssignmentState, CoursePage, Dashboard, LessonView, OutlineChapter, QuizState, Roster } from "./types";
 
 const draw = (path: string, route: string, element: React.ReactElement, fill: (qc: QueryClient) => void) => {
   const qc = new QueryClient();
@@ -200,6 +200,53 @@ describe("the quiz player", () => {
     expect(html).toContain("Submit quiz");
     expect(html).toContain("Clear my answer");
     expect(html).toContain("Your answers are saved as you go");
+  });
+
+  it("draws_a_widget_for_each_of_the_six_new_types", () => {
+    const opts = [{ key: "k1", text: "Sun" }, { key: "k2", text: "Moon" }];
+    const mk = (question: string, question_type: AttemptAnswer["question_type"], over: Partial<AttemptAnswer> = {}): AttemptAnswer => ({ question, question_text: `Q ${question}`, question_type, options: null, points: "1.00", response: null, is_correct: false, points_awarded: null, correct_answer: null, explanation: null, ...over });
+    const kinds: [AttemptAnswer, string][] = [
+      [mk("n", "Numeric"), 'inputMode="decimal"'],
+      [mk("o", "Ordering", { options: opts }), "Move up"],
+      [mk("m", "Matching", { options: opts, choices: [{ key: "c1", text: "Star" }] }), "<select"],
+      [mk("b", "Fill in the Blanks", { blanks: 2 }), "Blank 2"],
+      [mk("e", "Essay"), 'maxLength="50000"'],
+      [mk("f", "File Upload"), 'type="file"'],
+    ];
+    for (const [q, expected] of kinds) {
+      const html = render(<Sitting attempt={attempt({ answers: [q] })} onFinished={() => {}} onGone={() => {}} />);
+      expect(html.toLowerCase(), q.question_type).toContain(expected.toLowerCase());
+    }
+  });
+
+  it("a_result_that_waits_for_a_grader_says_so", () => {
+    const quiz: QuizState = { id: "q1", title: "Q", description: null, passing_percentage: "70", time_limit_minutes: 0, questions: 1, max_attempts: 0, attempts_used: 1, attempts_left: null, best_percentage: null, passed: false, in_progress: null };
+    const waiting = attempt({ status: "Awaiting Grading", score: "0", percentage: "0", answers: [{ ...attempt().answers[0], question_type: "Essay", options: null, by_person: true, response: "My essay" }] });
+    const html = render(<Result attempt={waiting} late={false} quiz={quiz} starting={false} onAgain={() => {}} onBack={() => {}} />);
+    expect(html).toContain("not final");
+    expect(html).toContain("Waiting for a grade");
+    expect(html).not.toContain("Not passed this time");
+    expect(html).not.toContain("Try again");
+    expect(html).not.toContain("Not correct");
+  });
+
+  it("the_review_shows_a_numeric_and_a_matching_key", () => {
+    const quiz: QuizState = { id: "q1", title: "Q", description: null, passing_percentage: "70", time_limit_minutes: 0, questions: 2, max_attempts: 0, attempts_used: 1, attempts_left: null, best_percentage: null, passed: false, in_progress: null };
+    const base = attempt().answers[0];
+    const done = attempt({
+      status: "Submitted",
+      score: "0",
+      percentage: "0",
+      answers: [
+        { ...base, question: "n", question_type: "Numeric", options: null, response: "9", correct_answer: { answer: "3.5", tolerance: "0.1" } },
+        { ...base, question: "m", question_type: "Matching", options: [{ key: "k1", text: "Sun" }], choices: [{ key: "c1", text: "Star" }, { key: "c2", text: "Moon" }], response: { k1: "c2" }, correct_answer: [{ item: "Sun", matches: "Star" }] },
+      ],
+    });
+    const html = render(<Result attempt={done} late={false} quiz={quiz} starting={false} onAgain={() => {}} onBack={() => {}} />);
+    expect(html).not.toContain("[object Object]");
+    expect(html).toContain("3.5 (± 0.1)");
+    expect(html).toContain("Sun → Star");
+    expect(html).toContain("Sun → Moon");
   });
 
   it("draws a sitting with no time limit without a clock", () => {

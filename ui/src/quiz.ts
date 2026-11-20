@@ -2,12 +2,26 @@
 // rules a learner meets (when to warn, what counts as answered) are tested without a browser. The
 // server holds the answer keys and the real clock; this only shows what it says.
 
-import type { Attempt, AttemptAnswer, QuestionType, QuizState, Response } from "./types";
+import type { Attempt, AttemptAnswer, CorrectAnswer, QuestionType, QuizState, Response } from "./types";
 import { t } from "@ferrum/client";
 
 export type Answers = Record<string, Response>;
 
-export const isChoice = (type: QuestionType) => type !== "Short Answer";
+export type Kind = "choice" | "short" | "numeric" | "ordering" | "matching" | "blanks" | "essay" | "file";
+
+/** Which widget a question type is answered with. */
+export function kind(type: QuestionType): Kind {
+  switch (type) {
+    case "Short Answer": return "short";
+    case "Numeric": return "numeric";
+    case "Ordering": return "ordering";
+    case "Matching": return "matching";
+    case "Fill in the Blanks": return "blanks";
+    case "Essay": return "essay";
+    case "File Upload": return "file";
+    default: return "choice";
+  }
+}
 export const isMultiple = (type: QuestionType) => type === "Multiple Choice";
 
 /** The answers an attempt already holds (it resumes where the learner stopped). */
@@ -16,8 +30,32 @@ export function answersOf(attempt: Pick<Attempt, "answers">): Answers {
 }
 
 export function isAnswered(response: Response | undefined): boolean {
-  if (Array.isArray(response)) return response.length > 0;
+  if (Array.isArray(response)) return response.some((r) => typeof r === "string" && r.length > 0);
+  if (response && typeof response === "object") return Object.keys(response).length > 0;
   return typeof response === "string" && response.trim().length > 0;
+}
+
+/** The order after moving the key at `from` to place `to` (every key stays once). */
+export function moved(keys: string[], from: number, to: number): string[] {
+  if (from === to || from < 0 || to < 0 || from >= keys.length || to >= keys.length) return keys;
+  const out = [...keys];
+  out.splice(to, 0, ...out.splice(from, 1));
+  return out;
+}
+
+/** The pairs after setting (or, with `null`, clearing) the match of one left-hand item; `null` when none is left. */
+export function matched(current: Response | undefined, left: string, right: string | null): Response {
+  const pairs: Record<string, string> = current && typeof current === "object" && !Array.isArray(current) ? { ...current } : {};
+  if (right) pairs[left] = right;
+  else delete pairs[left];
+  return Object.keys(pairs).length ? pairs : null;
+}
+
+/** The blanks after typing `text` in blank `index` (a list of exactly `blanks` entries); `null` when all are empty. */
+export function filled(current: Response | undefined, blanks: number, index: number, text: string): Response {
+  const list: (string | null)[] = Array.isArray(current) && current.length === blanks ? [...current] : Array.from({ length: blanks }, () => null);
+  list[index] = text.trim() === "" ? null : text;
+  return list.every((x) => x === null) ? null : list;
 }
 
 /** Places (zero-based) of the questions with no answer yet. */
@@ -80,9 +118,10 @@ export function milestoneText(seconds: number): string {
 
 // ───────────────────────────── the verdict ─────────────────────────────
 
-export type Verdict = "passed" | "failed" | "timed-out";
+export type Verdict = "passed" | "failed" | "timed-out" | "waiting";
 
 export function verdict(attempt: Pick<Attempt, "passed" | "status">): Verdict {
+  if (attempt.status === "Awaiting Grading") return "waiting";
   return attempt.passed ? "passed" : attempt.status === "Timed Out" ? "timed-out" : "failed";
 }
 
@@ -95,11 +134,22 @@ export function revealed(attempt: Pick<Attempt, "answers">): boolean {
   return attempt.answers.some((a) => a.correct_answer !== null && a.correct_answer !== undefined);
 }
 
-/** The text of the option keys a response names, or the short answer itself. */
-export function responseText(a: Pick<AttemptAnswer, "options" | "response">): string[] {
+/** What the learner answered, as lines of text: option keys read as their texts, pairs as "item → answer", blanks as the
+ *  filled ones; a file as the words "A file" (the page draws its link beside it). */
+export function responseText(a: Pick<AttemptAnswer, "options" | "choices" | "response">): string[] {
   const r = a.response;
-  if (Array.isArray(r)) return r.map((k) => a.options?.find((o) => o.key === k)?.text ?? "").filter(Boolean);
+  const opt = (k: string) => a.options?.find((o) => o.key === k)?.text ?? "";
+  if (Array.isArray(r)) return (r as (string | null)[]).filter((k): k is string => typeof k === "string" && k !== "").map((k) => (a.options ? opt(k) : k)).filter(Boolean);
+  if (r && typeof r === "object") return Object.entries(r).map(([l, x]) => `${opt(l)} → ${a.choices?.find((c) => c.key === x)?.text ?? ""}`);
+  if (typeof r === "string" && r.startsWith("/files/")) return [t("A file")];
   return typeof r === "string" && r ? [r] : [];
+}
+
+/** The correct answer a revealed row carries, as lines of text. */
+export function correctText(c: CorrectAnswer | undefined): string[] {
+  if (!c) return [];
+  if (!Array.isArray(c)) return c.answer ? [Number(c.tolerance) ? t("{answer} (± {tolerance})", { answer: c.answer, tolerance: c.tolerance }) : c.answer] : [];
+  return c.map((x) => (typeof x === "string" ? x : Array.isArray(x) ? x.join(" / ") : `${x.item} → ${x.matches}`));
 }
 
 // ───────────────────────────── before the quiz ─────────────────────────────

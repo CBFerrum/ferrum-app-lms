@@ -553,5 +553,17 @@
   "You attended for {minutes} min. This lesson is credited.": "आप {minutes} मिनट उपस्थित रहे। इस पाठ का श्रेय मिल गया है।",
   "Your certificate is expiring: this renews it": "आपका प्रमाणपत्र समाप्त होने वाला है: यह उसका नवीनीकरण करता है",
   "{n} more people match but are already in the course.": "{n} और लोग मेल खाते हैं, लेकिन पहले से कोर्स में हैं।",
-  "{n} people would be enrolled at the next upkeep.": "अगले रखरखाव में {n} लोगों को नामांकित किया जाएगा।"
+  "{n} people would be enrolled at the next upkeep.": "अगले रखरखाव में {n} लोगों को नामांकित किया जाएगा।",
+  "A person grades this answer": "इस उत्तर को कोई व्यक्ति जाँचता है",
+  "Type a number": "एक संख्या लिखें",
+  "The order shown is not an answer yet. Move an item to give one.": "दिखाया गया क्रम अभी उत्तर नहीं है। उत्तर देने के लिए किसी मद को खिसकाएँ।",
+  "Move up": "ऊपर ले जाएँ",
+  "Move down": "नीचे ले जाएँ",
+  "Blank {n}": "रिक्त स्थान {n}",
+  "Write your answer": "अपना उत्तर लिखें",
+  "Your file": "आपकी फ़ाइल",
+  "Remove the file": "फ़ाइल हटाएँ",
+  "Some answers wait for a person to grade them, so this result is not final.": "कुछ उत्तरों की जाँच किसी व्यक्ति को करनी है, इसलिए यह परिणाम अंतिम नहीं है।",
+  "Open": "खोलें",
+  "{answer} (± {tolerance})": "{answer} (± {tolerance})"
 }
