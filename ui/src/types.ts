@@ -499,3 +499,17 @@ export interface GradeBook {
 
 /** The entry behind a cell of the book, when someone marked it by hand. */
 export interface GradeEntry { id: string; version: number; points: string | null; excused: boolean; comment: string | null }
+
+// ───────────────────────────── discussions (src/discussion.rs:224-238) ─────────────────────────────
+
+export interface Post {
+  id: string; title: string | null; body: string | null; author_name: string | null; by_instructor: boolean; answer: boolean;
+  pinned: boolean; closed: boolean; removed: boolean; replies: number; last_post_at: string | null; created_at: string;
+  lesson: string | null; mine: boolean;
+  // instructors only
+  author?: string; reported?: boolean; report_reason?: string | null; removed_reason?: string | null; removed_by?: string | null;
+}
+export interface ThreadList { threads: Post[]; moderator: boolean }
+export interface ThreadPage { thread: Post; replies: Post[]; following: boolean; moderator: boolean }
+/** A reported post as the moderators' queue lists it. */
+export interface ReportedPost { id: string; thread: string | null; title: string | null; body: string | null; author_name: string | null; author: string | null; report_reason: string | null; reported_by: string | null; removed: boolean; created_at: string }

@@ -189,6 +189,9 @@ function Box({ c, slug }: { c: CoursePage; slug: string }) {
             <Link className="btn btn-default btn-md" to={paths.learn(slug)}>
               <Glyph name="eye" size={14} /> {tr("Preview as a learner")}
             </Link>
+            <Link className="btn btn-default btn-md" to={paths.discussion(slug)}>
+              {tr("Discussion")}
+            </Link>
           </div>
         </div>
       )}
@@ -205,6 +208,9 @@ function Box({ c, slug }: { c: CoursePage; slug: string }) {
               </Link>
               <Link className="btn btn-default btn-md" to={paths.grades(slug)}>
                 {tr("Grades")}
+              </Link>
+              <Link className="btn btn-default btn-md" to={paths.discussion(slug)}>
+                {tr("Discussion")}
               </Link>
               <Button variant="ghost" onClick={() => void leave()}>
                 {tr("Leave course")}

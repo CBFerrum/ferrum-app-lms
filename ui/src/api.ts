@@ -16,6 +16,10 @@ import type {
   LessonView,
   EnrolmentDue,
   GradeBook,
+  Post,
+  ReportedPost,
+  ThreadList,
+  ThreadPage,
   GradeEntry,
   Roster,
   RulePreview,
@@ -54,6 +58,9 @@ export const keys = {
   attendance: (cohort: string, session: string) => ["lms", "attendance", cohort, session] as const,
   gradebook: (course: string) => ["lms", "gradebook", course] as const,
   grades: (slug: string) => ["lms", "grades", slug] as const,
+  threads: (slug: string, lesson?: string) => ["lms", "threads", slug, lesson ?? ""] as const,
+  thread: (id: string) => ["lms", "thread", id] as const,
+  reported: (course: string) => ["lms", "reported", course] as const,
 };
 
 // ───────────────────────────── signed in ─────────────────────────────
@@ -158,3 +165,23 @@ export const getGradeEntry = (item: string, enrollment: string) =>
 export const saveGradeEntry = (item: string, enrollment: string, body: { points: string | null; excused: boolean; comment: string | null }, existing: GradeEntry | null) =>
   existing ? api.patch<GradeEntry>(docPath("LmsGradeEntry", existing.id), body, { ifMatch: existing.version }) : api.post<GradeEntry>(docPath("LmsGradeEntry"), { item, enrollment, ...body });
 export const clearGradeEntry = (entry: GradeEntry) => api.del(docPath("LmsGradeEntry", entry.id), { ifMatch: entry.version });
+
+// ───────────────────────────── discussions ─────────────────────────────
+
+export const getThreads = (slug: string, lesson?: string) => api.get<ThreadList>(app(`courses/${seg(slug)}/discussion`), { lesson });
+export const getThread = (slug: string, thread: string) => api.get<ThreadPage>(app(`courses/${seg(slug)}/discussion`), { thread });
+export const startThread = (course: string, body: { title: string; body: string; lesson?: string }) => act<{ post: Post }>("LmsCourse", course, "discuss", body);
+export const reply = (course: string, thread: string, body: string) => act<{ post: Post }>("LmsCourse", course, "discuss", { thread, body });
+export const follow = (course: string, thread: string, on: boolean) => act<{ following: boolean }>("LmsCourse", course, "follow", { thread, follow: on });
+export const reportPost = (course: string, post: string, reason: string) => act<{ reported: boolean }>("LmsCourse", course, "report_post", { post, reason });
+export const pin = (post: string) => act<{ post: Post }>("LmsPost", post, "pin");
+export const closeThread = (post: string) => act<{ post: Post }>("LmsPost", post, "close");
+export const markAnswer = (post: string) => act<{ post: Post }>("LmsPost", post, "mark_answer");
+export const removePost = (post: string, reason: string) => act<{ post: Post }>("LmsPost", post, "remove", { reason });
+export const getReported = (course: string) =>
+  rowsOf<ReportedPost>("LmsPost", {
+    filters: JSON.stringify({ course, reported: true }),
+    fields: "title,body,author_name,author,report_reason,reported_by,removed,thread,created_at",
+    sort: "created_at desc",
+    limit: 200,
+  }).then((rows) => rows.filter((r) => !r.removed));

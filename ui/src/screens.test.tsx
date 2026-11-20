@@ -22,8 +22,9 @@ import { PublicCatalog, PublicCertificate, PublicCourse, PublicLesson } from "./
 import { docKey, type LessonDoc, LessonEditor } from "./LessonEditor";
 import { Intro, Result, Sitting } from "./QuizPlayer";
 import { MyGradesRoute, NotEnrolled } from "./Grades";
+import { DiscussionRoute, LessonThreads, OutsideCourse, Reported, ThreadRoute } from "./Discussion";
 import { Teaching } from "./Teaching";
-import type { GradeBook, LiveSession, EnrolmentDue, Attempt, AttemptAnswer, AssignmentState, CoursePage, Dashboard, LessonView, OutlineChapter, QuizState, Roster } from "./types";
+import type { Post, ThreadList, ThreadPage, GradeBook, LiveSession, EnrolmentDue, Attempt, AttemptAnswer, AssignmentState, CoursePage, Dashboard, LessonView, OutlineChapter, QuizState, Roster } from "./types";
 
 const draw = (path: string, route: string, element: React.ReactElement, fill: (qc: QueryClient) => void) => {
   const qc = new QueryClient();
@@ -689,5 +690,73 @@ describe("the gradebook", () => {
     const html = draw("/x", "/x", <NotEnrolled slug="intro-to-rust" />, () => {});
     expect(html).toContain("You are not enrolled in this course");
     expect(html).toContain('href="/course/intro-to-rust"');
+  });
+});
+
+describe("discussions", () => {
+  const post = (over: Partial<Post> = {}): Post => ({ id: "p1", title: "How do borrows work?", body: "I am stuck.", author_name: "Asha Rao", by_instructor: false, answer: false, pinned: false, closed: false, removed: false, replies: 2, last_post_at: "2026-11-02T10:00:00.000Z", created_at: "2026-11-01T10:00:00.000Z", lesson: null, mine: false, ...over });
+  const page = (over: Partial<ThreadPage> = {}): ThreadPage => ({ thread: post(), replies: [post({ id: "r1", title: null, body: "Read chapter 4.", author_name: "Tara", by_instructor: true, answer: true })], following: false, moderator: false, ...over });
+  const thread = (p: ThreadPage) => draw("/course/intro-to-rust/discussion/p1", "/course/:slug/discussion/:thread", <ThreadRoute />, (qc) => (qc.setQueryData(keys.thread("p1"), p), qc.setQueryData(keys.course("intro-to-rust"), course())));
+  const list = (l: ThreadList) => draw("/course/intro-to-rust/discussion", "/course/:slug/discussion", <DiscussionRoute />, (qc) => (qc.setQueryData(keys.threads("intro-to-rust"), l), qc.setQueryData(keys.course("intro-to-rust"), course())));
+
+  it("the_list_puts_pinned_threads_first_as_the_server_sent_them", () => {
+    const html = list({ moderator: false, threads: [post({ id: "a", title: "Pinned one", pinned: true }), post({ id: "b", title: "Plain one" })] });
+    expect(html.indexOf("Pinned one")).toBeGreaterThan(-1);
+    expect(html.indexOf("Pinned one")).toBeLessThan(html.indexOf("Plain one"));
+    expect(html).toContain("Pinned");
+    expect(html).toContain("New thread");
+  });
+
+  it("a_thread_shows_the_answer_and_takes_replies", () => {
+    const html = thread(page());
+    expect(html).toContain("Instructor&#x27;s answer");
+    expect(html).toContain("Read chapter 4.");
+    expect(html).toContain("Your reply");
+    expect(html).toContain("Follow");
+  });
+
+  it("a_closed_thread_offers_no_reply_box", () => {
+    const html = thread(page({ thread: post({ closed: true }) }));
+    expect(html).not.toContain("Your reply");
+    expect(html).toContain("takes no more replies");
+  });
+
+  it("a_learner_reads_a_removed_post_as_removed", () => {
+    const html = thread(page({ replies: [post({ id: "r2", removed: true, body: null, author_name: null, title: null })] }));
+    expect(html).toContain("This post was removed");
+  });
+
+  it("an_instructor_reads_it_with_who_removed_it_and_why", () => {
+    const html = thread(page({ moderator: true, replies: [post({ id: "r2", removed: true, body: "Rude words", removed_by: "tara@school.test", removed_reason: "Rude" })] }));
+    expect(html).toContain("Rude words");
+    expect(html).toContain("Removed by tara@school.test: Rude");
+  });
+
+  it("moderation_is_offered_to_moderators_only", () => {
+    expect(thread(page())).not.toContain("Mark as answer");
+    expect(thread(page())).not.toContain(">Pin<");
+    const html = thread(page({ moderator: true, replies: [post({ id: "r3", title: null, body: "x" })] }));
+    expect(html).toContain(">Pin<");
+    expect(html).toContain(">Close<");
+    expect(html).toContain("Mark as answer");
+    expect(html).toContain(">Remove<");
+  });
+
+  it("someone_outside_the_course_is_told_so", () => {
+    const html = draw("/x", "/x", <OutsideCourse slug="intro-to-rust" />, () => {});
+    expect(html).toContain("The discussion is for the course&#x27;s learners and instructors");
+  });
+
+  it("a_lesson_lists_its_own_threads", () => {
+    const html = draw("/x", "/x", <LessonThreads slug="intro-to-rust" course="course-1" lesson="l1" />, (qc) => qc.setQueryData(keys.threads("intro-to-rust", "l1"), { moderator: false, threads: [post({ title: "About lesson one", lesson: "l1" })] }));
+    expect(html).toContain("About lesson one");
+    expect(html).toContain("Ask about this lesson");
+  });
+
+  it("the_reported_queue_names_post_reason_and_reporter", () => {
+    const html = draw("/x", "/x", <Reported course="course-1" slug="intro-to-rust" />, (qc) => qc.setQueryData(keys.reported("course-1"), [{ id: "p9", thread: "p1", title: null, body: "Spam link", author_name: "Eve", author: "eve@school.test", report_reason: "Advertising", reported_by: "asha@school.test", removed: false, created_at: "2026-11-02T10:00:00.000Z" }]));
+    expect(html).toContain("Spam link");
+    expect(html).toContain("Reported by asha@school.test: Advertising");
+    expect(html).toContain("Open the thread");
   });
 });

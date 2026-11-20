@@ -1,1 +1,0 @@
-import{r as t,$ as a}from"./index-B7uvER6n.js";function l(e,n){const[r,u]=t.useState(!1);return t.useEffect(()=>{let s=!0;return a().canIntent(e,n).then(f=>s&&u(f)).catch(()=>{}),()=>{s=!1}},[e,n]),r}function o(e){t.useEffect(()=>{e&&a().title(e)},[e])}export{l as a,o as u};

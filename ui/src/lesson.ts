@@ -34,6 +34,8 @@ export const paths = {
   catalog: "/catalog",
   course: (slug: string) => `/course/${seg(slug)}`,
   grades: (slug: string) => `/course/${seg(slug)}/grades`,
+  discussion: (slug: string) => `/course/${seg(slug)}/discussion`,
+  thread: (slug: string, thread: string) => `/course/${seg(slug)}/discussion/${seg(thread)}`,
   /** The player; without a lesson it opens where the learner left off. */
   learn: (slug: string, lesson?: string) => (lesson ? `/learn/${seg(slug)}/${seg(lesson)}` : `/learn/${seg(slug)}`),
   teaching: (course?: string) => (course ? `/teaching/${seg(course)}` : "/teaching"),

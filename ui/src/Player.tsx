@@ -13,6 +13,7 @@ import { Alert, Button, EmptyState, PageLoading, toast, useLiveEntity, useShellT
 import { Failed } from "./states";
 import { completeLesson, getCourse, getLesson, keys, reactivate } from "./api";
 import { Done } from "./Done";
+import { LessonThreads } from "./Discussion";
 import { Glyph } from "./Glyph";
 import { paths } from "./lesson";
 import { LessonPage } from "./LessonPage";
@@ -248,6 +249,7 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
               )}
             </nav>
             {hint && <p className="faint lms-hint">{isolate(hint)}</p>}
+            {(learning || author) && <LessonThreads slug={slug} course={data.id} lesson={view.lesson.id} />}
           </>
         )}
       </LessonPage>
@@ -264,6 +266,11 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
           {progress && progress.status !== "Withdrawn" && (
             <Link className="lms-back" to={paths.grades(slug)}>
               {t("Grades")}
+            </Link>
+          )}
+          {(learning || author) && (
+            <Link className="lms-back" to={paths.discussion(slug)}>
+              {t("Discussion")}
             </Link>
           )}
           <Button size="sm" className="lms-outline-toggle" icon="list" onClick={() => setSheet(true)}>
