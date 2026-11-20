@@ -52,6 +52,13 @@ impl Site for LearnSite {
                 if let ["lti", "ags", lesson, rest @ ..] = path.as_slice() {
                     return lti::ags(k, user, &req, uuid(lesson)?, rest).await;
                 }
+                // The public pages serve a signed-in person exactly as they serve anyone: a customer with no Learn role, and
+                // the pages only the public has (a certificate's check, the categories, the tool's keys), whoever asks.
+                let public_only = matches!(path.as_slice(), ["certificates", ..] | ["categories"] | ["lti", "jwks"]);
+                let public_page = public_only || matches!(path.as_slice(), ["courses"] | ["courses", _] | ["courses", _, "lessons", ..]);
+                if req.method == "GET" && (public_only || (public_page && !is_member(user))) {
+                    return public(k, &req, &path).await;
+                }
                 if !is_member(user) {
                     return Err(Error::Forbidden("Learn needs the Learner, Instructor or LMS Manager role".into()));
                 }
@@ -572,6 +579,7 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
             json_response(&view, "no-store")
         }
         ["dashboard"] => json_response(&dashboard(k, user, &mut tx).await?, "no-store"),
+        ["teaching"] | ["teaching", "grading"] if user.outside => return Err(Error::Forbidden("authoring needs a staff role".into())),
         ["teaching"] => json_response(&teaching(user, &mut tx).await?, "no-store"),
         ["teaching", "grading"] => json_response(&grading_queue(user, &mut tx).await?, "no-store"),
         ["teaching", "courses", course, "gradebook"] => {

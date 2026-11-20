@@ -3916,3 +3916,69 @@ fn opener(url: &str) -> ferrum_kernel::vault::Opener {
         ..Default::default()
     }
 }
+
+// ───────────────────────────── lms-open-doors: public pages serve everyone, authoring needs staff ─────────────────────────────
+
+#[test]
+fn public_pages_serve_a_signed_in_customer_and_authoring_needs_staff() {
+    run(open_doors());
+}
+
+/// A signed-in customer with no Learn role is served the public catalog, a public course, a free-preview lesson, the
+/// categories and a certificate check exactly as anyone is (and an internal course is as missing as it is to anyone);
+/// a person outside the workspace holding Learner or Online Learner opens no authoring view, not even of a course
+/// that names their address as an instructor.
+async fn open_doors() {
+    let t = boot("doors", vec![], &[], |_| {}).await;
+    let teacher = t.user("teacher@doors.test", "Tara Teacher", "Instructor").await;
+    let bob = t.user("bob@doors.test", "Bob Member", "Learner").await;
+    let (course, lessons) = course_of(&t, &teacher, "Open Rust", 2, json!({"visibility": "Public", "issue_certificate": true})).await;
+    course_of(&t, &teacher, "Staff Rust", 1, json!({})).await;
+    t.update(&teacher, "LmsLesson", lessons[0], json!({"is_preview": true})).await;
+    let bobs = enrol(&t, &teacher, course, &["bob@doors.test"]).await["bob@doors.test"];
+    finish(&t, &bob, bobs, &lessons).await;
+    let cert = t.get("LmsCertificate", vid(&t.get("LmsEnrollment", bobs).await["certificate"])).await;
+    let code = cert["verification_code"].as_str().unwrap().to_string();
+
+    // A customer: signed in, outside the workspace, no Learn role.
+    let id = t.k.create_user(&t.admin, "cy@elsewhere.test", "Cy Customer", Some(PW), &[], false).await.unwrap();
+    let mut cy = t.k.load_ctx(t.tenant, id, None, "it".into()).await.unwrap();
+    cy.outside = true;
+    assert!(cy.roles.iter().all(|r| !matches!(r.as_str(), "Learner" | "Instructor" | "LMS Manager" | "Online Learner")));
+    let public = ["courses", "courses/open-rust", "categories", &format!("courses/open-rust/lessons/{}", lessons[0]), &format!("certificates/{code}")];
+    for path in public {
+        assert_eq!(t.page(Some(&cy), path).await, t.page(None, path).await, "{path} reads the same to a customer as to anyone");
+    }
+    for path in ["courses/staff-rust", &format!("courses/open-rust/lessons/{}", lessons[1])] {
+        assert!(matches!(err(t.call(Some(&cy), "GET", path).await), Error::NotFound(_)), "{path} is as missing to a customer as to anyone");
+        assert!(matches!(err(t.call(None, "GET", path).await), Error::NotFound(_)));
+    }
+    assert!(t.call(Some(&cy), "GET", "dashboard").await.is_err(), "the signed-in pages still need a Learn role");
+    assert!(t.call(Some(&cy), "GET", "teaching").await.is_err());
+    // A member still reads a certificate's check.
+    assert_eq!(t.page(Some(&bob), &format!("certificates/{code}")).await, t.page(None, &format!("certificates/{code}")).await);
+
+    // Someone outside holding a Learn role, named as an instructor by address, authors nothing.
+    let (mine, _) = course_of(&t, &teacher, "Ann's Rust", 1, json!({"visibility": "Public"})).await;
+    let mut anns = vec![];
+    for role in ["Learner", "Online Learner", "Instructor"] {
+        let email = format!("ann-{}@elsewhere.test", role.to_lowercase().replace(' ', ""));
+        let id = t.k.create_user(&t.admin, &email, "Ann Outside", Some(PW), &[role.into()], false).await.unwrap();
+        let mut ann = t.k.load_ctx(t.tenant, id, None, "it".into()).await.unwrap();
+        ann.outside = true;
+        anns.push((role, email, ann));
+    }
+    let mut named = vec![json!({"instructor": "teacher@doors.test"})];
+    named.extend(anns.iter().map(|(_, e, _)| json!({"instructor": e})));
+    t.update(&teacher, "LmsCourse", mine, json!({"instructors": named})).await;
+    for (role, _, ann) in &anns {
+        for path in ["teaching".to_string(), "teaching/grading".into(), format!("teaching/courses/{mine}/gradebook"), format!("teaching/courses/{mine}/roster")]
+        {
+            assert!(matches!(err(t.call(Some(ann), "GET", &path).await), Error::Forbidden(_) | Error::NotFound(_)), "{role} outside opens {path}");
+        }
+    }
+    // The course's own instructor and a manager still do.
+    for who in [&teacher, &t.admin] {
+        t.page(Some(who), &format!("teaching/courses/{mine}/roster")).await;
+    }
+}
