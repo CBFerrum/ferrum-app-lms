@@ -674,5 +674,17 @@
   "Watched {percent}": "تمت مشاهدة {percent}",
   "Watched. This lesson is complete.": "تمت المشاهدة. اكتمل هذا الدرس.",
   "Your watching is not being saved": "لا تُحفظ مشاهدتك",
-  "your watching was not saved ({status})": "لم تُحفظ مشاهدتك ({status})"
+  "your watching was not saved ({status})": "لم تُحفظ مشاهدتك ({status})",
+  "About {points} of {max} points": "نحو {points} من {max} نقطة",
+  "Answer": "إجابة",
+  "Could not load this answer": "تعذّر تحميل هذه الإجابة",
+  "Criterion": "المعيار",
+  "Grade this answer": "قيّم هذه الإجابة",
+  "Graded by you: waiting for another grader": "قيّمتها أنت: بانتظار مقيّم آخر",
+  "How this was graded": "كيف جرى التقييم",
+  "Loading the answer": "جارٍ تحميل الإجابة",
+  "Nothing was answered.": "لم تُقدَّم إجابة.",
+  "Points": "النقاط",
+  "Points out of {max}": "النقاط من {max}",
+  "Saved. {waiting_for} grades it next": "حُفظ. يقيّمها بعد ذلك: {waiting_for}"
 }

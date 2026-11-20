@@ -17,6 +17,9 @@ import type {
   EnrolmentDue,
   GradeBook,
   Post,
+  ReviewedAttempt,
+  RubricDef,
+  WaitingAttempt,
   VideoSaved,
   ReportedPost,
   ThreadList,
@@ -62,6 +65,8 @@ export const keys = {
   threads: (slug: string, lesson?: string) => ["lms", "threads", slug, lesson ?? ""] as const,
   thread: (id: string) => ["lms", "thread", id] as const,
   reported: (course: string) => ["lms", "reported", course] as const,
+  waiting: ["lms", "waiting"] as const,
+  rubric: (id: string) => ["lms", "rubric", id] as const,
 };
 
 // ───────────────────────────── signed in ─────────────────────────────
@@ -199,3 +204,17 @@ export function videoProgress(enrollment: string, lesson: string, seconds: numbe
     return (await r.json()) as VideoSaved;
   });
 }
+
+// ───────────────────────────── grading ─────────────────────────────
+
+export const getWaitingAnswers = () => api.get<{ attempts: WaitingAttempt[] }>(app("teaching/grading")).then((r) => r.attempts);
+export const reviewAttempt = (attempt: string) => act<ReviewedAttempt>("LmsQuizAttempt", attempt, "review");
+/** One grade of one answer; a rubric choice goes as the text of its levels. */
+export const gradeAnswer = (attempt: string, g: { question: string; points?: string; rubric?: Record<string, string>; comment?: string }) =>
+  act<{ attempt: unknown; waiting_for?: string }>("LmsQuizAttempt", attempt, "grade_answers", {
+    question: g.question,
+    ...(g.points !== undefined ? { points: g.points } : {}),
+    ...(g.rubric ? { rubric: JSON.stringify(g.rubric) } : {}),
+    ...(g.comment ? { comment: g.comment } : {}),
+  });
+export const getRubric = (id: string) => api.get<RubricDef>(docPath("LmsRubric", id));

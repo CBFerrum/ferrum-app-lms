@@ -11,6 +11,7 @@ import { getAttempt, getAttempts, keys, saveAnswers, startQuiz, submitAnswers } 
 import { clock, duration } from "./format";
 import { Glyph } from "./Glyph";
 import { Md } from "./Md";
+import { RubricTable } from "./RubricTable";
 import { percentLabel } from "./outline";
 import {
   type Answers,
@@ -451,6 +452,7 @@ function Review({ attempt }: { attempt: Attempt }) {
                   <Md source={a.comment} />
                 </div>
               )}
+              {a.rubric_result && <RubricTable result={a.rubric_result} />}
               {a.explanation && (
                 <div className="lms-explain">
                   <Md source={a.explanation} />

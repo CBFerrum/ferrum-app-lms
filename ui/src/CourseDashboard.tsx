@@ -9,9 +9,9 @@ import { Link, useParams, useSearchParams } from "react-router";
 import { ApiError, errorMessage, formatDateTime, relativeTime, t as tr, isolate } from "@ferrum/client";
 import { Alert, Badge, Button, ButtonLink, Dialog, Field, PageHead, PageLoading, PageStack, Progress, Stat, StatGrid, StatePanel, useLiveEntity, useShellTitle } from "@ferrum/kit";
 import { Failed } from "./states";
-import { enrolLearners, type EnrolResult, getCourse, getReported, getRoster, keys, rowsOf } from "./api";
+import { enrolLearners, type EnrolResult, getCourse, getReported, getRoster, getWaitingAnswers, keys, rowsOf } from "./api";
 import { Glyph } from "./Glyph";
-import { Grading } from "./Grading";
+import { answersWaiting, Grading } from "./Grading";
 import { GradebookTab } from "./Grades";
 import { Reported } from "./Discussion";
 import { paths } from "./lesson";
@@ -330,6 +330,7 @@ function CourseDashboard({ course }: { course: string }) {
   const [adding, setAdding] = useState(false);
   const q = useQuery({ queryKey: keys.roster(course), queryFn: () => getRoster(course), staleTime: 0 });
   const reported = useQuery({ queryKey: keys.reported(course), queryFn: () => getReported(course), staleTime: 30_000, retry: false });
+  const waiting = useQuery({ queryKey: keys.waiting, queryFn: getWaitingAnswers, staleTime: 30_000, retry: false });
   const refresh = useCallback(() => void qc.invalidateQueries({ queryKey: ["lms", "roster"] }), [qc]);
   useLiveEntity("LmsEnrollment", refresh);
   useLiveEntity("LmsAssignmentSubmission", refresh);
@@ -340,6 +341,7 @@ function CourseDashboard({ course }: { course: string }) {
   const roster = q.data;
   if (!roster) return <PageLoading label={tr("Loading the learners")} />;
   const sum = summarize(roster, now);
+  sum.toGrade += answersWaiting(waiting.data, course);
   const bands = distribution(roster.learners);
   const widest = Math.max(1, ...bands.map((b) => b.count));
   const go = (t: "learners" | "grading" | "gradebook" | "reported") => setSp(t === "learners" ? {} : { tab: t }, { replace: true });

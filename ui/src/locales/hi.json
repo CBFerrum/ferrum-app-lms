@@ -674,5 +674,17 @@
   "Watched {percent}": "{percent} देखा गया",
   "Watched. This lesson is complete.": "देखा गया। यह पाठ पूरा हुआ।",
   "Your watching is not being saved": "आपका देखना सहेजा नहीं जा रहा",
-  "your watching was not saved ({status})": "आपका देखना सहेजा नहीं गया ({status})"
+  "your watching was not saved ({status})": "आपका देखना सहेजा नहीं गया ({status})",
+  "About {points} of {max} points": "लगभग {max} में से {points} अंक",
+  "Answer": "उत्तर",
+  "Could not load this answer": "यह उत्तर लोड नहीं हो सका",
+  "Criterion": "मानदंड",
+  "Grade this answer": "इस उत्तर को ग्रेड करें",
+  "Graded by you: waiting for another grader": "आपने ग्रेड किया: दूसरे ग्रेडर की प्रतीक्षा",
+  "How this was graded": "यह कैसे ग्रेड किया गया",
+  "Loading the answer": "उत्तर लोड हो रहा है",
+  "Nothing was answered.": "कुछ भी उत्तर नहीं दिया गया।",
+  "Points": "अंक",
+  "Points out of {max}": "{max} में से अंक",
+  "Saved. {waiting_for} grades it next": "सहेजा गया। अगला ग्रेड {waiting_for} करेंगे"
 }

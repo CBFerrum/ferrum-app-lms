@@ -22,9 +22,10 @@ import { PublicCatalog, PublicCertificate, PublicCourse, PublicLesson } from "./
 import { docKey, type LessonDoc, LessonEditor } from "./LessonEditor";
 import { Intro, Result, Sitting } from "./QuizPlayer";
 import { MyGradesRoute, NotEnrolled } from "./Grades";
+import { Grading } from "./Grading";
 import { DiscussionRoute, LessonThreads, OutsideCourse, Reported, ThreadRoute } from "./Discussion";
 import { Teaching } from "./Teaching";
-import type { Post, ThreadList, ThreadPage, GradeBook, LiveSession, EnrolmentDue, Attempt, AttemptAnswer, AssignmentState, CoursePage, Dashboard, LessonView, OutlineChapter, QuizState, Roster } from "./types";
+import type { ReviewedAttempt, WaitingAttempt, Post, ThreadList, ThreadPage, GradeBook, LiveSession, EnrolmentDue, Attempt, AttemptAnswer, AssignmentState, CoursePage, Dashboard, LessonView, OutlineChapter, QuizState, Roster } from "./types";
 
 const draw = (path: string, route: string, element: React.ReactElement, fill: (qc: QueryClient) => void) => {
   const qc = new QueryClient();
@@ -799,5 +800,65 @@ describe("an uploaded video", () => {
     const html = player(lessonView(video()), false);
     expect(html).toContain("<video");
     expect(html).not.toContain("Watched 25%");
+  });
+});
+
+describe("grading answers", () => {
+  const def = { title: "Essay", criteria: [{ criterion: "Argument" }, { criterion: "Style" }], levels: [{ criterion: "Argument", level: "Strong", points: "6" }, { criterion: "Argument", level: "Weak", points: "2" }, { criterion: "Style", level: "Clear", points: "4" }, { criterion: "Style", level: "Muddled", points: "1" }], max_points: "10" };
+  const waiting = (over: Partial<WaitingAttempt> = {}): WaitingAttempt => ({ attempt: "att1", number: "A-1", quiz_title: "Physics essay", course: { id: "course-1", title: "Physics" }, learner_name: "Asha Rao", submitted_at: "2026-11-01T10:00:00.000Z", questions: ["q1"], graded_by_me: [], ...over });
+  const review = (rubric: typeof def | null, over = {}): ReviewedAttempt => ({ attempt: "att1", learner_name: "Asha Rao", status: "Awaiting Grading", answers: [{ question: "q1", question_text: "Why is the sky blue?", question_type: "Essay", points: "4.00", response: ["Rayleigh scattering."], points_awarded: null, rubric, by_person: true, comment: null, rubric_result: null, ...over }] });
+  const queue = (w: WaitingAttempt[], r: ReviewedAttempt | null, search = "?grade=att1:q1") =>
+    draw(`/teaching/course-1${search}`, "/teaching/:course", <Grading course="course-1" />, (qc) => (qc.setQueryData(["lms", "grading", "course-1"], []), qc.setQueryData(keys.waiting, w), r && qc.setQueryData(["lms", "review", "att1"], r)));
+
+  it("the_queue_lists_answers_that_wait_beside_submissions", () => {
+    const html = queue([waiting(), waiting({ attempt: "att2", course: { id: "other", title: "Other" } })], review(null));
+    expect(html).toContain("Physics essay");
+    expect(html).toContain("Answer");
+    expect(html).not.toContain("att2");
+    expect(html).toContain("Rayleigh scattering.");
+    expect(html).toContain("Points out of 4");
+  });
+
+  it("an_answer_with_a_rubric_offers_levels_not_a_points_box", () => {
+    const html = queue([waiting()], review(def));
+    expect(html).toContain("Strong");
+    expect(html).toContain("Muddled");
+    expect(html).toContain('type="radio"');
+    expect(html).not.toContain("Points out of");
+    expect(html).toContain("About 0 of 4 points");
+  });
+
+  it("an_answer_i_graded_waits_for_someone_else", () => {
+    const html = queue([waiting({ questions: ["q1", "q2"], graded_by_me: ["q1"] })], review(null), "?grade=att1:q2");
+    expect(html).toContain("Graded by you: waiting for another grader");
+  });
+
+  it("an_assignment_with_a_rubric_is_graded_by_levels", () => {
+    const sub = { id: "s1", version: 1, assignment: "as1", assignment_title: "Report", learner: "asha@school.test", learner_name: "Asha Rao", submission_no: 1, submitted_at: "2026-11-01T10:00:00.000Z", late: false, answer: "My report", attachment: null, max_score: "20.00" };
+    const html = draw("/teaching/course-1?grade=s1", "/teaching/:course", <Grading course="course-1" />, (qc) => (qc.setQueryData(["lms", "grading", "course-1"], [sub]), qc.setQueryData(keys.waiting, []), qc.setQueryData(["lms", "assignment", "as1"], { max_score: "20.00", passing_score: "10.00", rubric: "r1" }), qc.setQueryData(keys.rubric("r1"), def)));
+    expect(html).toContain("Strong");
+    expect(html).not.toContain("Score out of");
+  });
+
+  it("a_learner_sees_the_filled_rubric_on_a_graded_submission", () => {
+    const html = render(
+      <AssignmentPanel
+        state={{ id: "as1", title: "Report", instructions: null, submission_type: "Text", max_score: "20.00", passing_score: "10.00", due_date: null, overdue: false, accept_late: true, allow_resubmission: false, max_submissions: 0, passed: true, can_submit: false, reason: null, submissions: [{ id: "s1", number: null, submission_no: 1, status: "Graded", score: "14.00", passed: true, submitted_at: "2026-11-01T10:00:00.000Z", late: false, feedback: "Good", rubric: { criteria: [{ criterion: "Argument", level: "Strong", points: "6" }], points: "14", max: "20" } }] } as never}
+        lessonId="l9"
+        onProgress={() => {}}
+      />,
+    );
+    expect(html).toContain("Argument");
+    expect(html).toContain("Strong");
+    expect(html).toContain("14 of 20");
+  });
+
+  it("a_learner_sees_the_filled_rubric_in_a_quiz_review", () => {
+    const quiz: QuizState = { id: "q1", title: "Q", description: null, passing_percentage: "70", time_limit_minutes: 0, questions: 1, max_attempts: 0, attempts_used: 1, attempts_left: null, best_percentage: null, passed: false, in_progress: null };
+    const base = attempt().answers[0];
+    const done = attempt({ status: "Submitted", score: "4", percentage: "100", answers: [{ ...base, question_type: "Essay", options: null, by_person: true, response: "My essay", points_awarded: "4.00", is_correct: true, rubric_result: { criteria: [{ criterion: "Argument", level: "Strong", points: "6" }], points: "6", max: "6" } }] });
+    const html = render(<Result attempt={done} late={false} quiz={quiz} starting={false} onAgain={() => {}} onBack={() => {}} />);
+    expect(html).toContain("Argument");
+    expect(html).toContain("6 of 6");
   });
 });

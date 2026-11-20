@@ -9,6 +9,7 @@ import { Alert, Badge, Button, Field, Spinner, toast, placed } from "@ferrum/kit
 import { keys } from "./api";
 import { dueLabel } from "./format";
 import { Md } from "./Md";
+import { RubricTable } from "./RubricTable";
 import { Glyph } from "./Glyph";
 import type { AssignmentState, SubmissionRow } from "./types";
 
@@ -162,6 +163,7 @@ function Standing({ s, state }: { s: SubmissionRow; state: AssignmentState }) {
     <Alert tone={s.passed ? "success" : "warning"}>
       <strong>{s.passed ? t("Passed: {score}", { score }) : t("Not passed: {score}, the pass mark is {value}", { score, value: Number(state.passing_score) })}</strong>
       {feedback}
+      {s.rubric && <RubricTable result={s.rubric} />}
     </Alert>
   );
 }

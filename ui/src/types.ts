@@ -189,6 +189,8 @@ export interface SubmissionRow {
   submitted_at: string | null;
   late: boolean;
   feedback: string | null;
+  /** The filled rubric of a graded submission (the server names it `rubric`: src/assignment.rs:400). */
+  rubric?: RubricResult | null;
 }
 
 export interface AssignmentState {
@@ -337,6 +339,8 @@ export interface AttemptAnswer {
   /** A person grades this answer (Essay, File Upload). */
   by_person?: boolean;
   comment?: string | null;
+  /** A graded answer's filled rubric. */
+  rubric_result?: RubricResult | null;
   explanation: string | null;
 }
 
@@ -518,3 +522,12 @@ export interface ReportedPost { id: string; thread: string | null; title: string
 
 export interface VideoPlayer { src: string; captions: string | null; expires_at: number; length_seconds: number; watch_percent: number | null; seconds_watched: number; percent_watched: string | null }
 export interface VideoSaved { seconds_watched: number; percent_watched: string | null; completed: boolean }
+
+// ───────────────────────────── grading answers (src/quiz.rs:838-880, src/site.rs grading queue) ─────────────────────────────
+
+export interface RubricDef { title: string; criteria: { criterion: string; description?: string | null }[]; levels: { criterion: string; level: string; points: string; description?: string | null }[]; max_points: string }
+export interface RubricResult { criteria: { criterion: string; level: string; points: string }[]; points: string; max: string }
+export interface WaitingAttempt { attempt: string; number: string | null; quiz_title: string | null; course: { id: string; title: string }; learner_name: string | null; submitted_at: string | null; questions: string[]; graded_by_me: string[] }
+/** One answer of an attempt as a grader reads it (`LmsQuizAttempt.review`). */
+export interface ReviewedAnswer { question: string; question_text: string; question_type: QuestionType; points: string; response: unknown[]; points_awarded: string | null; rubric: RubricDef | null; by_person: boolean; comment: string | null; rubric_result: RubricResult | null }
+export interface ReviewedAttempt { attempt: string; learner_name: string | null; status: AttemptStatus; answers: ReviewedAnswer[] }
