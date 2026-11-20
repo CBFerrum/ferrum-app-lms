@@ -17,6 +17,7 @@ import type {
   EnrolmentDue,
   GradeBook,
   Post,
+  VideoSaved,
   ReportedPost,
   ThreadList,
   ThreadPage,
@@ -185,3 +186,16 @@ export const getReported = (course: string) =>
     sort: "created_at desc",
     limit: 200,
   }).then((rows) => rows.filter((r) => !r.removed));
+
+/** The seconds of an uploaded video watched so far. The last report (`finishing`) goes as the page goes away,
+ *  so it is a request that outlives the page. */
+export function videoProgress(enrollment: string, lesson: string, seconds: number, finishing = false): Promise<VideoSaved> {
+  if (!finishing) return act<VideoSaved>("LmsEnrollment", enrollment, "video_progress", { lesson, seconds });
+  const b = bootstrap();
+  const headers: Record<string, string> = { accept: "application/json", "content-type": "application/json" };
+  if (b?.app) headers["x-ferrum-ui"] = `${b.app.id}@${b.app.version}`;
+  return fetch(docPath("LmsEnrollment", enrollment, "actions", "video_progress"), { method: "POST", headers, body: JSON.stringify({ lesson, seconds }), credentials: "same-origin", keepalive: true }).then(async (r) => {
+    if (!r.ok) throw new Error(t("your watching was not saved ({status})", { status: r.status }));
+    return (await r.json()) as VideoSaved;
+  });
+}

@@ -10,6 +10,7 @@ import { embedSrc, isExternal } from "./lesson";
 import { LivePanel } from "./Live";
 import { Md } from "./Md";
 import { QuizPanel } from "./QuizPlayer";
+import { UploadedVideo } from "./Video";
 import { ScormLesson, XapiLesson } from "./Scorm";
 import type { LessonBody, LessonView } from "./types";
 import { t, isolate } from "@ferrum/client";
@@ -104,7 +105,7 @@ export function LessonPage({
           </Badge>
         )}
       </header>
-      {l.lesson_type === "Video" && <LessonVideo lesson={l} />}
+      {l.lesson_type === "Video" && (view.video ? <UploadedVideo video={view.video} title={l.title} enrollment={enrollment} lessonId={l.id} onProgress={onProgress} /> : <LessonVideo lesson={l} />)}
       {l.lesson_type === "Document" &&
         (l.file_url ? <LessonDocument url={l.file_url} /> : <Alert tone="info">{t("No document is attached to this lesson yet.")}</Alert>)}
       <Md source={l.content} className="lms-reading" />

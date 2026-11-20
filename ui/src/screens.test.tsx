@@ -557,7 +557,7 @@ describe("pages for anyone", () => {
 describe("the lesson editor", () => {
   const lesson = (over: Partial<LessonDoc> = {}): LessonDoc => ({
     id: "l3", version: 1, title: "Ownership quiz", chapter: "c2", position: 1, lesson_type: "Quiz", duration_minutes: 15, is_preview: false, required: true,
-    content: null, video_url: null, video_embed_url: null, attachment: null, quiz: null, assignment: null, package_file: null, package_standard: null,
+    content: null, video_url: null, video_embed_url: null, video_file: null, captions_file: null, video_seconds: null, watch_percent: null, attachment: null, quiz: null, assignment: null, package_file: null, package_standard: null,
     package_launch: null, package_activity: null, lti_tool: null, lti_target_url: null, lti_custom: null, ...over,
   });
   const editor = (doc: LessonDoc) =>
@@ -567,6 +567,18 @@ describe("the lesson editor", () => {
     const html = editor(lesson());
     expect(html).toContain("New quiz");
     expect(html).not.toContain("/e/LmsQuiz/new");
+  });
+
+  it("the_editor_offers_upload_captions_length_and_share_for_a_video_lesson", () => {
+    const bare = editor(lesson({ lesson_type: "Video" }));
+    expect(bare).toContain("Or upload a video");
+    expect(bare).toContain('accept="video/*"');
+    expect(bare).not.toContain("Watched to complete");
+    const withFile = editor(lesson({ lesson_type: "Video", video_file: "/files/f1", video_seconds: 120 }));
+    expect(withFile).toContain("Captions");
+    expect(withFile).toContain("Video length (seconds)");
+    expect(withFile).toContain("Watched to complete (%)");
+    expect(withFile).toContain("Remove the video");
   });
 
   it("opens the lesson's quiz once it has one", () => {
@@ -758,5 +770,34 @@ describe("discussions", () => {
     expect(html).toContain("Spam link");
     expect(html).toContain("Reported by asha@school.test: Advertising");
     expect(html).toContain("Open the thread");
+  });
+});
+
+describe("an uploaded video", () => {
+  const video = (over = {}) => ({ src: "/api/app/lms/lessons/l2/video?exp=9&sig=abc", captions: "/api/app/lms/lessons/l2/captions?exp=9&sig=def", expires_at: 4102444800, length_seconds: 120, watch_percent: 80, seconds_watched: 30, percent_watched: "25.00", ...over });
+  const lessonView = (v: ReturnType<typeof video> | null): LessonView => ({ ...article, lesson: { ...article.lesson, id: "l2", title: "Ownership on video", lesson_type: "Video", video_embed_url: null }, completed: false, video: v });
+  const player = (v: LessonView, enrolled = true) =>
+    draw("/learn/intro-to-rust/l2", learnRoute, <PlayerRoute />, (qc) => (qc.setQueryData(keys.course("intro-to-rust"), course({ chapters: chapters(["l1", "l2"]), my_enrollment: enrolled ? mine() : undefined })), qc.setQueryData(keys.lesson("l2"), v)));
+
+  it("an_uploaded_video_draws_a_player_with_its_captions", () => {
+    const html = player(lessonView(video()));
+    expect(html).toContain("<video");
+    expect(html).toContain("/api/app/lms/lessons/l2/video?exp=9&amp;sig=abc");
+    expect(html).toContain("<track");
+    expect(html).toContain("Watched 25%");
+    expect(html).toContain("This lesson completes at 80%");
+    expect(html).not.toContain("Complete and continue");
+  });
+
+  it("a_linked_video_still_draws_its_frame", () => {
+    const html = player({ ...lessonView(null), lesson: { ...lessonView(null).lesson, video_embed_url: "https://www.youtube-nocookie.com/embed/abcdefghijk" } });
+    expect(html).toContain("<iframe");
+    expect(html).not.toContain("<video");
+  });
+
+  it("a_free_preview_plays_without_reporting", () => {
+    const html = player(lessonView(video()), false);
+    expect(html).toContain("<video");
+    expect(html).not.toContain("Watched 25%");
   });
 });

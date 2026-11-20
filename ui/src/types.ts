@@ -250,6 +250,8 @@ export interface LessonView {
   assignment?: AssignmentState;
   scorm?: ScormPlayer | null;
   xapi?: XapiPlayer | null;
+  /** An uploaded video: its signed links and what this learner has watched (src/media.rs:70-74). */
+  video?: VideoPlayer | null;
   /** An LTI lesson: its tool, and where the launch starts (a new window). */
   lti?: { tool_name: string | null; launch_url: string; sends_grades: boolean } | null;
   /** A Live lesson: the sessions that credit it, the learner's cohort's (every cohort's for an author). */
@@ -513,3 +515,6 @@ export interface ThreadList { threads: Post[]; moderator: boolean }
 export interface ThreadPage { thread: Post; replies: Post[]; following: boolean; moderator: boolean }
 /** A reported post as the moderators' queue lists it. */
 export interface ReportedPost { id: string; thread: string | null; title: string | null; body: string | null; author_name: string | null; author: string | null; report_reason: string | null; reported_by: string | null; removed: boolean; created_at: string }
+
+export interface VideoPlayer { src: string; captions: string | null; expires_at: number; length_seconds: number; watch_percent: number | null; seconds_watched: number; percent_watched: string | null }
+export interface VideoSaved { seconds_watched: number; percent_watched: string | null; completed: boolean }

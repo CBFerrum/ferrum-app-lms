@@ -15,7 +15,7 @@ import { completeLesson, getCourse, getLesson, keys, reactivate } from "./api";
 import { Done } from "./Done";
 import { LessonThreads } from "./Discussion";
 import { Glyph } from "./Glyph";
-import { paths } from "./lesson";
+import { byHandOf, paths } from "./lesson";
 import { LessonPage } from "./LessonPage";
 import { OutlinePanel } from "./OutlinePanel";
 import { around, findLesson, markDone, nextAction, nextUp, resume } from "./outline";
@@ -116,7 +116,7 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
 
   const here = data ? findLesson(data.chapters, lessonId) : undefined;
   const nav = data ? around(data.chapters, lessonId) : null;
-  const action = data && view ? nextAction(data.chapters, view.lesson, view.completed, learning, view.lti ? !view.lti.sends_grades : undefined) : null;
+  const action = data && view ? nextAction(data.chapters, view.lesson, view.completed, learning, byHandOf(view)) : null;
 
   const advance = async () => {
     if (!view || !action) return;

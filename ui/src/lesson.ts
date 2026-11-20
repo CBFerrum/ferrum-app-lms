@@ -52,3 +52,25 @@ export const publicPaths = {
   lesson: (workspace: string, slug: string, lesson: string) => `/c/${seg(workspace)}/${seg(slug)}/lessons/${seg(lesson)}`,
   certificate: (workspace: string, code: string) => `/c/${seg(workspace)}/certificate/${seg(code)}`,
 };
+
+// ───────────────────────────── watching an uploaded video ─────────────────────────────
+
+/** Seconds of play to add after a `timeupdate`: the step since the last one while the video plays and it is a step
+ *  forward of at most two seconds. A seek, a step back and a pause add nothing. */
+export function counted(last: number, now: number, playing: boolean): number {
+  const step = now - last;
+  return playing && step > 0 && step <= 2 ? step : 0;
+}
+
+/** The whole seconds to report (base plus what played), or null when nothing grew since the last report. */
+export function toReport(base: number, played: number, sent: number): number | null {
+  const whole = Math.floor(base + played);
+  return whole > sent ? whole : null;
+}
+
+/** Whether the learner finishes this lesson by saying so: not when watching completes it (the server refuses it) or its tool grades. */
+export function byHandOf(view: { lti?: { sends_grades: boolean } | null; video?: { watch_percent: number | null } | null }): boolean | undefined {
+  if (view.lti) return !view.lti.sends_grades;
+  if (view.video?.watch_percent) return false;
+  return undefined;
+}
