@@ -4017,9 +4017,12 @@ async fn file_answers() {
     let sheet = vid(&t.k.store_file(&asha, None, "lab.pdf", "application/pdf", b"%PDF-1.4 lab").await.unwrap()["id"]);
     let mine = json!({"answers": {file_q.to_string(): format!("/files/{sheet}")}});
     t.act(&asha, "LmsQuizAttempt", a, "save_answers", mine.clone()).await;
-    let tie = |sql: &'static str| async move {
-        let mut tx = t.k.db.tenant_tx(t.tenant).await.unwrap();
-        sqlx::query_as::<_, (Option<String>, Option<Uuid>)>(sql).bind(t.tenant).bind(sheet).fetch_one(&mut *tx).await.unwrap()
+    let tie = |sql: &'static str| {
+        let t = &t;
+        async move {
+            let mut tx = t.k.db.tenant_tx(t.tenant).await.unwrap();
+            sqlx::query_as::<_, (Option<String>, Option<Uuid>)>(sql).bind(t.tenant).bind(sheet).fetch_one(&mut *tx).await.unwrap()
+        }
     };
     assert_eq!(
         tie("select entity, record_id from file_object where tenant_id = $1 and id = $2").await,
