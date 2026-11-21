@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.13.0
+
+New entity (LmsAnnouncement) and action (Announce); package lms 0.7.0. Interface rebuilt.
+
+- **lms-open-doors.** A signed-in person with no Learn role is served the public pages as anyone; a person outside the workspace authors nothing.
+- **lms-1.** The quiz player answers and reviews all ten question types.
+- **lms-2.** The gradebook on screen, for instructors and for learners.
+- **lms-3.** Discussion pages for a course and its lessons, with moderation.
+- **lms-4.** An uploaded video plays with captions and completes by watching.
+- **lms-5.** Grading on screen: essay and file answers, rubrics, second and third grader; a file answer is tied to its attempt so instructors read it.
+- **lms-6.** An instructor announces something to everyone in a course.
+
 ## 0.12.0
 
 No database or interface change. Needs Ferrum 0.4.0 (apps' upkeep runs one workspace at a time, on whichever replica is free).
