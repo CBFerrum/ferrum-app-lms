@@ -13,8 +13,9 @@ import { Alert, Button, EmptyState, PageLoading, toast, useLiveEntity, useShellT
 import { Failed } from "./states";
 import { completeLesson, getCourse, getLesson, keys, reactivate } from "./api";
 import { Done } from "./Done";
+import { LessonThreads } from "./Discussion";
 import { Glyph } from "./Glyph";
-import { paths } from "./lesson";
+import { byHandOf, paths } from "./lesson";
 import { LessonPage } from "./LessonPage";
 import { OutlinePanel } from "./OutlinePanel";
 import { around, findLesson, markDone, nextAction, nextUp, resume } from "./outline";
@@ -115,7 +116,7 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
 
   const here = data ? findLesson(data.chapters, lessonId) : undefined;
   const nav = data ? around(data.chapters, lessonId) : null;
-  const action = data && view ? nextAction(data.chapters, view.lesson, view.completed, learning, view.lti ? !view.lti.sends_grades : undefined) : null;
+  const action = data && view ? nextAction(data.chapters, view.lesson, view.completed, learning, byHandOf(view)) : null;
 
   const advance = async () => {
     if (!view || !action) return;
@@ -248,6 +249,7 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
               )}
             </nav>
             {hint && <p className="faint lms-hint">{isolate(hint)}</p>}
+            {(learning || author) && <LessonThreads slug={slug} course={data.id} lesson={view.lesson.id} />}
           </>
         )}
       </LessonPage>
@@ -261,6 +263,16 @@ function Player({ slug, lessonId }: { slug: string; lessonId?: string }) {
           <Link className="lms-back" to={paths.course(slug)}>
             <Glyph name="arrowLeft" size={14} /> {isolate(data.title)}
           </Link>
+          {progress && progress.status !== "Withdrawn" && (
+            <Link className="lms-back" to={paths.grades(slug)}>
+              {t("Grades")}
+            </Link>
+          )}
+          {(learning || author) && (
+            <Link className="lms-back" to={paths.discussion(slug)}>
+              {t("Discussion")}
+            </Link>
+          )}
           <Button size="sm" className="lms-outline-toggle" icon="list" onClick={() => setSheet(true)}>
             {t("Outline")}
           </Button>

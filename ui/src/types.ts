@@ -4,7 +4,7 @@
 export type LessonType = "Article" | "Video" | "Document" | "Quiz" | "Assignment" | "SCORM" | "xAPI" | "LTI" | "Live";
 export type Level = "Beginner" | "Intermediate" | "Advanced";
 export type EnrollmentStatus = "Active" | "Completed" | "Withdrawn";
-export type QuestionType = "Single Choice" | "Multiple Choice" | "True/False" | "Short Answer";
+export type QuestionType = "Single Choice" | "Multiple Choice" | "True/False" | "Short Answer" | "Numeric" | "Ordering" | "Matching" | "Fill in the Blanks" | "Essay" | "File Upload";
 
 /** A lesson as an outline lists it. `completed` and the quiz and assignment links are the
  *  signed-in outline's; the public page leaves them out. */
@@ -189,6 +189,8 @@ export interface SubmissionRow {
   submitted_at: string | null;
   late: boolean;
   feedback: string | null;
+  /** The filled rubric of a graded submission (the server names it `rubric`: src/assignment.rs:400). */
+  rubric?: RubricResult | null;
 }
 
 export interface AssignmentState {
@@ -250,6 +252,8 @@ export interface LessonView {
   assignment?: AssignmentState;
   scorm?: ScormPlayer | null;
   xapi?: XapiPlayer | null;
+  /** An uploaded video: its signed links and what this learner has watched (src/media.rs:70-74). */
+  video?: VideoPlayer | null;
   /** An LTI lesson: its tool, and where the launch starts (a new window). */
   lti?: { tool_name: string | null; launch_url: string; sends_grades: boolean } | null;
   /** A Live lesson: the sessions that credit it, the learner's cohort's (every cohort's for an author). */
@@ -310,10 +314,12 @@ export interface CompletionSummary {
 
 // ───────────────────────────── quizzes ─────────────────────────────
 
-export type AttemptStatus = "In Progress" | "Submitted" | "Timed Out";
+export type AttemptStatus = "In Progress" | "Awaiting Grading" | "Submitted" | "Timed Out";
 
-/** The learner's response: option keys (in the order shown) or a short answer's text. */
-export type Response = string[] | string | null;
+/** What the server keeps for an answer (src/grading.rs:142-207): option keys, blanks, pairs, text or a file's path. */
+export type Response = string[] | (string | null)[] | Record<string, string> | string | null;
+/** What a revealed row shows (src/quiz.rs:428-447). */
+export type CorrectAnswer = string[] | string[][] | { answer: string; tolerance: string } | { item: string; matches: string }[] | null;
 
 export interface AttemptAnswer {
   question: string;
@@ -325,7 +331,16 @@ export interface AttemptAnswer {
   is_correct: boolean;
   points_awarded: string | null;
   /** Shown once the quiz reveals answers. */
-  correct_answer: string[] | null;
+  correct_answer: CorrectAnswer;
+  /** The right-hand side of a Matching question's pairs. */
+  choices?: { key: string; text: string }[] | null;
+  /** How many blanks a Fill in the Blanks question has. */
+  blanks?: number | null;
+  /** A person grades this answer (Essay, File Upload). */
+  by_person?: boolean;
+  comment?: string | null;
+  /** A graded answer's filled rubric. */
+  rubric_result?: RubricResult | null;
   explanation: string | null;
 }
 
@@ -475,3 +490,47 @@ export interface CertificateCheck {
   issuer: string | null;
   verification_code: string;
 }
+
+// ───────────────────────────── the gradebook (src/gradebook.rs:232-248) ─────────────────────────────
+
+export interface GradeMark { item: string; points: string | null; excused: boolean; late_days: number; late_penalty_percent: string; overridden: boolean; comment: string | null }
+export interface GradeLearner { enrollment: string; learner: string; learner_name: string | null; marks: GradeMark[]; total_percent: string | null; grade: string | null }
+export interface GradeItem { id: string; title: string; category: string; source: "Quiz" | "Assignment" | "Live Session" | "Manual"; max_points: string; released: boolean }
+export interface GradeBook {
+  course: { id: string; title: string; slug: string; min_grade_percent: string | null };
+  categories: { category: string; weight: string; drop_lowest: number }[];
+  items: GradeItem[];
+  learners: GradeLearner[];
+}
+
+/** The entry behind a cell of the book, when someone marked it by hand. */
+export interface GradeEntry { id: string; version: number; points: string | null; excused: boolean; comment: string | null }
+
+// ───────────────────────────── discussions (src/discussion.rs:224-238) ─────────────────────────────
+
+export interface Post {
+  id: string; title: string | null; body: string | null; author_name: string | null; by_instructor: boolean; answer: boolean;
+  pinned: boolean; closed: boolean; removed: boolean; replies: number; last_post_at: string | null; created_at: string;
+  lesson: string | null; mine: boolean;
+  // instructors only
+  author?: string; reported?: boolean; report_reason?: string | null; removed_reason?: string | null; removed_by?: string | null;
+}
+export interface ThreadList { threads: Post[]; moderator: boolean }
+export interface ThreadPage { thread: Post; replies: Post[]; following: boolean; moderator: boolean }
+/** A reported post as the moderators' queue lists it. */
+export interface ReportedPost { id: string; thread: string | null; title: string | null; body: string | null; author_name: string | null; author: string | null; report_reason: string | null; reported_by: string | null; removed: boolean; created_at: string }
+
+export interface VideoPlayer { src: string; captions: string | null; expires_at: number; length_seconds: number; watch_percent: number | null; seconds_watched: number; percent_watched: string | null }
+export interface VideoSaved { seconds_watched: number; percent_watched: string | null; completed: boolean }
+
+// ───────────────────────────── grading answers (src/quiz.rs:838-880, src/site.rs grading queue) ─────────────────────────────
+
+export interface RubricDef { title: string; criteria: { criterion: string; description?: string | null }[]; levels: { criterion: string; level: string; points: string; description?: string | null }[]; max_points: string }
+export interface RubricResult { criteria: { criterion: string; level: string; points: string }[]; points: string; max: string }
+export interface WaitingAttempt { attempt: string; number: string | null; quiz_title: string | null; course: { id: string; title: string }; learner_name: string | null; submitted_at: string | null; questions: string[]; graded_by_me: string[] }
+/** One answer of an attempt as a grader reads it (`LmsQuizAttempt.review`). */
+export interface ReviewedAnswer { question: string; question_text: string; question_type: QuestionType; points: string; response: unknown[]; points_awarded: string | null; rubric: RubricDef | null; by_person: boolean; comment: string | null; rubric_result: RubricResult | null }
+export interface ReviewedAttempt { attempt: string; learner_name: string | null; status: AttemptStatus; answers: ReviewedAnswer[] }
+
+/** A course announcement (src/announce.rs): what the course page shows, newest first. */
+export interface Announcement { id: string; title: string; body: string; author_name: string | null; sent_at: string | null }

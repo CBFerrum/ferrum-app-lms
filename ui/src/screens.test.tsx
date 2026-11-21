@@ -21,8 +21,11 @@ import { PlayerRoute } from "./Player";
 import { PublicCatalog, PublicCertificate, PublicCourse, PublicLesson } from "./Public";
 import { docKey, type LessonDoc, LessonEditor } from "./LessonEditor";
 import { Intro, Result, Sitting } from "./QuizPlayer";
+import { MyGradesRoute, NotEnrolled } from "./Grades";
+import { Grading } from "./Grading";
+import { DiscussionRoute, LessonThreads, OutsideCourse, Reported, ThreadRoute } from "./Discussion";
 import { Teaching } from "./Teaching";
-import type { LiveSession, EnrolmentDue, Attempt, AssignmentState, CoursePage, Dashboard, LessonView, OutlineChapter, QuizState, Roster } from "./types";
+import type { ReviewedAttempt, WaitingAttempt, Post, ThreadList, ThreadPage, GradeBook, LiveSession, EnrolmentDue, Attempt, AttemptAnswer, AssignmentState, CoursePage, Dashboard, LessonView, OutlineChapter, QuizState, Roster } from "./types";
 
 const draw = (path: string, route: string, element: React.ReactElement, fill: (qc: QueryClient) => void) => {
   const qc = new QueryClient();
@@ -200,6 +203,53 @@ describe("the quiz player", () => {
     expect(html).toContain("Submit quiz");
     expect(html).toContain("Clear my answer");
     expect(html).toContain("Your answers are saved as you go");
+  });
+
+  it("draws_a_widget_for_each_of_the_six_new_types", () => {
+    const opts = [{ key: "k1", text: "Sun" }, { key: "k2", text: "Moon" }];
+    const mk = (question: string, question_type: AttemptAnswer["question_type"], over: Partial<AttemptAnswer> = {}): AttemptAnswer => ({ question, question_text: `Q ${question}`, question_type, options: null, points: "1.00", response: null, is_correct: false, points_awarded: null, correct_answer: null, explanation: null, ...over });
+    const kinds: [AttemptAnswer, string][] = [
+      [mk("n", "Numeric"), 'inputMode="decimal"'],
+      [mk("o", "Ordering", { options: opts }), "Move up"],
+      [mk("m", "Matching", { options: opts, choices: [{ key: "c1", text: "Star" }] }), "<select"],
+      [mk("b", "Fill in the Blanks", { blanks: 2 }), "Blank 2"],
+      [mk("e", "Essay"), 'maxLength="50000"'],
+      [mk("f", "File Upload"), 'type="file"'],
+    ];
+    for (const [q, expected] of kinds) {
+      const html = render(<Sitting attempt={attempt({ answers: [q] })} onFinished={() => {}} onGone={() => {}} />);
+      expect(html.toLowerCase(), q.question_type).toContain(expected.toLowerCase());
+    }
+  });
+
+  it("a_result_that_waits_for_a_grader_says_so", () => {
+    const quiz: QuizState = { id: "q1", title: "Q", description: null, passing_percentage: "70", time_limit_minutes: 0, questions: 1, max_attempts: 0, attempts_used: 1, attempts_left: null, best_percentage: null, passed: false, in_progress: null };
+    const waiting = attempt({ status: "Awaiting Grading", score: "0", percentage: "0", answers: [{ ...attempt().answers[0], question_type: "Essay", options: null, by_person: true, response: "My essay" }] });
+    const html = render(<Result attempt={waiting} late={false} quiz={quiz} starting={false} onAgain={() => {}} onBack={() => {}} />);
+    expect(html).toContain("not final");
+    expect(html).toContain("Waiting for a grade");
+    expect(html).not.toContain("Not passed this time");
+    expect(html).not.toContain("Try again");
+    expect(html).not.toContain("Not correct");
+  });
+
+  it("the_review_shows_a_numeric_and_a_matching_key", () => {
+    const quiz: QuizState = { id: "q1", title: "Q", description: null, passing_percentage: "70", time_limit_minutes: 0, questions: 2, max_attempts: 0, attempts_used: 1, attempts_left: null, best_percentage: null, passed: false, in_progress: null };
+    const base = attempt().answers[0];
+    const done = attempt({
+      status: "Submitted",
+      score: "0",
+      percentage: "0",
+      answers: [
+        { ...base, question: "n", question_type: "Numeric", options: null, response: "9", correct_answer: { answer: "3.5", tolerance: "0.1" } },
+        { ...base, question: "m", question_type: "Matching", options: [{ key: "k1", text: "Sun" }], choices: [{ key: "c1", text: "Star" }, { key: "c2", text: "Moon" }], response: { k1: "c2" }, correct_answer: [{ item: "Sun", matches: "Star" }] },
+      ],
+    });
+    const html = render(<Result attempt={done} late={false} quiz={quiz} starting={false} onAgain={() => {}} onBack={() => {}} />);
+    expect(html).not.toContain("[object Object]");
+    expect(html).toContain("3.5 (± 0.1)");
+    expect(html).toContain("Sun → Star");
+    expect(html).toContain("Sun → Moon");
   });
 
   it("draws a sitting with no time limit without a clock", () => {
@@ -433,6 +483,11 @@ describe("teaching", () => {
     expect(html).toContain('aria-expanded="false"');
   });
 
+  it("the_dashboard_offers_announce", () => {
+    const html = draw("/teaching/course-1", "/teaching/:course", <CourseDashboardRoute />, (qc) => qc.setQueryData(keys.roster("course-1"), roster));
+    expect(html).toContain("Announce");
+  });
+
   it("starts the builder from the data of a course", () => {
     const data: Data = {
       course: { id: "course-1", version: 3, title: "Intro to Rust", slug: "intro-to-rust", status: "Draft" },
@@ -508,7 +563,7 @@ describe("pages for anyone", () => {
 describe("the lesson editor", () => {
   const lesson = (over: Partial<LessonDoc> = {}): LessonDoc => ({
     id: "l3", version: 1, title: "Ownership quiz", chapter: "c2", position: 1, lesson_type: "Quiz", duration_minutes: 15, is_preview: false, required: true,
-    content: null, video_url: null, video_embed_url: null, attachment: null, quiz: null, assignment: null, package_file: null, package_standard: null,
+    content: null, video_url: null, video_embed_url: null, video_file: null, captions_file: null, video_seconds: null, watch_percent: null, attachment: null, quiz: null, assignment: null, package_file: null, package_standard: null,
     package_launch: null, package_activity: null, lti_tool: null, lti_target_url: null, lti_custom: null, ...over,
   });
   const editor = (doc: LessonDoc) =>
@@ -518,6 +573,18 @@ describe("the lesson editor", () => {
     const html = editor(lesson());
     expect(html).toContain("New quiz");
     expect(html).not.toContain("/e/LmsQuiz/new");
+  });
+
+  it("the_editor_offers_upload_captions_length_and_share_for_a_video_lesson", () => {
+    const bare = editor(lesson({ lesson_type: "Video" }));
+    expect(bare).toContain("Or upload a video");
+    expect(bare).toContain('accept="video/*"');
+    expect(bare).not.toContain("Watched to complete");
+    const withFile = editor(lesson({ lesson_type: "Video", video_file: "/files/f1", video_seconds: 120 }));
+    expect(withFile).toContain("Captions");
+    expect(withFile).toContain("Video length (seconds)");
+    expect(withFile).toContain("Watched to complete (%)");
+    expect(withFile).toContain("Remove the video");
   });
 
   it("opens the lesson's quiz once it has one", () => {
@@ -584,5 +651,236 @@ describe("an enrolment rule's preview", () => {
     const p = { matching: 5, would_enrol: 3, enrolments: 3, open_courses: 1, already_enrolled: 2, switched_on: false };
     expect(previewText(p)).toBe("3 people would be enrolled at the next upkeep.");
     expect(previewText({ ...p, would_enrol: 1 })).toBe("1 person would be enrolled at the next upkeep.");
+  });
+});
+
+describe("the gradebook", () => {
+  const book = (over: Partial<GradeBook> = {}): GradeBook => ({
+    course: { id: "course-1", title: "Intro to Rust", slug: "intro-to-rust", min_grade_percent: "60.00" },
+    categories: [{ category: "Quizzes", weight: "100", drop_lowest: 0 }],
+    items: [
+      { id: "i1", title: "Ownership quiz", category: "Quizzes", source: "Quiz", max_points: "10.00", released: true },
+      { id: "i2", title: "Final project", category: "Quizzes", source: "Assignment", max_points: "50.00", released: false },
+    ],
+    learners: [
+      { enrollment: "e1", learner: "asha@school.test", learner_name: "Asha Rao", marks: [{ item: "i1", points: "8.00", excused: false, late_days: 2, late_penalty_percent: "10", overridden: true, comment: "Well done" }, { item: "i2", points: null, excused: true, late_days: 0, late_penalty_percent: "0", overridden: false, comment: null }], total_percent: "80.00", grade: "B" },
+      { enrollment: "e2", learner: "bo@school.test", learner_name: null, marks: [], total_percent: null, grade: null },
+    ],
+    ...over,
+  });
+  const teacher = (b: GradeBook) => draw("/teaching/course-1?tab=gradebook", "/teaching/:course", <CourseDashboardRoute />, (qc) => (qc.setQueryData(keys.roster("course-1"), { course: { id: "course-1", slug: "intro-to-rust", title: "Intro to Rust" }, enrolled: 0, completed: 0, completion_rate: "0", learners: [] }), qc.setQueryData(keys.gradebook("course-1"), b)));
+
+  it("an_instructor_sees_every_learner_and_item_with_totals", () => {
+    const html = teacher(book());
+    expect(html).toContain("Asha Rao");
+    expect(html).toContain("bo@school.test");
+    expect(html).toContain("Ownership quiz");
+    expect(html).toContain("Final project");
+    expect(html).toContain("Excused");
+    expect(html).toContain("80%");
+    expect(html).toContain(">B<");
+    expect(html).toContain("−10%");
+    expect(html).toContain("Download CSV");
+  });
+
+  it("an_item_not_released_says_so", () => {
+    expect(teacher(book())).toContain("Not released");
+  });
+
+  it("a_course_without_grade_items_offers_to_add_one", () => {
+    const html = teacher(book({ items: [], learners: [] }));
+    expect(html).toContain("Add a grade item");
+    expect(html).toContain("/e/LmsGradeItem/new");
+  });
+
+  it("a_learner_reads_their_own_marks_and_the_total", () => {
+    const b = book();
+    const html = draw("/course/intro-to-rust/grades", "/course/:slug/grades", <MyGradesRoute />, (qc) => qc.setQueryData(keys.grades("intro-to-rust"), { ...b, learners: [b.learners[0]] }));
+    expect(html).toContain("8 of 10");
+    expect(html).toContain("Late: −10%");
+    expect(html).toContain("Well done");
+    expect(html).toContain("80%");
+    expect(html).toContain("The course asks for a total of 60%.");
+    expect(html).not.toContain("Final project");
+  });
+
+  it("a_learner_not_enrolled_is_told_so", () => {
+    const html = draw("/x", "/x", <NotEnrolled slug="intro-to-rust" />, () => {});
+    expect(html).toContain("You are not enrolled in this course");
+    expect(html).toContain('href="/course/intro-to-rust"');
+  });
+});
+
+describe("discussions", () => {
+  const post = (over: Partial<Post> = {}): Post => ({ id: "p1", title: "How do borrows work?", body: "I am stuck.", author_name: "Asha Rao", by_instructor: false, answer: false, pinned: false, closed: false, removed: false, replies: 2, last_post_at: "2026-11-02T10:00:00.000Z", created_at: "2026-11-01T10:00:00.000Z", lesson: null, mine: false, ...over });
+  const page = (over: Partial<ThreadPage> = {}): ThreadPage => ({ thread: post(), replies: [post({ id: "r1", title: null, body: "Read chapter 4.", author_name: "Tara", by_instructor: true, answer: true })], following: false, moderator: false, ...over });
+  const thread = (p: ThreadPage) => draw("/course/intro-to-rust/discussion/p1", "/course/:slug/discussion/:thread", <ThreadRoute />, (qc) => (qc.setQueryData(keys.thread("p1"), p), qc.setQueryData(keys.course("intro-to-rust"), course())));
+  const list = (l: ThreadList) => draw("/course/intro-to-rust/discussion", "/course/:slug/discussion", <DiscussionRoute />, (qc) => (qc.setQueryData(keys.threads("intro-to-rust"), l), qc.setQueryData(keys.course("intro-to-rust"), course())));
+
+  it("the_list_puts_pinned_threads_first_as_the_server_sent_them", () => {
+    const html = list({ moderator: false, threads: [post({ id: "a", title: "Pinned one", pinned: true }), post({ id: "b", title: "Plain one" })] });
+    expect(html.indexOf("Pinned one")).toBeGreaterThan(-1);
+    expect(html.indexOf("Pinned one")).toBeLessThan(html.indexOf("Plain one"));
+    expect(html).toContain("Pinned");
+    expect(html).toContain("New thread");
+  });
+
+  it("a_thread_shows_the_answer_and_takes_replies", () => {
+    const html = thread(page());
+    expect(html).toContain("Instructor&#x27;s answer");
+    expect(html).toContain("Read chapter 4.");
+    expect(html).toContain("Your reply");
+    expect(html).toContain("Follow");
+  });
+
+  it("a_closed_thread_offers_no_reply_box", () => {
+    const html = thread(page({ thread: post({ closed: true }) }));
+    expect(html).not.toContain("Your reply");
+    expect(html).toContain("takes no more replies");
+  });
+
+  it("a_learner_reads_a_removed_post_as_removed", () => {
+    const html = thread(page({ replies: [post({ id: "r2", removed: true, body: null, author_name: null, title: null })] }));
+    expect(html).toContain("This post was removed");
+  });
+
+  it("an_instructor_reads_it_with_who_removed_it_and_why", () => {
+    const html = thread(page({ moderator: true, replies: [post({ id: "r2", removed: true, body: "Rude words", removed_by: "tara@school.test", removed_reason: "Rude" })] }));
+    expect(html).toContain("Rude words");
+    expect(html).toContain("Removed by tara@school.test: Rude");
+  });
+
+  it("moderation_is_offered_to_moderators_only", () => {
+    expect(thread(page())).not.toContain("Mark as answer");
+    expect(thread(page())).not.toContain(">Pin<");
+    const html = thread(page({ moderator: true, replies: [post({ id: "r3", title: null, body: "x" })] }));
+    expect(html).toContain(">Pin<");
+    expect(html).toContain(">Close<");
+    expect(html).toContain("Mark as answer");
+    expect(html).toContain(">Remove<");
+  });
+
+  it("someone_outside_the_course_is_told_so", () => {
+    const html = draw("/x", "/x", <OutsideCourse slug="intro-to-rust" />, () => {});
+    expect(html).toContain("The discussion is for the course&#x27;s learners and instructors");
+  });
+
+  it("a_lesson_lists_its_own_threads", () => {
+    const html = draw("/x", "/x", <LessonThreads slug="intro-to-rust" course="course-1" lesson="l1" />, (qc) => qc.setQueryData(keys.threads("intro-to-rust", "l1"), { moderator: false, threads: [post({ title: "About lesson one", lesson: "l1" })] }));
+    expect(html).toContain("About lesson one");
+    expect(html).toContain("Ask about this lesson");
+  });
+
+  it("the_reported_queue_names_post_reason_and_reporter", () => {
+    const html = draw("/x", "/x", <Reported course="course-1" slug="intro-to-rust" />, (qc) => qc.setQueryData(keys.reported("course-1"), [{ id: "p9", thread: "p1", title: null, body: "Spam link", author_name: "Eve", author: "eve@school.test", report_reason: "Advertising", reported_by: "asha@school.test", removed: false, created_at: "2026-11-02T10:00:00.000Z" }]));
+    expect(html).toContain("Spam link");
+    expect(html).toContain("Reported by asha@school.test: Advertising");
+    expect(html).toContain("Open the thread");
+  });
+});
+
+describe("an uploaded video", () => {
+  const video = (over = {}) => ({ src: "/api/app/lms/lessons/l2/video?exp=9&sig=abc", captions: "/api/app/lms/lessons/l2/captions?exp=9&sig=def", expires_at: 4102444800, length_seconds: 120, watch_percent: 80, seconds_watched: 30, percent_watched: "25.00", ...over });
+  const lessonView = (v: ReturnType<typeof video> | null): LessonView => ({ ...article, lesson: { ...article.lesson, id: "l2", title: "Ownership on video", lesson_type: "Video", video_embed_url: null }, completed: false, video: v });
+  const player = (v: LessonView, enrolled = true) =>
+    draw("/learn/intro-to-rust/l2", learnRoute, <PlayerRoute />, (qc) => (qc.setQueryData(keys.course("intro-to-rust"), course({ chapters: chapters(["l1", "l2"]), my_enrollment: enrolled ? mine() : undefined })), qc.setQueryData(keys.lesson("l2"), v)));
+
+  it("an_uploaded_video_draws_a_player_with_its_captions", () => {
+    const html = player(lessonView(video()));
+    expect(html).toContain("<video");
+    expect(html).toContain("/api/app/lms/lessons/l2/video?exp=9&amp;sig=abc");
+    expect(html).toContain("<track");
+    expect(html).toContain("Watched 25%");
+    expect(html).toContain("This lesson completes at 80%");
+    expect(html).not.toContain("Complete and continue");
+  });
+
+  it("a_linked_video_still_draws_its_frame", () => {
+    const html = player({ ...lessonView(null), lesson: { ...lessonView(null).lesson, video_embed_url: "https://www.youtube-nocookie.com/embed/abcdefghijk" } });
+    expect(html).toContain("<iframe");
+    expect(html).not.toContain("<video");
+  });
+
+  it("a_free_preview_plays_without_reporting", () => {
+    const html = player(lessonView(video()), false);
+    expect(html).toContain("<video");
+    expect(html).not.toContain("Watched 25%");
+  });
+});
+
+describe("grading answers", () => {
+  const def = { title: "Essay", criteria: [{ criterion: "Argument" }, { criterion: "Style" }], levels: [{ criterion: "Argument", level: "Strong", points: "6" }, { criterion: "Argument", level: "Weak", points: "2" }, { criterion: "Style", level: "Clear", points: "4" }, { criterion: "Style", level: "Muddled", points: "1" }], max_points: "10" };
+  const waiting = (over: Partial<WaitingAttempt> = {}): WaitingAttempt => ({ attempt: "att1", number: "A-1", quiz_title: "Physics essay", course: { id: "course-1", title: "Physics" }, learner_name: "Asha Rao", submitted_at: "2026-11-01T10:00:00.000Z", questions: ["q1"], graded_by_me: [], ...over });
+  const review = (rubric: typeof def | null, over = {}): ReviewedAttempt => ({ attempt: "att1", learner_name: "Asha Rao", status: "Awaiting Grading", answers: [{ question: "q1", question_text: "Why is the sky blue?", question_type: "Essay", points: "4.00", response: ["Rayleigh scattering."], points_awarded: null, rubric, by_person: true, comment: null, rubric_result: null, ...over }] });
+  const queue = (w: WaitingAttempt[], r: ReviewedAttempt | null, search = "?grade=att1:q1") =>
+    draw(`/teaching/course-1${search}`, "/teaching/:course", <Grading course="course-1" />, (qc) => (qc.setQueryData(["lms", "grading", "course-1"], []), qc.setQueryData(keys.waiting, w), r && qc.setQueryData(["lms", "review", "att1"], r)));
+
+  it("the_queue_lists_answers_that_wait_beside_submissions", () => {
+    const html = queue([waiting(), waiting({ attempt: "att2", course: { id: "other", title: "Other" } })], review(null));
+    expect(html).toContain("Physics essay");
+    expect(html).toContain("Answer");
+    expect(html).not.toContain("att2");
+    expect(html).toContain("Rayleigh scattering.");
+    expect(html).toContain("Points out of 4");
+  });
+
+  it("an_answer_with_a_rubric_offers_levels_not_a_points_box", () => {
+    const html = queue([waiting()], review(def));
+    expect(html).toContain("Strong");
+    expect(html).toContain("Muddled");
+    expect(html).toContain('type="radio"');
+    expect(html).not.toContain("Points out of");
+    expect(html).toContain("About 0 of 4 points");
+  });
+
+  it("an_answer_i_graded_waits_for_someone_else", () => {
+    const html = queue([waiting({ questions: ["q1", "q2"], graded_by_me: ["q1"] })], review(null), "?grade=att1:q2");
+    expect(html).toContain("Graded by you: waiting for another grader");
+  });
+
+  it("an_assignment_with_a_rubric_is_graded_by_levels", () => {
+    const sub = { id: "s1", version: 1, assignment: "as1", assignment_title: "Report", learner: "asha@school.test", learner_name: "Asha Rao", submission_no: 1, submitted_at: "2026-11-01T10:00:00.000Z", late: false, answer: "My report", attachment: null, max_score: "20.00" };
+    const html = draw("/teaching/course-1?grade=s1", "/teaching/:course", <Grading course="course-1" />, (qc) => (qc.setQueryData(["lms", "grading", "course-1"], [sub]), qc.setQueryData(keys.waiting, []), qc.setQueryData(["lms", "assignment", "as1"], { max_score: "20.00", passing_score: "10.00", rubric: "r1" }), qc.setQueryData(keys.rubric("r1"), def)));
+    expect(html).toContain("Strong");
+    expect(html).not.toContain("Score out of");
+  });
+
+  it("a_learner_sees_the_filled_rubric_on_a_graded_submission", () => {
+    const html = render(
+      <AssignmentPanel
+        state={{ id: "as1", title: "Report", instructions: null, submission_type: "Text", max_score: "20.00", passing_score: "10.00", due_date: null, overdue: false, accept_late: true, allow_resubmission: false, max_submissions: 0, passed: true, can_submit: false, reason: null, submissions: [{ id: "s1", number: null, submission_no: 1, status: "Graded", score: "14.00", passed: true, submitted_at: "2026-11-01T10:00:00.000Z", late: false, feedback: "Good", rubric: { criteria: [{ criterion: "Argument", level: "Strong", points: "6" }], points: "14", max: "20" } }] } as never}
+        lessonId="l9"
+        onProgress={() => {}}
+      />,
+    );
+    expect(html).toContain("Argument");
+    expect(html).toContain("Strong");
+    expect(html).toContain("14 of 20");
+  });
+
+  it("a_learner_sees_the_filled_rubric_in_a_quiz_review", () => {
+    const quiz: QuizState = { id: "q1", title: "Q", description: null, passing_percentage: "70", time_limit_minutes: 0, questions: 1, max_attempts: 0, attempts_used: 1, attempts_left: null, best_percentage: null, passed: false, in_progress: null };
+    const base = attempt().answers[0];
+    const done = attempt({ status: "Submitted", score: "4", percentage: "100", answers: [{ ...base, question_type: "Essay", options: null, by_person: true, response: "My essay", points_awarded: "4.00", is_correct: true, rubric_result: { criteria: [{ criterion: "Argument", level: "Strong", points: "6" }], points: "6", max: "6" } }] });
+    const html = render(<Result attempt={done} late={false} quiz={quiz} starting={false} onAgain={() => {}} onBack={() => {}} />);
+    expect(html).toContain("Argument");
+    expect(html).toContain("6 of 6");
+  });
+});
+
+describe("announcements", () => {
+  const notices = [{ id: "n1", title: "Lab moved", body: "The lab is on **Friday**.", author_name: "Tara", sent_at: "2026-11-02T10:00:00.000Z" }, { id: "n0", title: "Welcome", body: "Hello all.", author_name: "Tara", sent_at: "2026-11-01T10:00:00.000Z" }];
+  const page = (c: CoursePage) => draw("/course/intro-to-rust", "/course/:ref", <CourseRoute />, (qc) => (qc.setQueryData(keys.course("intro-to-rust"), c), qc.setQueryData(keys.announcements("intro-to-rust"), { announcements: notices, author: false })));
+
+  it("a_course_page_shows_its_announcements_to_someone_enrolled", () => {
+    const html = page(course({ my_enrollment: mine() }));
+    expect(html).toContain("Announcements");
+    expect(html).toContain("Lab moved");
+    expect(html).toContain("<strong>Friday</strong>");
+    expect(html).toContain("Welcome");
+  });
+
+  it("a_course_page_shows_none_to_a_visitor", () => {
+    expect(page(course({ my_enrollment: undefined }))).not.toContain("Lab moved");
   });
 });

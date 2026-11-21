@@ -72,7 +72,11 @@ pub fn instructors(course: &Doc) -> Vec<String> {
 
 /// Whether the caller authors `course`: LMS managers, its creator and its instructors.
 pub fn authors(ctx: &Ctx, course: &Doc) -> bool {
-    is_manager(ctx) || (!ctx.user.is_nil() && id(course, "created_by") == Some(ctx.user)) || instructors(course).iter().any(|e| same_email(e, &ctx.email))
+    // Someone outside the workspace (a portal person) authors nothing, whatever address a course names.
+    !ctx.outside
+        && (is_manager(ctx)
+            || (!ctx.user.is_nil() && id(course, "created_by") == Some(ctx.user))
+            || instructors(course).iter().any(|e| same_email(e, &ctx.email)))
 }
 
 /// A record read with engine privileges (the callers check what the user may see).

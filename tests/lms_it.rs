@@ -3916,3 +3916,252 @@ fn opener(url: &str) -> ferrum_kernel::vault::Opener {
         ..Default::default()
     }
 }
+
+// ───────────────────────────── lms-open-doors: public pages serve everyone, authoring needs staff ─────────────────────────────
+
+#[test]
+fn public_pages_serve_a_signed_in_customer_and_authoring_needs_staff() {
+    run(open_doors());
+}
+
+/// A signed-in customer with no Learn role is served the public catalog, a public course, a free-preview lesson, the
+/// categories and a certificate check exactly as anyone is (and an internal course is as missing as it is to anyone);
+/// a person outside the workspace holding Learner or Online Learner opens no authoring view, not even of a course
+/// that names their address as an instructor.
+async fn open_doors() {
+    let t = boot("doors", vec![], &[], |_| {}).await;
+    let teacher = t.user("teacher@doors.test", "Tara Teacher", "Instructor").await;
+    let bob = t.user("bob@doors.test", "Bob Member", "Learner").await;
+    let (course, lessons) = course_of(&t, &teacher, "Open Rust", 2, json!({"visibility": "Public", "issue_certificate": true})).await;
+    course_of(&t, &teacher, "Staff Rust", 1, json!({})).await;
+    t.update(&teacher, "LmsLesson", lessons[0], json!({"is_preview": true})).await;
+    let bobs = enrol(&t, &teacher, course, &["bob@doors.test"]).await["bob@doors.test"];
+    finish(&t, &bob, bobs, &lessons).await;
+    let cert = t.get("LmsCertificate", vid(&t.get("LmsEnrollment", bobs).await["certificate"])).await;
+    let code = cert["verification_code"].as_str().unwrap().to_string();
+
+    // A customer: signed in, outside the workspace, no Learn role.
+    let id = t.k.create_user(&t.admin, "cy@elsewhere.test", "Cy Customer", Some(PW), &[], false).await.unwrap();
+    let mut cy = t.k.load_ctx(t.tenant, id, None, "it".into()).await.unwrap();
+    cy.outside = true;
+    assert!(cy.roles.iter().all(|r| !matches!(r.as_str(), "Learner" | "Instructor" | "LMS Manager" | "Online Learner")));
+    let public = ["courses", "courses/open-rust", "categories", &format!("courses/open-rust/lessons/{}", lessons[0]), &format!("certificates/{code}")];
+    for path in public {
+        assert_eq!(t.page(Some(&cy), path).await, t.page(None, path).await, "{path} reads the same to a customer as to anyone");
+    }
+    for path in ["courses/staff-rust", &format!("courses/open-rust/lessons/{}", lessons[1])] {
+        assert!(matches!(err(t.call(Some(&cy), "GET", path).await), Error::NotFound(_)), "{path} is as missing to a customer as to anyone");
+        assert!(matches!(err(t.call(None, "GET", path).await), Error::NotFound(_)));
+    }
+    assert!(t.call(Some(&cy), "GET", "dashboard").await.is_err(), "the signed-in pages still need a Learn role");
+    assert!(t.call(Some(&cy), "GET", "teaching").await.is_err());
+    // A member still reads a certificate's check.
+    assert_eq!(t.page(Some(&bob), &format!("certificates/{code}")).await, t.page(None, &format!("certificates/{code}")).await);
+
+    // Someone outside holding a Learn role, named as an instructor by address, authors nothing.
+    let (mine, _) = course_of(&t, &teacher, "Ann's Rust", 1, json!({"visibility": "Public"})).await;
+    let mut anns = vec![];
+    for role in ["Learner", "Online Learner", "Instructor"] {
+        let email = format!("ann-{}@elsewhere.test", role.to_lowercase().replace(' ', ""));
+        let id = t.k.create_user(&t.admin, &email, "Ann Outside", Some(PW), &[role.into()], false).await.unwrap();
+        let mut ann = t.k.load_ctx(t.tenant, id, None, "it".into()).await.unwrap();
+        ann.outside = true;
+        anns.push((role, email, ann));
+    }
+    let mut named = vec![json!({"instructor": "teacher@doors.test"})];
+    named.extend(anns.iter().map(|(_, e, _)| json!({"instructor": e})));
+    t.update(&teacher, "LmsCourse", mine, json!({"instructors": named})).await;
+    for (role, _, ann) in &anns {
+        for path in ["teaching".to_string(), "teaching/grading".into(), format!("teaching/courses/{mine}/gradebook"), format!("teaching/courses/{mine}/roster")]
+        {
+            assert!(matches!(err(t.call(Some(ann), "GET", &path).await), Error::Forbidden(_) | Error::NotFound(_)), "{role} outside opens {path}");
+        }
+    }
+    // The course's own instructor and a manager still do.
+    for who in [&teacher, &t.admin] {
+        t.page(Some(who), &format!("teaching/courses/{mine}/roster")).await;
+    }
+}
+
+// ───────────────────────────── lms-5: file answers, and grading through the gate ─────────────────────────────
+
+#[test]
+fn file_answers_belong_to_their_attempt() {
+    run(file_answers());
+}
+
+/// A file a learner answers with is tied to the attempt, so the course's instructors read it as they read the
+/// attempt; saving the same answer twice passes; another learner naming it in their own attempt is refused.
+async fn file_answers() {
+    let t = boot("fileans", vec![], &[], |_| {}).await;
+    t.k.set_file_store(Arc::new(MemFiles(Mutex::new(HashMap::new()))));
+    let teacher = t.user("teacher@fileans.test", "Tara Teacher", "Instructor").await;
+    let asha = t.user("asha@fileans.test", "Asha Rao", "Learner").await;
+    let ben = t.user("ben@fileans.test", "Ben Lee", "Learner").await;
+    let course = uid(&t.insert(&teacher, "LmsCourse", json!({"title": "Lab", "instructors": [{"instructor": "teacher@fileans.test"}]})).await);
+    let file_q = uid(&t
+        .insert(&teacher, "LmsQuestion", json!({"question": "Upload your sheet", "question_type": "File Upload", "points": "2", "course": course.to_string()}))
+        .await);
+    let quiz =
+        uid(&t.insert(&teacher, "LmsQuiz", json!({"title": "Lab quiz", "course": course.to_string(), "questions": [{"question": file_q.to_string()}]})).await);
+    t.chapter(&teacher, course, "Lab", &[json!({"title": "Quiz", "lesson_type": "Quiz", "quiz": quiz.to_string()})]).await;
+    t.update(&teacher, "LmsCourse", course, json!({"status": "Published"})).await;
+    let enrolled = enrol(&t, &teacher, course, &["asha@fileans.test", "ben@fileans.test"]).await;
+    let attempt_of = |who: &'static str| {
+        let (t, e) = (&t, enrolled[who]);
+        let q = quiz.to_string();
+        let who = if who.starts_with("asha") { asha.clone() } else { ben.clone() };
+        async move { vid(&t.act(&who, "LmsEnrollment", e, "start_quiz", json!({"quiz": q})).await["attempt"]["id"]) }
+    };
+    let (a, b) = (attempt_of("asha@fileans.test").await, attempt_of("ben@fileans.test").await);
+    let sheet = vid(&t.k.store_file(&asha, None, "lab.pdf", "application/pdf", b"%PDF-1.4 lab").await.unwrap()["id"]);
+    let mine = json!({"answers": {file_q.to_string(): format!("/files/{sheet}")}});
+    t.act(&asha, "LmsQuizAttempt", a, "save_answers", mine.clone()).await;
+    let tie = |sql: &'static str| {
+        let t = &t;
+        async move {
+            let mut tx = t.k.db.tenant_tx(t.tenant).await.unwrap();
+            sqlx::query_as::<_, (Option<String>, Option<Uuid>)>(sql).bind(t.tenant).bind(sheet).fetch_one(&mut *tx).await.unwrap()
+        }
+    };
+    assert_eq!(
+        tie("select entity, record_id from file_object where tenant_id = $1 and id = $2").await,
+        (Some("LmsQuizAttempt".to_string()), Some(a)),
+        "tied to her attempt"
+    );
+    t.act(&asha, "LmsQuizAttempt", a, "save_answers", mine).await;
+    let stolen = json!({"answers": {file_q.to_string(): format!("/files/{sheet}")}});
+    assert!(
+        field_error(t.try_act(&ben, "LmsQuizAttempt", b, "save_answers", stolen).await, "answers").contains("you uploaded"),
+        "another learner cannot use it"
+    );
+}
+
+#[test]
+fn grading_goes_through_the_gate_with_its_contract() {
+    run(grading_gate());
+}
+
+/// The grading actions say what done means and declare the rubric; an essay is graded with its rubric's levels
+/// through the gate, a repeat under the same key answers `repeated`, and a learner is refused.
+async fn grading_gate() {
+    use ferrum_kernel::capability::Invocation;
+    let t = boot("gradegate", vec![], &[], |_| {}).await;
+    let teacher = t.user("teacher@gradegate.test", "Tara Teacher", "Instructor").await;
+    let asha = t.user("asha@gradegate.test", "Asha Rao", "Learner").await;
+    let caps = t.k.catalog(&t.admin);
+    for id in ["lms.lms_quiz_attempt.grade_answers", "lms.lms_assignment_submission.grade"] {
+        let c = caps.iter().find(|c| c.id == id).unwrap_or_else(|| panic!("{id} in the catalog"));
+        assert!(!c.completion.ends_with("is done, committed with this receipt"), "{id}: {}", c.completion);
+    }
+    let grade = caps.iter().find(|c| c.id == "lms.lms_quiz_attempt.grade_answers").unwrap();
+    assert!(grade.input.to_string().contains("rubric"), "grade_answers declares rubric: {}", grade.input);
+
+    let course = uid(&t.insert(&teacher, "LmsCourse", json!({"title": "Writing", "instructors": [{"instructor": "teacher@gradegate.test"}]})).await);
+    let c = course.to_string();
+    let rubric = uid(&t
+        .insert(
+            &teacher,
+            "LmsRubric",
+            json!({"title": "Essay", "course": c, "criteria": [{"criterion": "Argument"}], "levels": [{"criterion": "Argument", "level": "Good", "points": "5"}, {"criterion": "Argument", "level": "Weak", "points": "1"}]}),
+        )
+        .await);
+    let essay = uid(&t
+        .insert(&teacher, "LmsQuestion", json!({"question": "Argue", "question_type": "Essay", "points": "4", "course": c, "rubric": rubric.to_string()}))
+        .await);
+    let quiz = uid(&t.insert(&teacher, "LmsQuiz", json!({"title": "Essay quiz", "course": c, "questions": [{"question": essay.to_string()}]})).await);
+    t.chapter(&teacher, course, "Main", &[json!({"title": "Quiz", "lesson_type": "Quiz", "quiz": quiz.to_string()})]).await;
+    t.update(&teacher, "LmsCourse", course, json!({"status": "Published"})).await;
+    let enrolment = enrol(&t, &teacher, course, &["asha@gradegate.test"]).await["asha@gradegate.test"];
+    let started = t.act(&asha, "LmsEnrollment", enrolment, "start_quiz", json!({"quiz": quiz.to_string()})).await;
+    let aid = vid(&started["attempt"]["id"]);
+    t.act(&asha, "LmsQuizAttempt", aid, "submit_answers", json!({"answers": {essay.to_string(): "Because."}})).await;
+
+    let ask = |who: &Ctx, key: &str| {
+        let inv = Invocation::new(
+            "lms.lms_quiz_attempt.grade_answers",
+            json!({"id": aid, "params": {"question": essay.to_string(), "rubric": "{\"Argument\":\"Good\"}"}}),
+        )
+        .key(key);
+        let (k, who) = (t.k.clone(), who.clone());
+        async move { k.invoke(&who, inv).await }
+    };
+    assert!(ask(&asha, "g0").await.is_err(), "a learner is refused");
+    let done = ask(&teacher, "g1").await.expect("graded through the gate");
+    assert!(!done.repeated);
+    assert_eq!(
+        dec(&done.result["attempt"]["answers"].as_array().unwrap().iter().find(|r| r["question"] == json!(essay.to_string())).unwrap()["points_awarded"]),
+        n("4"),
+        "the rubric's points, scaled to the question"
+    );
+    let again = ask(&teacher, "g1").await.expect("a repeat");
+    assert!(again.repeated, "the same key answers repeated");
+}
+
+// ───────────────────────────── lms-6: announcements ─────────────────────────────
+
+#[test]
+fn a_course_announcement_reaches_its_learners() {
+    run(announcements());
+}
+
+async fn announcements() {
+    use ferrum_kernel::capability::Invocation;
+    let t = boot("notice", vec![], &[], |_| {}).await;
+    let teacher = t.user("teacher@notice.test", "Tara Teacher", "Instructor").await;
+    let other = t.user("other@notice.test", "Olga Other", "Instructor").await;
+    let asha = t.user("asha@notice.test", "Asha Rao", "Learner").await;
+    let ben = t.user("ben@notice.test", "Ben Lee", "Learner").await;
+    let gone = t.user("gone@notice.test", "Gil Gone", "Learner").await;
+    let late = t.user("late@notice.test", "Lea Late", "Learner").await;
+    let stranger = t.user("stranger@notice.test", "Sam Stranger", "Learner").await;
+    let (course, _) = course_of(&t, &teacher, "Optics", 1, json!({})).await;
+    let enrolled = enrol(&t, &teacher, course, &["asha@notice.test", "ben@notice.test", "gone@notice.test"]).await;
+    t.act(&gone, "LmsEnrollment", enrolled["gone@notice.test"], "withdraw", json!({})).await;
+
+    // 1. Live learners are told, the withdrawn one is not.
+    let told = t.act(&teacher, "LmsCourse", course, "announce", json!({"title": "Lab moved", "body": "The lab is on **Friday**."})).await;
+    assert_eq!(told["told"], json!(2));
+    drain(&t.k).await;
+    for who in [&asha, &ben] {
+        assert_eq!(t.notes(who, "Optics: Lab moved").await, 1, "{} is told once", who.email);
+    }
+    assert_eq!(t.notes(&gone, "Optics: Lab moved").await, 0, "withdrawn is not told");
+
+    // 2. Through the gate once: the same key again is a repeat and keeps one record.
+    let inv = |key: &str| Invocation::new("lms.lms_course.announce", json!({"id": course, "params": {"title": "Exam date", "body": "Next week."}})).key(key);
+    assert!(!t.k.invoke(&teacher, inv("a1")).await.expect("announced").repeated);
+    assert!(t.k.invoke(&teacher, inv("a1")).await.expect("repeat").repeated);
+    assert_eq!(t.count("select count(*) from e_lms_announcement where tenant_id = $1 and course = $2 and title = $3", course, "Exam date").await, 1);
+
+    // 3. Only the course's instructors announce.
+    let ask = json!({"title": "Hi", "body": "x"});
+    assert!(t.try_act(&asha, "LmsCourse", course, "announce", ask.clone()).await.is_err(), "a learner");
+    assert!(t.try_act(&other, "LmsCourse", course, "announce", ask).await.is_err(), "another course's instructor");
+    assert!(field_error(t.try_act(&teacher, "LmsCourse", course, "announce", json!({"title": "", "body": "x"})).await, "title").contains("required"));
+
+    // 4. People in the course read it; others do not; a learner enrolled afterwards reads it too.
+    let slug = "optics";
+    let list = t.page(Some(&asha), &format!("courses/{slug}/announcements")).await;
+    assert_eq!(list["announcements"].as_array().unwrap().len(), 2);
+    assert_eq!(list["announcements"][0]["title"], json!("Exam date"), "newest first");
+    assert!(t.call(Some(&stranger), "GET", &format!("courses/{slug}/announcements")).await.is_err());
+    enrol(&t, &teacher, course, &["late@notice.test"]).await;
+    assert_eq!(t.page(Some(&late), &format!("courses/{slug}/announcements")).await["announcements"].as_array().unwrap().len(), 2);
+
+    // 5. Nobody writes the record directly.
+    assert!(t.try_insert(&teacher, "LmsAnnouncement", json!({"course": course.to_string(), "title": "Forged", "body": "x"})).await.is_err());
+
+    // 6. Erasing the author blanks their name and address.
+    t.k.erase_personal_data(&t.admin, "teacher@notice.test", "her request").await.expect("erasure");
+    assert_eq!(
+        t.count(
+            "select count(*) from e_lms_announcement x where x.tenant_id = $1 and x.course = $2 and x::text ilike '%' || $3 || '%'",
+            course,
+            "teacher@notice.test"
+        )
+        .await,
+        0,
+        "her address is gone"
+    );
+}

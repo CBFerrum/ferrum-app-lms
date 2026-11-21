@@ -52,6 +52,13 @@ impl Site for LearnSite {
                 if let ["lti", "ags", lesson, rest @ ..] = path.as_slice() {
                     return lti::ags(k, user, &req, uuid(lesson)?, rest).await;
                 }
+                // The public pages serve a signed-in person exactly as they serve anyone: a customer with no Learn role, and
+                // the pages only the public has (a certificate's check, the categories, the tool's keys), whoever asks.
+                let public_only = matches!(path.as_slice(), ["certificates", ..] | ["categories"] | ["lti", "jwks"]);
+                let public_page = public_only || matches!(path.as_slice(), ["courses"] | ["courses", _] | ["courses", _, "lessons", ..]);
+                if req.method == "GET" && (public_only || (public_page && !is_member(user))) {
+                    return public(k, &req, &path).await;
+                }
                 if !is_member(user) {
                     return Err(Error::Forbidden("Learn needs the Learner, Instructor or LMS Manager role".into()));
                 }
@@ -572,6 +579,7 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
             json_response(&view, "no-store")
         }
         ["dashboard"] => json_response(&dashboard(k, user, &mut tx).await?, "no-store"),
+        ["teaching"] | ["teaching", "grading"] if user.outside => return Err(Error::Forbidden("authoring needs a staff role".into())),
         ["teaching"] => json_response(&teaching(user, &mut tx).await?, "no-store"),
         ["teaching", "grading"] => json_response(&grading_queue(user, &mut tx).await?, "no-store"),
         ["teaching", "courses", course, "gradebook"] => {
@@ -594,6 +602,10 @@ async fn signed_in(k: &Kernel, user: &Ctx, req: &SiteRequest, path: &[&str]) -> 
             let id_param = |key: &str| param(req, key).map(|v| v.parse::<Uuid>().map_err(|_| Error::field(key, "must be a record id"))).transpose();
             let (lesson, thread) = (id_param("lesson")?, id_param("thread")?);
             json_response(&crate::discussion::page(k, user, &mut tx, &course, lesson, thread).await?, "no-store")
+        }
+        ["courses", slug, "announcements"] => {
+            let course = course_by_slug(k, user, &mut tx, slug).await?.ok_or_else(|| not_found("course"))?;
+            json_response(&crate::announce::page(user, &mut tx, &course).await?, "no-store")
         }
         ["courses", slug, "grades"] => {
             // A learner's own marks: the released items and the total of those.

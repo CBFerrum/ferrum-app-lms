@@ -15,6 +15,17 @@ import type {
   ScormSaved,
   LessonView,
   EnrolmentDue,
+  GradeBook,
+  Announcement,
+  Post,
+  ReviewedAttempt,
+  RubricDef,
+  WaitingAttempt,
+  VideoSaved,
+  ReportedPost,
+  ThreadList,
+  ThreadPage,
+  GradeEntry,
   Roster,
   RulePreview,
   SessionAttendance,
@@ -50,6 +61,14 @@ export const keys = {
   dues: ["lms", "dues"] as const,
   cohort: (id: string) => ["lms", "cohort", id] as const,
   attendance: (cohort: string, session: string) => ["lms", "attendance", cohort, session] as const,
+  gradebook: (course: string) => ["lms", "gradebook", course] as const,
+  grades: (slug: string) => ["lms", "grades", slug] as const,
+  threads: (slug: string, lesson?: string) => ["lms", "threads", slug, lesson ?? ""] as const,
+  thread: (id: string) => ["lms", "thread", id] as const,
+  reported: (course: string) => ["lms", "reported", course] as const,
+  waiting: ["lms", "waiting"] as const,
+  announcements: (slug: string) => ["lms", "announcements", slug] as const,
+  rubric: (id: string) => ["lms", "rubric", id] as const,
 };
 
 // ───────────────────────────── signed in ─────────────────────────────
@@ -142,3 +161,67 @@ export const previewRule = (rule: string) => act<RulePreview>("LmsEnrollmentRule
 export const sessionAttendance = (cohort: string, session: string) => act<SessionAttendance>("LmsCohort", cohort, "session_attendance", { session });
 export const markAttendance = (cohort: string, session: string, learner: string, attended: boolean) =>
   act("LmsCohort", cohort, "mark_attendance", { session, learner, attended });
+
+// ───────────────────────────── the gradebook ─────────────────────────────
+
+export const getGradebook = (course: string) => api.get<GradeBook>(app(`teaching/courses/${seg(course)}/gradebook`));
+/** The address of the book as a download (the server names the file). */
+export const gradebookCsv = (course: string) => `${app(`teaching/courses/${seg(course)}/gradebook`)}?format=csv`;
+export const getMyGrades = (slug: string) => api.get<GradeBook>(app(`courses/${seg(slug)}/grades`));
+export const getGradeEntry = (item: string, enrollment: string) =>
+  rowsOf<GradeEntry>("LmsGradeEntry", { filters: JSON.stringify({ item, enrollment }), fields: "points,excused,comment", limit: 1 }).then((r) => r[0] ?? null);
+export const saveGradeEntry = (item: string, enrollment: string, body: { points: string | null; excused: boolean; comment: string | null }, existing: GradeEntry | null) =>
+  existing ? api.patch<GradeEntry>(docPath("LmsGradeEntry", existing.id), body, { ifMatch: existing.version }) : api.post<GradeEntry>(docPath("LmsGradeEntry"), { item, enrollment, ...body });
+export const clearGradeEntry = (entry: GradeEntry) => api.del(docPath("LmsGradeEntry", entry.id), { ifMatch: entry.version });
+
+// ───────────────────────────── discussions ─────────────────────────────
+
+export const getThreads = (slug: string, lesson?: string) => api.get<ThreadList>(app(`courses/${seg(slug)}/discussion`), { lesson });
+export const getThread = (slug: string, thread: string) => api.get<ThreadPage>(app(`courses/${seg(slug)}/discussion`), { thread });
+export const startThread = (course: string, body: { title: string; body: string; lesson?: string }) => act<{ post: Post }>("LmsCourse", course, "discuss", body);
+export const reply = (course: string, thread: string, body: string) => act<{ post: Post }>("LmsCourse", course, "discuss", { thread, body });
+export const follow = (course: string, thread: string, on: boolean) => act<{ following: boolean }>("LmsCourse", course, "follow", { thread, follow: on });
+export const reportPost = (course: string, post: string, reason: string) => act<{ reported: boolean }>("LmsCourse", course, "report_post", { post, reason });
+export const pin = (post: string) => act<{ post: Post }>("LmsPost", post, "pin");
+export const closeThread = (post: string) => act<{ post: Post }>("LmsPost", post, "close");
+export const markAnswer = (post: string) => act<{ post: Post }>("LmsPost", post, "mark_answer");
+export const removePost = (post: string, reason: string) => act<{ post: Post }>("LmsPost", post, "remove", { reason });
+export const getReported = (course: string) =>
+  rowsOf<ReportedPost>("LmsPost", {
+    filters: JSON.stringify({ course, reported: true }),
+    fields: "title,body,author_name,author,report_reason,reported_by,removed,thread,created_at",
+    sort: "created_at desc",
+    limit: 200,
+  }).then((rows) => rows.filter((r) => !r.removed));
+
+/** The seconds of an uploaded video watched so far. The last report (`finishing`) goes as the page goes away,
+ *  so it is a request that outlives the page. */
+export function videoProgress(enrollment: string, lesson: string, seconds: number, finishing = false): Promise<VideoSaved> {
+  if (!finishing) return act<VideoSaved>("LmsEnrollment", enrollment, "video_progress", { lesson, seconds });
+  const b = bootstrap();
+  const headers: Record<string, string> = { accept: "application/json", "content-type": "application/json" };
+  if (b?.app) headers["x-ferrum-ui"] = `${b.app.id}@${b.app.version}`;
+  return fetch(docPath("LmsEnrollment", enrollment, "actions", "video_progress"), { method: "POST", headers, body: JSON.stringify({ lesson, seconds }), credentials: "same-origin", keepalive: true }).then(async (r) => {
+    if (!r.ok) throw new Error(t("your watching was not saved ({status})", { status: r.status }));
+    return (await r.json()) as VideoSaved;
+  });
+}
+
+// ───────────────────────────── grading ─────────────────────────────
+
+export const getWaitingAnswers = () => api.get<{ attempts: WaitingAttempt[] }>(app("teaching/grading")).then((r) => r.attempts);
+export const reviewAttempt = (attempt: string) => act<ReviewedAttempt>("LmsQuizAttempt", attempt, "review");
+/** One grade of one answer; a rubric choice goes as the text of its levels. */
+export const gradeAnswer = (attempt: string, g: { question: string; points?: string; rubric?: Record<string, string>; comment?: string }) =>
+  act<{ attempt: unknown; waiting_for?: string }>("LmsQuizAttempt", attempt, "grade_answers", {
+    question: g.question,
+    ...(g.points !== undefined ? { points: g.points } : {}),
+    ...(g.rubric ? { rubric: JSON.stringify(g.rubric) } : {}),
+    ...(g.comment ? { comment: g.comment } : {}),
+  });
+export const getRubric = (id: string) => api.get<RubricDef>(docPath("LmsRubric", id));
+
+// ───────────────────────────── announcements ─────────────────────────────
+
+export const getAnnouncements = (slug: string) => api.get<{ announcements: Announcement[]; author: boolean }>(app(`courses/${seg(slug)}/announcements`));
+export const announce = (course: string, body: { title: string; body: string }) => act<{ announcement: string; told: number }>("LmsCourse", course, "announce", body);

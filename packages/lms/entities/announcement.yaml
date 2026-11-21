@@ -1,0 +1,16 @@
+- name: LmsAnnouncement
+  label: Course Announcement
+  kind: master
+  module: learn
+  title_field: title
+  owner_fields: [author]
+  description: "Something an instructor told everyone in a course. Written with the course's Announce action; kept as it was sent."
+  fields:
+    - {name: course, type: link, to: LmsCourse, required: true, read_only: true, in_list: true, in_filter: true, on_delete: cascade}
+    - {name: title, type: data, required: true, max_length: 200, read_only: true, in_list: true}
+    - {name: body, type: markdown, required: true, max_length: 20000, read_only: true}
+    - {name: author, type: email, read_only: true, in_list: true, in_filter: true}
+    - {name: author_name, type: data, read_only: true, in_list: true}
+    - {name: sent_at, type: datetime, read_only: true, in_list: true}
+    - {name: told, type: int, label: Learners Told, read_only: true, in_list: true}
+  list: {columns: [title, course, author_name, sent_at, told], sort: sent_at desc}

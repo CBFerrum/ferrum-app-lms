@@ -30,6 +30,10 @@ export interface LessonDoc {
   content: string | null;
   video_url: string | null;
   video_embed_url: string | null;
+  video_file: string | null;
+  captions_file: string | null;
+  video_seconds: number | null;
+  watch_percent: number | null;
   attachment: string | null;
   quiz: string | null;
   assignment: string | null;
@@ -40,6 +44,22 @@ export interface LessonDoc {
   lti_tool: string | null;
   lti_target_url: string | null;
   lti_custom: string | null;
+}
+
+/** A video file's length in whole seconds, read in the browser; null when it cannot be read. */
+function lengthOf(file: File): Promise<number | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement("video");
+    const finish = (n: number | null) => {
+      URL.revokeObjectURL(url);
+      resolve(n);
+    };
+    v.preload = "metadata";
+    v.onloadedmetadata = () => finish(Number.isFinite(v.duration) ? Math.round(v.duration) : null);
+    v.onerror = () => finish(null);
+    v.src = url;
+  });
 }
 
 export const LESSON_TYPES: LessonType[] = ["Article", "Video", "Document", "Quiz", "Assignment", "SCORM", "xAPI", "LTI", "Live"];
@@ -168,11 +188,16 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
       toast(errorMessage(e), "error");
     }
   };
-  const upload = async (file: File | undefined, field: "attachment" | "package_file" = "attachment") => {
+  const upload = async (file: File | undefined, field: "attachment" | "package_file" | "video_file" | "captions_file" = "attachment") => {
     if (!file) return;
     setUploading(true);
     try {
       set(field, (await uploadFile(file, { entity: "LmsLesson", id })).url);
+      if (field === "video_file" && !value("video_seconds")) {
+        // The video's own length, read in the browser from the file; the instructor may change it.
+        const seconds = await lengthOf(file);
+        if (seconds) set("video_seconds", seconds);
+      }
     } catch (e) {
       toast(errorMessage(e), "error");
     } finally {
@@ -240,15 +265,61 @@ export function LessonEditor({ id, course, slug, onChanged, onDeleted }: { id: s
           </Check>
         </div>
         {type === "Video" && (
-          <Field
-            label={tr("Video link")}
-            htmlFor="le-video"
-            required
-            error={errors.video_url}
-            hint={doc.video_embed_url && !errors.video_url ? tr("Plays in the lesson from the host's own player.") : tr("A link on YouTube, Vimeo, Loom, Wistia or Google Drive, or a host your administrator allowed.")}
-          >
-            <input id="le-video" className="input" type="url" inputMode="url" placeholder="https://" value={value("video_url") ?? ""} onChange={(e) => set("video_url", e.target.value || null)} />
-          </Field>
+          <>
+            <Field
+              label={tr("Video link")}
+              htmlFor="le-video"
+              required={!value("video_file")}
+              error={errors.video_url}
+              hint={doc.video_embed_url && !errors.video_url ? tr("Plays in the lesson from the host's own player.") : tr("A link on YouTube, Vimeo, Loom, Wistia or Google Drive, or a host your administrator allowed.")}
+            >
+              <input id="le-video" className="input" type="url" inputMode="url" placeholder="https://" value={value("video_url") ?? ""} onChange={(e) => set("video_url", e.target.value || null)} />
+            </Field>
+            <Field label={tr("Or upload a video")} htmlFor="le-video-file" error={errors.video_file}>
+              <div className="row">
+                <label className="btn btn-default btn-md" aria-busy={uploading || undefined}>
+                  <input id="le-video-file" className="sr-only" type="file" accept="video/*" onChange={(e) => void upload(e.target.files?.[0], "video_file")} />
+                  {uploading ? <Spinner small /> : <Glyph name="upload" />}
+                  {value("video_file") ? tr("Replace the video") : tr("Upload a video")}
+                </label>
+                {value("video_file") && <span className="faint">{tr("A video is in.")}</span>}
+              </div>
+            </Field>
+            {value("video_file") && (
+              <>
+                <Field label={tr("Captions")} htmlFor="le-captions" error={errors.captions_file} hint={tr("A WebVTT file.")}>
+                  <div className="row">
+                    <label className="btn btn-default btn-md">
+                      <input id="le-captions" className="sr-only" type="file" accept=".vtt,text/vtt" onChange={(e) => void upload(e.target.files?.[0], "captions_file")} />
+                      <Glyph name="upload" />
+                      {value("captions_file") ? tr("Replace the captions") : tr("Upload captions")}
+                    </label>
+                    {value("captions_file") && <span className="faint">{tr("Captions are in.")}</span>}
+                  </div>
+                </Field>
+                <Field label={tr("Video length (seconds)")} htmlFor="le-video-seconds" error={errors.video_seconds}>
+                  <input id="le-video-seconds" className="input" inputMode="numeric" value={value("video_seconds") ?? ""} onChange={(e) => set("video_seconds", e.target.value.trim() === "" ? null : Number(e.target.value))} />
+                </Field>
+                <Field label={tr("Watched to complete (%)")} htmlFor="le-watch" error={errors.watch_percent} hint={tr("The lesson completes once a learner has watched this share of it; empty: they mark it done.")}>
+                  <input id="le-watch" className="input" inputMode="numeric" value={value("watch_percent") ?? ""} onChange={(e) => set("watch_percent", e.target.value.trim() === "" ? null : Number(e.target.value))} />
+                </Field>
+                <div className="row">
+                  <button
+                    type="button"
+                    className="lms-linklike"
+                    onClick={() => {
+                      set("video_file", null);
+                      set("captions_file", null);
+                      set("video_seconds", null);
+                      set("watch_percent", null);
+                    }}
+                  >
+                    {tr("Remove the video")}
+                  </button>
+                </div>
+              </>
+            )}
+          </>
         )}
         {type === "Document" && (
           <Field label={tr("Document")} htmlFor="le-file" required error={errors.attachment} hint={tr("A file to open or download, or a link to a page.")}>

@@ -20,6 +20,7 @@ export function CourseLayout({
   lessonHref,
   visitor,
   aside,
+  notices,
 }: {
   course: CoursePage;
   /** Where "all courses" leads, and its name. */
@@ -29,6 +30,8 @@ export function CourseLayout({
   /** Only the free previews open. */
   visitor: boolean;
   aside: ReactNode;
+  /** What the course told its learners (drawn above its description). */
+  notices?: ReactNode;
 }) {
   const facts = courseFacts(course.lessons, course.total_minutes, course.estimated_hours);
   return (
@@ -72,6 +75,7 @@ export function CourseLayout({
       </header>
       <div className="lms-course-body">
         <div className="lms-course-main">
+          {notices}
           {course.description && (
             <section aria-label={tr("About this course")}>
               <h2 className="lms-group">{tr("About this course")}</h2>

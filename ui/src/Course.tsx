@@ -12,6 +12,7 @@ import { Failed } from "./states";
 import { buy, enrol, getCourse, keys, reactivate, withdraw } from "./api";
 import { CertificateActions } from "./Certificate";
 import { DueMarks, useDues } from "./Due";
+import { Announcements } from "./Announcements";
 import { CourseLayout, Prerequisites } from "./CourseLayout";
 import { priceText, sessionStart } from "./format";
 import { Glyph } from "./Glyph";
@@ -189,6 +190,9 @@ function Box({ c, slug }: { c: CoursePage; slug: string }) {
             <Link className="btn btn-default btn-md" to={paths.learn(slug)}>
               <Glyph name="eye" size={14} /> {tr("Preview as a learner")}
             </Link>
+            <Link className="btn btn-default btn-md" to={paths.discussion(slug)}>
+              {tr("Discussion")}
+            </Link>
           </div>
         </div>
       )}
@@ -202,6 +206,12 @@ function Box({ c, slug }: { c: CoursePage; slug: string }) {
             <div className="lms-box-actions">
               <Link className="btn btn-primary btn-md" to={paths.learn(slug)}>
                 {p.completed_lessons ? tr("Continue") : tr("Start the course")} <Glyph name="arrowRight" size={14} />
+              </Link>
+              <Link className="btn btn-default btn-md" to={paths.grades(slug)}>
+                {tr("Grades")}
+              </Link>
+              <Link className="btn btn-default btn-md" to={paths.discussion(slug)}>
+                {tr("Discussion")}
               </Link>
               <Button variant="ghost" onClick={() => void leave()}>
                 {tr("Leave course")}
@@ -302,6 +312,7 @@ function CourseView({ slug }: { slug: string }) {
       lessonHref={(l) => paths.learn(slug, l.id)}
       visitor={!learning && !c.is_author}
       aside={<Box c={c} slug={slug} />}
+      notices={learning || c.is_author ? <Announcements slug={slug} /> : null}
     />
   );
 }

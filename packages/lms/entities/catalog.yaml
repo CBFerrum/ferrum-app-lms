@@ -92,6 +92,17 @@
       params:
         - {name: learners, type: text, label: Learners, required: true, description: "Their emails, one a line or separated by commas"}
         - {name: cohort, type: link, to: LmsCohort, label: Cohort, description: "Into this cohort of the course; none when empty"}
+    - name: announce
+      label: Announce
+      permission: write
+      condition: "doc.status != 'Archived'"
+      params:
+        - {name: title, type: data, label: Title, required: true}
+        - {name: body, type: text, label: Announcement, required: true, description: "Markdown; up to 20000 characters"}
+      contract:
+        effect: transactional_action
+        returns: {type: object, properties: {announcement: {type: string, format: uuid}, told: {type: integer}}}
+        completion: "The announcement is kept on the course and a message to each learner whose enrolment is not withdrawn is queued in the same transaction; delivery of the emails is not confirmed"
     # The course's discussion, for its enrolled learners and instructors (Learn's pages send these).
     - name: discuss
       label: Post in the Discussion

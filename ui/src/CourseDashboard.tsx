@@ -9,9 +9,12 @@ import { Link, useParams, useSearchParams } from "react-router";
 import { ApiError, errorMessage, formatDateTime, relativeTime, t as tr, isolate } from "@ferrum/client";
 import { Alert, Badge, Button, ButtonLink, Dialog, Field, PageHead, PageLoading, PageStack, Progress, Stat, StatGrid, StatePanel, useLiveEntity, useShellTitle } from "@ferrum/kit";
 import { Failed } from "./states";
-import { enrolLearners, type EnrolResult, getCourse, getRoster, keys, rowsOf } from "./api";
+import { enrolLearners, type EnrolResult, getCourse, getReported, getRoster, getWaitingAnswers, keys, rowsOf } from "./api";
 import { Glyph } from "./Glyph";
-import { Grading } from "./Grading";
+import { answersWaiting, Grading } from "./Grading";
+import { GradebookTab } from "./Grades";
+import { AnnounceDialog } from "./Announcements";
+import { Reported } from "./Discussion";
 import { paths } from "./lesson";
 import { ProgressLine } from "./parts";
 import { cohortsOf, distribution, filterRoster, isQuiet, progressOf, rosterFilterFrom, type RosterFilter, rosterParams, SORTS, sortRoster, summarize } from "./roster";
@@ -324,9 +327,12 @@ export function CourseDashboardRoute() {
 function CourseDashboard({ course }: { course: string }) {
   const qc = useQueryClient();
   const [sp, setSp] = useSearchParams();
-  const tab = sp.get("tab") === "grading" ? "grading" : "learners";
+  const tab = sp.get("tab") === "grading" ? "grading" : sp.get("tab") === "gradebook" ? "gradebook" : sp.get("tab") === "reported" ? "reported" : "learners";
   const [adding, setAdding] = useState(false);
+  const [announcing, setAnnouncing] = useState(false);
   const q = useQuery({ queryKey: keys.roster(course), queryFn: () => getRoster(course), staleTime: 0 });
+  const reported = useQuery({ queryKey: keys.reported(course), queryFn: () => getReported(course), staleTime: 30_000, retry: false });
+  const waiting = useQuery({ queryKey: keys.waiting, queryFn: getWaitingAnswers, staleTime: 30_000, retry: false });
   const refresh = useCallback(() => void qc.invalidateQueries({ queryKey: ["lms", "roster"] }), [qc]);
   useLiveEntity("LmsEnrollment", refresh);
   useLiveEntity("LmsAssignmentSubmission", refresh);
@@ -337,9 +343,10 @@ function CourseDashboard({ course }: { course: string }) {
   const roster = q.data;
   if (!roster) return <PageLoading label={tr("Loading the learners")} />;
   const sum = summarize(roster, now);
+  sum.toGrade += answersWaiting(waiting.data, course);
   const bands = distribution(roster.learners);
   const widest = Math.max(1, ...bands.map((b) => b.count));
-  const go = (t: "learners" | "grading") => setSp(t === "grading" ? { tab: "grading" } : {}, { replace: true });
+  const go = (t: "learners" | "grading" | "gradebook" | "reported") => setSp(t === "learners" ? {} : { tab: t }, { replace: true });
 
   return (
     <PageStack className="lms-page">
@@ -352,6 +359,7 @@ function CourseDashboard({ course }: { course: string }) {
             <Button icon="plus" onClick={() => setAdding(true)}>
               {tr("Add learners")}
             </Button>
+            <Button onClick={() => setAnnouncing(true)}>{tr("Announce")}</Button>
             <ButtonLink to={paths.build(roster.course.id)}>{tr("Build")}</ButtonLink>
             <ButtonLink to={paths.course(roster.course.slug)}>{tr("Course page")}</ButtonLink>
           </>
@@ -378,15 +386,22 @@ function CourseDashboard({ course }: { course: string }) {
           </ul>
         </section>
       )}
-      <div className="lms-switch" role="tablist" aria-label={tr("Learners and grading")}>
+      <div className="lms-switch" role="tablist" aria-label={tr("Learners, grading, the gradebook and reported posts")}>
         <button type="button" role="tab" aria-selected={tab === "learners"} onClick={() => go("learners")}>
           {tr("Learners")}
         </button>
         <button type="button" role="tab" aria-selected={tab === "grading"} onClick={() => go("grading")}>
           {tr("To grade")} {sum.toGrade > 0 && <Badge tone="amber">{sum.toGrade}</Badge>}
         </button>
+        <button type="button" role="tab" aria-selected={tab === "gradebook"} onClick={() => go("gradebook")}>
+          {tr("Gradebook")}
+        </button>
+        <button type="button" role="tab" aria-selected={tab === "reported"} onClick={() => go("reported")}>
+          {tr("Reported")} {(reported.data?.length ?? 0) > 0 && <Badge tone="red">{reported.data!.length}</Badge>}
+        </button>
       </div>
-      {tab === "learners" ? <Learners roster={roster} now={now} /> : <Grading course={course} />}
+      {tab === "learners" ? <Learners roster={roster} now={now} /> : tab === "grading" ? <Grading course={course} /> : tab === "gradebook" ? <GradebookTab course={course} /> : <Reported course={course} slug={roster.course.slug} />}
+      <AnnounceDialog course={course} slug={roster.course.slug} open={announcing} onClose={() => setAnnouncing(false)} />
       <AddLearners course={course} open={adding} onClose={() => setAdding(false)} onDone={refresh} />
     </PageStack>
   );
