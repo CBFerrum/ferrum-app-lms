@@ -5,7 +5,7 @@
 
 use crate::util::{self, authored_course, doc_id, elevated, same_email};
 use async_trait::async_trait;
-use ferrum_kernel::{Ctx, Doc, DocHook, Error, HookCtx, Kernel, Result, Tx};
+use ferrum_kernel::{Ctx, Doc, DocHook, Error, HookCtx, Result, Tx};
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
